@@ -1,0 +1,75 @@
+{
+  "game": {
+    "title": "MEGABONK"
+  },
+  "menu": {
+    "start": "Start Game",
+    "shop": "Shop",
+    "character": "Character"
+  },
+  "hud": {
+    "level": "Lv.{{level}}",
+    "time": "{{time}}",
+    "kills": "Kills: {{count}}",
+    "pause": "Pause"
+  },
+  "upgrade": {
+    "title": "Choose Upgrade",
+    "weapon": {
+      "bone_bouncer": "Bone Bouncer",
+      "bone_bouncer_desc": "Launch bouncing bones at nearest enemy",
+      "lightning_staff": "Lightning Staff",
+      "lightning_staff_desc": "Chain lightning attack",
+      "flame_ring": "Flame Ring",
+      "flame_ring_desc": "Continuous fire damage around you",
+      "void_orb": "Void Orb",
+      "void_orb_desc": "Piercing dark energy orb"
+    },
+    "passive": {
+      "power_crystal": "Power Crystal",
+      "power_crystal_desc": "Damage +10%",
+      "swift_boots": "Swift Boots",
+      "swift_boots_desc": "Move speed +8%",
+      "lifesteal_stone": "Lifesteal Stone",
+      "lifesteal_stone_desc": "Heal on kill",
+      "magnet_gem": "Magnet Gem",
+      "magnet_gem_desc": "Pickup radius +15%",
+      "armor_shard": "Armor Shard",
+      "armor_shard_desc": "Damage reduction +5%",
+      "attack_heart": "Attack Heart",
+      "attack_heart_desc": "Attack speed +8%",
+      "crit_eye": "Crit Eye",
+      "crit_eye_desc": "Crit chance +5%",
+      "lucky_coin": "Lucky Coin",
+      "lucky_coin_desc": "+1 upgrade option",
+      "revive_bone": "Revive Bone",
+      "revive_bone_desc": "Revive on death",
+      "xp_bonus": "XP Bonus",
+      "xp_bonus_desc": "XP gain +10%",
+      "cooldown_reduce": "Cooldown Reduce",
+      "cooldown_reduce_desc": "Skill cooldown -6%",
+      "extra_projectile": "Extra Projectile",
+      "extra_projectile_desc": "Projectile +1"
+    },
+    "levelUp": "Level {{from}} → {{to}}"
+  },
+  "boss": {
+    "anubis": "Anubis",
+    "warning": "Boss incoming!"
+  },
+  "result": {
+    "victory": "Victory!",
+    "defeat": "Defeated",
+    "time": "Survival time: {{time}}",
+    "kills": "Kills: {{count}}",
+    "level": "Level reached: {{level}}",
+    "silver": "Silver earned: {{count}}",
+    "retry": "Try Again",
+    "menu": "Main Menu"
+  },
+  "tutorial": {
+    "move": "← Joystick to move",
+    "attack": "Weapons auto-attack",
+    "collect": "Collect gems to level up"
+  }
+}

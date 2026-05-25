@@ -1,0 +1,6 @@
+packages:
+  - game/core
+  - game/client
+  - packages/i18n
+  - packages/platform
+  - packages/render-adapter

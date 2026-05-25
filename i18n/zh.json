@@ -1,0 +1,75 @@
+{
+  "game": {
+    "title": "MEGABONK"
+  },
+  "menu": {
+    "start": "开始游戏",
+    "shop": "商店",
+    "character": "角色"
+  },
+  "hud": {
+    "level": "Lv.{{level}}",
+    "time": "{{time}}",
+    "kills": "击杀: {{count}}",
+    "pause": "暂停"
+  },
+  "upgrade": {
+    "title": "选择升级",
+    "weapon": {
+      "bone_bouncer": "弹射骨头",
+      "bone_bouncer_desc": "向最近敌人发射弹跳骨头",
+      "lightning_staff": "闪电法杖",
+      "lightning_staff_desc": "释放连锁闪电攻击",
+      "flame_ring": "烈焰环",
+      "flame_ring_desc": "周围持续火焰伤害",
+      "void_orb": "虚空球",
+      "void_orb_desc": "发射穿透暗能量球"
+    },
+    "passive": {
+      "power_crystal": "力量水晶",
+      "power_crystal_desc": "伤害+10%",
+      "swift_boots": "疾风靴",
+      "swift_boots_desc": "移动速度+8%",
+      "lifesteal_stone": "吸血石",
+      "lifesteal_stone_desc": "击杀回血",
+      "magnet_gem": "磁力宝石",
+      "magnet_gem_desc": "拾取范围+15%",
+      "armor_shard": "护甲碎片",
+      "armor_shard_desc": "减伤+5%",
+      "attack_heart": "攻速之心",
+      "attack_heart_desc": "攻击速度+8%",
+      "crit_eye": "暴击之眼",
+      "crit_eye_desc": "暴击率+5%",
+      "lucky_coin": "幸运币",
+      "lucky_coin_desc": "升级多1个选项",
+      "revive_bone": "复活骨",
+      "revive_bone_desc": "死亡时原地复活",
+      "xp_bonus": "经验加成",
+      "xp_bonus_desc": "经验获取+10%",
+      "cooldown_reduce": "冷却缩减",
+      "cooldown_reduce_desc": "技能冷却-6%",
+      "extra_projectile": "弹幕扩展",
+      "extra_projectile_desc": "投射物+1"
+    },
+    "levelUp": "等级 {{from}} → {{to}}"
+  },
+  "boss": {
+    "anubis": "阿努比斯",
+    "warning": "Boss即将出现！"
+  },
+  "result": {
+    "victory": "胜利！",
+    "defeat": "失败",
+    "time": "存活时间: {{time}}",
+    "kills": "击杀数: {{count}}",
+    "level": "达到等级: {{level}}",
+    "silver": "获得银币: {{count}}",
+    "retry": "再来一次",
+    "menu": "返回菜单"
+  },
+  "tutorial": {
+    "move": "← 摇杆移动",
+    "attack": "武器自动攻击",
+    "collect": "收集宝石升级"
+  }
+}
