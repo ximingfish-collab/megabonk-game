@@ -127,22 +127,22 @@ export class LocalGameSession {
 // =============================================================================
 
 const ENEMY_COLORS: Record<string, number> = {
-  skeleton_soldier: 0x8b5e3c,
-  ghost: 0xccccff,
-  bat: 0x222222,
-  zombie: 0x2d6a4f,
-  skeleton_archer: 0x6b4423,
-  skeleton_knight: 0xaa3333,
-  necromancer: 0x6633aa,
-  gargoyle: 0x444466,
+  skeleton_soldier: 0xd4a574,  // Warm tan/bone
+  ghost: 0xaaddff,             // Light blue glow
+  bat: 0x553366,               // Dark purple
+  zombie: 0x44cc55,            // Bright green
+  skeleton_archer: 0xc87533,   // Orange-brown
+  skeleton_knight: 0xdd4444,   // Bold red
+  necromancer: 0x9944cc,       // Bright purple
+  gargoyle: 0x667788,          // Steel blue-gray
 };
 
 const PICKUP_COLORS: Record<string, number> = {
-  xp_green: 0x44ff44,
-  xp_blue: 0x4488ff,
-  xp_purple: 0xaa44ff,
-  xp_orange: 0xff8800,
-  silver: 0xcccccc,
+  xp_green: 0x00ff66,   // Neon green
+  xp_blue: 0x22aaff,    // Bright blue
+  xp_purple: 0xcc44ff,  // Vivid purple
+  xp_orange: 0xffaa00,  // Bright orange
+  silver: 0xeeeeee,     // Shiny white
 };
 
 const RARITY_COLORS: Record<string, string> = {
@@ -152,9 +152,9 @@ const RARITY_COLORS: Record<string, string> = {
   legendary: '#ffaa00',
 };
 
-const CAMERA_HEIGHT = 18;
-const CAMERA_Z_OFFSET = 10;
-const CAMERA_LERP = 0.08;
+const CAMERA_HEIGHT = 10;
+const CAMERA_Z_OFFSET = 6;
+const CAMERA_LERP = 0.1;
 const GROUND_SIZE = 80;
 const DAMAGE_NUM_POOL_SIZE = 30;
 
@@ -227,14 +227,14 @@ export class GameScene {
     this.renderer.domElement.style.display = 'block';
     this.container.appendChild(this.renderer.domElement);
 
-    // Scene
+    // Scene — bright, colorful PS1 style (NOT dark)
     this.scene = new THREE.Scene();
     this.scene.name = 'MainScene';
-    this.scene.background = new THREE.Color(0x0a0a15);
-    this.scene.fog = new THREE.Fog(0x0a0a15, 30, 60);
+    this.scene.background = new THREE.Color(0x87ceeb); // Sky blue
+    this.scene.fog = new THREE.Fog(0x87ceeb, 40, 80);
 
-    // Camera
-    this.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 200);
+    // Camera — closer third-person, more intimate like MegaBonk
+    this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 200);
     this.camera.name = 'MainCamera';
     this.camera.position.set(0, CAMERA_HEIGHT, CAMERA_Z_OFFSET);
     this.camera.lookAt(0, 0, 0);
@@ -308,53 +308,78 @@ export class GameScene {
   // ===========================================================================
 
   private setupLighting(): void {
-    const ambient = new THREE.AmbientLight(0x4444aa, 0.4);
+    // Bright ambient — colorful PS1 style
+    const ambient = new THREE.AmbientLight(0xffffff, 0.7);
     ambient.name = 'AmbientLight';
     this.scene.add(ambient);
 
-    const dir = new THREE.DirectionalLight(0x8888ff, 0.6);
+    // Warm directional — sun-like
+    const dir = new THREE.DirectionalLight(0xfff4e0, 0.9);
     dir.name = 'DirectionalLight';
-    dir.position.set(10, 20, 10);
+    dir.position.set(8, 15, 5);
     this.scene.add(dir);
+
+    // Subtle fill from below
+    const fill = new THREE.HemisphereLight(0x88ccff, 0x44aa44, 0.3);
+    fill.name = 'HemisphereLight';
+    this.scene.add(fill);
   }
 
   private setupGround(): void {
-    // Ground plane
+    // Ground plane — bright grass green, PS1 flat-shaded look
     const groundGeo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE);
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x1a1a2e });
+    const groundMat = new THREE.MeshLambertMaterial({ color: 0x5dba4c });
     this.groundMesh = new THREE.Mesh(groundGeo, groundMat);
     this.groundMesh.name = 'Ground';
     this.groundMesh.rotation.x = -Math.PI / 2;
     this.groundMesh.position.y = 0;
     this.scene.add(this.groundMesh);
 
-    // Grid lines
+    // Subtle grid lines (lighter, less prominent)
     const gridPoints: number[] = [];
     const half = GROUND_SIZE / 2;
-    const step = 4;
+    const step = 5;
     for (let i = -half; i <= half; i += step) {
       gridPoints.push(i, 0.01, -half, i, 0.01, half);
       gridPoints.push(-half, 0.01, i, half, 0.01, i);
     }
     const gridGeo = new THREE.BufferGeometry();
     gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(gridPoints, 3));
-    const gridMat = new THREE.LineBasicMaterial({ color: 0x2a2a4e, transparent: true, opacity: 0.4 });
+    const gridMat = new THREE.LineBasicMaterial({ color: 0x4a9e3d, transparent: true, opacity: 0.3 });
     this.gridLines = new THREE.LineSegments(gridGeo, gridMat);
     this.gridLines.name = 'GridLines';
     this.scene.add(this.gridLines);
+
+    // Arena boundary — visible fence/walls
+    const boundaryGeo = new THREE.BoxGeometry(GROUND_SIZE + 2, 2, 1);
+    const boundaryMat = new THREE.MeshLambertMaterial({ color: 0x8b6914 });
+    const walls = [
+      { pos: [0, 1, -half - 0.5], rot: 0 },
+      { pos: [0, 1, half + 0.5], rot: 0 },
+      { pos: [-half - 0.5, 1, 0], rot: Math.PI / 2 },
+      { pos: [half + 0.5, 1, 0], rot: Math.PI / 2 },
+    ];
+    for (const w of walls) {
+      const wall = new THREE.Mesh(boundaryGeo, boundaryMat);
+      wall.name = 'Boundary_Wall';
+      wall.position.set(w.pos[0] as number, w.pos[1] as number, w.pos[2] as number);
+      wall.rotation.y = w.rot;
+      this.scene.add(wall);
+    }
   }
 
   private setupPlayer(): void {
-    const capsuleGeo = new THREE.CapsuleGeometry(0.4, 0.8, 8, 16);
-    const capsuleMat = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, emissive: 0x222222 });
-    this.playerMesh = new THREE.Mesh(capsuleGeo, capsuleMat);
+    // Chunky PS1 style player — bigger, more visible
+    const bodyGeo = new THREE.CapsuleGeometry(0.5, 1.0, 4, 8);
+    const bodyMat = new THREE.MeshLambertMaterial({ color: 0xf5d680 }); // Warm yellow/gold
+    this.playerMesh = new THREE.Mesh(bodyGeo, bodyMat);
     this.playerMesh.name = 'Player';
-    this.playerMesh.position.y = 0.8;
+    this.playerMesh.position.y = 1.0;
     this.scene.add(this.playerMesh);
 
-    // Bottom ring indicator
-    const ringGeo = new THREE.RingGeometry(0.5, 0.65, 32);
-    const ringMat = new THREE.MeshBasicMaterial({ color: 0x44aaff, side: THREE.DoubleSide, transparent: true, opacity: 0.6 });
+    // Ground circle indicator (bright)
+    const ringGeo = new THREE.RingGeometry(0.6, 0.75, 16);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0x00ff88, side: THREE.DoubleSide, transparent: true, opacity: 0.7 });
     this.playerRing = new THREE.Mesh(ringGeo, ringMat);
     this.playerRing.name = 'PlayerRing';
     this.playerRing.rotation.x = -Math.PI / 2;
@@ -368,14 +393,15 @@ export class GameScene {
       'skeleton_knight', 'necromancer', 'gargoyle',
     ];
 
-    const boxGeo = new THREE.BoxGeometry(0.8, 1.0, 0.8);
+    // Chunky low-poly box — PS1 proportions
+    const boxGeo = new THREE.BoxGeometry(0.9, 1.2, 0.9);
 
     for (const type of enemyTypes) {
       const color = ENEMY_COLORS[type] ?? 0x888888;
-      const mat = new THREE.MeshStandardMaterial({ color, emissive: 0x000000 });
+      const mat = new THREE.MeshLambertMaterial({ color });
       if (type === 'ghost') {
         mat.transparent = true;
-        mat.opacity = 0.7;
+        mat.opacity = 0.65;
       }
       const mesh = new THREE.InstancedMesh(boxGeo, mat, MAX_ENEMIES);
       mesh.name = `Enemy_${type}`;
@@ -387,8 +413,8 @@ export class GameScene {
   }
 
   private setupProjectileMesh(): void {
-    const geo = new THREE.SphereGeometry(0.2, 8, 6);
-    const mat = new THREE.MeshStandardMaterial({ color: 0xffdd44, emissive: 0xaa8800, emissiveIntensity: 0.5 });
+    const geo = new THREE.SphereGeometry(0.25, 6, 4); // Low-poly sphere
+    const mat = new THREE.MeshLambertMaterial({ color: 0xffee44, emissive: 0xffaa00, emissiveIntensity: 0.8 });
     this.projectileMesh = new THREE.InstancedMesh(geo, mat, MAX_PROJECTILES);
     this.projectileMesh.name = 'Projectiles';
     this.projectileMesh.count = 0;
@@ -397,8 +423,8 @@ export class GameScene {
   }
 
   private setupPickupMesh(): void {
-    const geo = new THREE.OctahedronGeometry(0.25, 0);
-    const mat = new THREE.MeshStandardMaterial({ color: 0x44ff44, emissive: 0x004400 });
+    const geo = new THREE.OctahedronGeometry(0.3, 0); // Slightly bigger, low-poly gem
+    const mat = new THREE.MeshLambertMaterial({ color: 0x00ff66, emissive: 0x004400, emissiveIntensity: 0.5 });
     this.pickupMesh = new THREE.InstancedMesh(geo, mat, MAX_PICKUPS);
     this.pickupMesh.name = 'Pickups';
     this.pickupMesh.count = 0;
@@ -527,16 +553,16 @@ export class GameScene {
 
   private renderPlayer(state: GameState): void {
     const p = state.player;
-    this.playerMesh.position.set(p.x, 0.8, p.z);
+    this.playerMesh.position.set(p.x, 1.0, p.z);
     this.playerMesh.rotation.y = p.rotation;
     this.playerMesh.visible = p.alive;
 
     // Flash when invincible
-    const mat = this.playerMesh.material as THREE.MeshStandardMaterial;
+    const mat = this.playerMesh.material as THREE.MeshLambertMaterial;
     if (p.invincibleTimer > 0) {
-      mat.emissive.setHex(Math.sin(performance.now() * 0.02) > 0 ? 0x444488 : 0x222222);
+      mat.color.setHex(Math.sin(performance.now() * 0.02) > 0 ? 0xffffff : 0xf5d680);
     } else {
-      mat.emissive.setHex(0x222222);
+      mat.color.setHex(0xf5d680);
     }
 
     this.playerRing.position.set(p.x, 0.02, p.z);
@@ -640,7 +666,7 @@ export class GameScene {
 
     if (!this.bossMesh) {
       const geo = new THREE.BoxGeometry(2.4, 3.0, 2.4);
-      const mat = new THREE.MeshStandardMaterial({ color: 0x6a0572, emissive: 0x330033, emissiveIntensity: 0.3 });
+      const mat = new THREE.MeshLambertMaterial({ color: 0x9933cc, emissive: 0x440066, emissiveIntensity: 0.4 });
       this.bossMesh = new THREE.Mesh(geo, mat);
       this.bossMesh.name = 'Boss';
       this.scene.add(this.bossMesh);
@@ -649,17 +675,17 @@ export class GameScene {
     this.bossMesh.visible = true;
     this.bossMesh.position.set(boss.x, 1.5, boss.z);
 
-    const mat = this.bossMesh.material as THREE.MeshStandardMaterial;
+    const mat = this.bossMesh.material as THREE.MeshLambertMaterial;
     if (boss.hitFlashTimer > 0) {
-      mat.emissive.setHex(0xff0000);
+      mat.color.setHex(0xffffff);
     } else if (boss.enraged) {
-      mat.emissive.setHex(0x660000);
+      mat.color.setHex(0xff3333);
     } else {
-      mat.emissive.setHex(0x330033);
+      mat.color.setHex(0x9933cc);
     }
 
     // Scale pulse when enraged
-    const scale = boss.enraged ? 3.0 + Math.sin(performance.now() * 0.01) * 0.1 : 3.0;
+    const scale = boss.enraged ? 3.0 + Math.sin(performance.now() * 0.01) * 0.15 : 3.0;
     this.bossMesh.scale.set(scale / 2.4, scale / 3.0, scale / 2.4);
   }
 
@@ -1014,36 +1040,36 @@ function showMainMenu(): void {
 
   const scene = new THREE.Scene();
   scene.name = 'MenuScene';
-  scene.background = new THREE.Color(0x0a0a15);
-  scene.fog = new THREE.Fog(0x0a0a15, 20, 50);
+  scene.background = new THREE.Color(0x87ceeb);
+  scene.fog = new THREE.Fog(0x87ceeb, 30, 60);
 
-  const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
+  const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 200);
   camera.name = 'MenuCamera';
-  camera.position.set(0, 12, 20);
+  camera.position.set(0, 10, 18);
   camera.lookAt(0, 0, 0);
 
-  // Ground
+  // Ground — green grass
   const groundGeo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE);
-  const groundMat = new THREE.MeshStandardMaterial({ color: 0x1a1a2e });
+  const groundMat = new THREE.MeshLambertMaterial({ color: 0x5dba4c });
   const ground = new THREE.Mesh(groundGeo, groundMat);
   ground.name = 'MenuGround';
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
 
-  // Lights
-  const ambient = new THREE.AmbientLight(0x4444aa, 0.4);
+  // Lights — bright
+  const ambient = new THREE.AmbientLight(0xffffff, 0.7);
   ambient.name = 'MenuAmbient';
   scene.add(ambient);
-  const dir = new THREE.DirectionalLight(0x8888ff, 0.6);
+  const dir = new THREE.DirectionalLight(0xfff4e0, 0.8);
   dir.name = 'MenuDirLight';
-  dir.position.set(10, 20, 10);
+  dir.position.set(8, 15, 5);
   scene.add(dir);
 
-  // Some decorative boxes
+  // Decorative enemy boxes — colorful
   for (let i = 0; i < 20; i++) {
-    const boxGeo = new THREE.BoxGeometry(0.8, 1.0, 0.8);
-    const color = [0x8b5e3c, 0xccccff, 0x2d6a4f, 0x222222, 0x6b4423][i % 5];
-    const boxMat = new THREE.MeshStandardMaterial({ color });
+    const boxGeo = new THREE.BoxGeometry(0.9, 1.2, 0.9);
+    const color = [0xd4a574, 0xaaddff, 0x44cc55, 0x553366, 0xc87533][i % 5];
+    const boxMat = new THREE.MeshLambertMaterial({ color });
     const box = new THREE.Mesh(boxGeo, boxMat);
     box.name = `MenuDecor_${i}`;
     box.position.set(
@@ -1082,15 +1108,15 @@ function showMainMenu(): void {
   mainMenuEl = document.createElement('div');
   mainMenuEl.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:500;font-family:Arial,sans-serif;gap:24px;';
 
-  // Title
+  // Title — bold colorful
   const title = document.createElement('div');
-  title.style.cssText = 'font-size:56px;font-weight:bold;color:#ffffff;text-shadow:0 0 20px #6644ff,0 0 40px #4422cc,0 4px 8px rgba(0,0,0,0.9);letter-spacing:4px;';
+  title.style.cssText = 'font-size:56px;font-weight:bold;color:#ffdd00;text-shadow:0 0 20px #ff8800,0 0 40px #ff4400,0 4px 8px rgba(0,0,0,0.6);letter-spacing:4px;-webkit-text-stroke:2px #cc6600;';
   title.textContent = t('game.title');
   mainMenuEl.appendChild(title);
 
-  // Start button
+  // Start button — vibrant
   const startBtn = document.createElement('div');
-  startBtn.style.cssText = 'padding:14px 40px;background:linear-gradient(135deg,#4444cc,#6644ff);color:#ffffff;font-size:20px;font-weight:bold;border-radius:12px;cursor:pointer;user-select:none;box-shadow:0 4px 16px rgba(100,68,255,0.4);transition:transform 0.15s;';
+  startBtn.style.cssText = 'padding:14px 40px;background:linear-gradient(135deg,#ff6600,#ffaa00);color:#ffffff;font-size:20px;font-weight:bold;border-radius:12px;cursor:pointer;user-select:none;box-shadow:0 4px 16px rgba(255,100,0,0.4);transition:transform 0.15s;text-shadow:0 2px 4px rgba(0,0,0,0.3);';
   startBtn.textContent = t('menu.start');
   startBtn.addEventListener('mouseenter', () => { startBtn.style.transform = 'scale(1.05)'; });
   startBtn.addEventListener('mouseleave', () => { startBtn.style.transform = 'scale(1)'; });
