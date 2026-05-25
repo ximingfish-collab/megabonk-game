@@ -275,6 +275,9 @@ export class GameScene {
 
   // State
   private isPaused = false;
+  private cameraAngle = 0;
+  private jumpKeyDown = false;
+  private slideKeyDown = false;
 
   constructor(session: LocalGameSession) {
     this.session = session;
@@ -313,12 +316,22 @@ export class GameScene {
     if (mobileInput) {
       mobileInput.attachButtons({
         buttons: [
-          { label: '⚡', color: 'rgba(100,200,255,0.3)', size: 56 },
-          { label: '🔥', color: 'rgba(255,100,50,0.3)', size: 48 },
-          { label: '🛡️', color: 'rgba(100,255,100,0.3)', size: 48 },
+          { label: '⬆️', color: 'rgba(100,200,255,0.3)', size: 56 },  // Jump
+          { label: '⬇️', color: 'rgba(255,200,50,0.3)', size: 48 },   // Slide
+          { label: '🔥', color: 'rgba(255,100,50,0.3)', size: 48 },    // Skill
         ],
       });
     }
+
+    // Keyboard bindings for jump/slide (desktop)
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') { this.jumpKeyDown = true; e.preventDefault(); }
+      if (e.code === 'ShiftLeft' || e.code === 'ControlLeft') { this.slideKeyDown = true; }
+    });
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'Space') { this.jumpKeyDown = false; }
+      if (e.code === 'ShiftLeft' || e.code === 'ControlLeft') { this.slideKeyDown = false; }
+    });
   }
 
   start(): void {
@@ -390,31 +403,74 @@ export class GameScene {
   }
 
   private setupGround(): void {
-    // Terrain with gentle hills — matching the getTerrainHeight in GameInstance
-    const segments = 60;
-    const groundGeo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE, segments, segments);
-    groundGeo.rotateX(-Math.PI / 2);
-
-    // Apply height displacement to vertices (rolling hills)
-    const positions = groundGeo.attributes.position;
-    for (let i = 0; i < positions.count; i++) {
-      const x = positions.getX(i);
-      const z = positions.getZ(i);
-      const scale = 0.05;
-      const height = Math.sin(x * scale) * Math.cos(z * scale) * 2.0
-        + Math.sin(x * scale * 2.3 + 1.5) * Math.cos(z * scale * 1.7 + 0.8) * 1.0;
-      positions.setY(i, Math.max(0, height));
-    }
-    groundGeo.computeVertexNormals();
-
-    const groundMat = new THREE.MeshLambertMaterial({ color: 0x4d9e3a, flatShading: true });
-    this.groundMesh = new THREE.Mesh(groundGeo, groundMat);
-    this.groundMesh.name = 'Ground';
+    // MegaBonk-style platform terrain: flat surfaces at different heights + ramps
+    // Base ground (large flat green plane at y=0)
+    const baseGeo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE);
+    baseGeo.rotateX(-Math.PI / 2);
+    const baseMat = new THREE.MeshLambertMaterial({ color: 0x4d8c3a });
+    this.groundMesh = new THREE.Mesh(baseGeo, baseMat);
+    this.groundMesh.name = 'Ground_Base';
     this.scene.add(this.groundMesh);
 
-    // No grid lines — natural terrain doesn't have grid
+    // Platform definitions: [centerX, centerZ, width, depth, height]
+    const platforms: [number, number, number, number, number][] = [
+      [-35, -30, 24, 20, 3],
+      [35, -30, 24, 20, 3],
+      [-35, 30, 24, 20, 3],
+      [35, 30, 24, 20, 3],
+      [0, -40, 20, 16, 5],
+      [0, 40, 20, 16, 5],
+      [-25, 0, 16, 24, 2],
+      [25, 0, 16, 24, 2],
+      [-15, -20, 10, 10, 1.5],
+      [15, -20, 10, 10, 1.5],
+      [-15, 20, 10, 10, 1.5],
+      [15, 20, 10, 10, 1.5],
+    ];
+
+    // Color gradient by height
+    const heightColors = [0x5dba4c, 0x6bc45a, 0x7acc68, 0x88d478];
+
+    for (const [cx, cz, w, d, h] of platforms) {
+      // Top surface
+      const topGeo = new THREE.BoxGeometry(w, h, d);
+      const colorIdx = Math.min(Math.floor(h / 2), heightColors.length - 1);
+      const topMat = new THREE.MeshLambertMaterial({ color: heightColors[colorIdx] });
+      const platform = new THREE.Mesh(topGeo, topMat);
+      platform.name = `Platform_${cx}_${cz}`;
+      platform.position.set(cx, h / 2, cz);
+      this.scene.add(platform);
+
+      // Side faces (brown/dirt)
+      // The BoxGeometry already has sides, but let's tint them
+      // Actually BoxGeometry handles this — the flat-shaded sides look good
+    }
+
+    // Ramp connectors between platforms (simple angled planes)
+    // Add a few visible ramp meshes for key connections
+    const ramps: { x: number; z: number; rotY: number; length: number; height: number }[] = [
+      { x: -25, z: -20, rotY: 0, length: 6, height: 3 },
+      { x: 25, z: -20, rotY: 0, length: 6, height: 3 },
+      { x: -25, z: 20, rotY: Math.PI, length: 6, height: 3 },
+      { x: 25, z: 20, rotY: Math.PI, length: 6, height: 3 },
+      { x: 0, z: -25, rotY: 0, length: 5, height: 5 },
+      { x: 0, z: 25, rotY: Math.PI, length: 5, height: 5 },
+    ];
+
+    for (const ramp of ramps) {
+      const rampGeo = new THREE.BoxGeometry(4, 0.3, ramp.length);
+      const rampMat = new THREE.MeshLambertMaterial({ color: 0x8b7355 });
+      const rampMesh = new THREE.Mesh(rampGeo, rampMat);
+      rampMesh.name = 'Ramp';
+      rampMesh.position.set(ramp.x, ramp.height / 2, ramp.z);
+      rampMesh.rotation.x = Math.atan2(ramp.height, ramp.length);
+      rampMesh.rotation.y = ramp.rotY;
+      this.scene.add(rampMesh);
+    }
+
+    // Hidden line segments (required by type but invisible)
     const gridGeo = new THREE.BufferGeometry();
-    gridGeo.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
+    gridGeo.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3));
     const gridMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0 });
     this.gridLines = new THREE.LineSegments(gridGeo, gridMat);
     this.gridLines.name = 'GridLines';
@@ -673,11 +729,11 @@ export class GameScene {
     const input: InputState = {
       moveX: raw.moveX ?? 0,
       moveY: raw.moveY ?? 0,
-      dash: raw.action1 ?? false,
-      skill1: raw.action2 ?? false,
-      skill2: raw.action3 ?? false,
-      jump: raw.action1 ?? false,   // Same as dash (⚡) — tap to jump
-      slide: raw.action3 ?? false,  // 🛡️ button = slide
+      dash: false,
+      skill1: raw.action3 ?? false,  // 🔥 button = skill
+      skill2: false,
+      jump: this.jumpKeyDown || (raw.action1 ?? false),    // Space or ⬆️ button
+      slide: this.slideKeyDown || (raw.action2 ?? false),  // Shift/Ctrl or ⬇️ button
     };
     this.platformInput.endFrame();
     this.session.sendAction(input);
@@ -883,25 +939,28 @@ export class GameScene {
 
   private updateCamera(state: GameState): void {
     const p = state.player;
-    // Third-person behind player — camera offset behind based on player rotation
-    const behindDist = 8;
-    const camHeight = 4;
-    const lookAheadDist = 5;
 
-    // Camera position: behind the player
-    const targetCamX = p.x - Math.sin(p.rotation) * behindDist;
-    const targetCamZ = p.z - Math.cos(p.rotation) * behindDist;
-    const targetCamY = p.y + camHeight;
+    // Camera gently follows player rotation (very slow, no snapping)
+    let angleDiff = p.rotation - this.cameraAngle;
+    // Normalize angle difference to [-PI, PI]
+    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+    this.cameraAngle += angleDiff * 0.02; // Very slow rotation follow
 
-    this.camera.position.x += (targetCamX - this.camera.position.x) * CAMERA_LERP;
-    this.camera.position.y += (targetCamY - this.camera.position.y) * CAMERA_LERP;
-    this.camera.position.z += (targetCamZ - this.camera.position.z) * CAMERA_LERP;
+    const behindDist = 11;
+    const camHeight = 5.5;
 
-    // Look at point slightly ahead of player
-    const lookX = p.x + Math.sin(p.rotation) * lookAheadDist;
-    const lookZ = p.z + Math.cos(p.rotation) * lookAheadDist;
-    this._tempVec.set(lookX, p.y + 1.5, lookZ);
-    this.camera.lookAt(this._tempVec);
+    const targetX = p.x - Math.sin(this.cameraAngle) * behindDist;
+    const targetZ = p.z - Math.cos(this.cameraAngle) * behindDist;
+    const targetY = p.y + camHeight;
+
+    // Smooth position follow
+    this.camera.position.x += (targetX - this.camera.position.x) * 0.06;
+    this.camera.position.y += (targetY - this.camera.position.y) * 0.06;
+    this.camera.position.z += (targetZ - this.camera.position.z) * 0.06;
+
+    // Look at player center (slightly above feet)
+    this.camera.lookAt(p.x, p.y + 1.5, p.z);
   }
 
   // ===========================================================================

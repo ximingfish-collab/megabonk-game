@@ -401,13 +401,50 @@ export class GameInstance {
     }
   }
 
-  /** Get terrain height at position (for hilly terrain) */
+  /** Get terrain height at position — platform-based (flat + ramps) */
   private getTerrainHeight(x: number, z: number): number {
-    // Generate gentle rolling hills using sin/cos
-    const scale = 0.05;
-    const height = Math.sin(x * scale) * Math.cos(z * scale) * 2.0
-      + Math.sin(x * scale * 2.3 + 1.5) * Math.cos(z * scale * 1.7 + 0.8) * 1.0;
-    return Math.max(0, height);
+    // MegaBonk style: flat platforms at different heights connected by ramps
+    // Define platforms as rectangles: [centerX, centerZ, halfWidth, halfDepth, height]
+    const platforms: [number, number, number, number, number][] = [
+      // Central arena (ground level)
+      [0, 0, 25, 25, 0],
+      // Elevated platforms around edges
+      [-35, -30, 12, 10, 3],
+      [35, -30, 12, 10, 3],
+      [-35, 30, 12, 10, 3],
+      [35, 30, 12, 10, 3],
+      // Higher platforms
+      [0, -40, 10, 8, 5],
+      [0, 40, 10, 8, 5],
+      // Medium platforms
+      [-25, 0, 8, 12, 2],
+      [25, 0, 8, 12, 2],
+      // Small elevated spots
+      [-15, -20, 5, 5, 1.5],
+      [15, -20, 5, 5, 1.5],
+      [-15, 20, 5, 5, 1.5],
+      [15, 20, 5, 5, 1.5],
+    ];
+
+    let height = 0;
+    for (const [cx, cz, hw, hd, h] of platforms) {
+      const dx = Math.abs(x - cx);
+      const dz = Math.abs(z - cz);
+
+      // On platform
+      if (dx <= hw && dz <= hd) {
+        height = Math.max(height, h);
+      }
+      // Ramp zone (within 3 units of platform edge)
+      else if (dx <= hw + 3 && dz <= hd + 3) {
+        const edgeDist = Math.max(dx - hw, dz - hd, 0);
+        if (edgeDist <= 3) {
+          const rampHeight = h * (1 - edgeDist / 3);
+          height = Math.max(height, rampHeight);
+        }
+      }
+    }
+    return height;
   }
 
   private processDash(dt: number): void {
