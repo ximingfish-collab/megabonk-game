@@ -1,6 +1,6 @@
 import type { GameConfig } from './types.ts';
 
-export const MAP_SIZE = 80;
+export const MAP_SIZE = 120;
 export const TICK_INTERVAL_MS = 1000 / 60;
 export const MAX_ENEMIES = 100;
 export const MAX_PROJECTILES = 200;
@@ -16,6 +16,14 @@ export const PLAYER_INVINCIBLE_DURATION = 0.5;
 export const DASH_DISTANCE = 6;
 export const DASH_DURATION = 0.2;
 export const DASH_COOLDOWN = 5;
+
+// Jump & Slide (MegaBonk movement)
+export const JUMP_FORCE = 8.0;
+export const GRAVITY = 20.0;
+export const SLIDE_DURATION = 0.6;
+export const SLIDE_SPEED_MULTIPLIER = 1.8;
+export const SLIDE_COOLDOWN = 0.3;
+export const BUNNY_HOP_WINDOW = 0.15; // seconds after landing to chain jump
 
 export const MAX_LEVEL = 40;
 export const MAX_WEAPONS = 4;

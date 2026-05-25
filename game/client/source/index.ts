@@ -153,10 +153,10 @@ const RARITY_COLORS: Record<string, string> = {
   legendary: '#ffaa00',
 };
 
-const CAMERA_HEIGHT = 10;
-const CAMERA_Z_OFFSET = 6;
+const CAMERA_HEIGHT = 4;
+const CAMERA_Z_OFFSET = -8;
 const CAMERA_LERP = 0.1;
-const GROUND_SIZE = 80;
+const GROUND_SIZE = 120;
 const DAMAGE_NUM_POOL_SIZE = 30;
 
 // =============================================================================
@@ -294,11 +294,11 @@ export class GameScene {
     // Scene — bright, colorful PS1 style (NOT dark)
     this.scene = new THREE.Scene();
     this.scene.name = 'MainScene';
-    this.scene.background = new THREE.Color(0x87ceeb); // Sky blue
-    this.scene.fog = new THREE.Fog(0x87ceeb, 40, 80);
+    this.scene.background = new THREE.Color(0x6eaadc); // MegaBonk-style blue sky
+    this.scene.fog = new THREE.Fog(0x6eaadc, 50, 100);
 
-    // Camera — closer third-person, more intimate like MegaBonk
-    this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 200);
+    // Camera — third-person behind player (MegaBonk style)
+    this.camera = new THREE.PerspectiveCamera(65, 1, 0.1, 300);
     this.camera.name = 'MainCamera';
     this.camera.position.set(0, CAMERA_HEIGHT, CAMERA_Z_OFFSET);
     this.camera.lookAt(0, 0, 0);
@@ -390,31 +390,39 @@ export class GameScene {
   }
 
   private setupGround(): void {
-    // Ground plane — bright grass green, PS1 flat-shaded look
-    const groundGeo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE);
-    const groundMat = new THREE.MeshLambertMaterial({ color: 0x5dba4c });
+    // Terrain with gentle hills — matching the getTerrainHeight in GameInstance
+    const segments = 60;
+    const groundGeo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE, segments, segments);
+    groundGeo.rotateX(-Math.PI / 2);
+
+    // Apply height displacement to vertices (rolling hills)
+    const positions = groundGeo.attributes.position;
+    for (let i = 0; i < positions.count; i++) {
+      const x = positions.getX(i);
+      const z = positions.getZ(i);
+      const scale = 0.05;
+      const height = Math.sin(x * scale) * Math.cos(z * scale) * 2.0
+        + Math.sin(x * scale * 2.3 + 1.5) * Math.cos(z * scale * 1.7 + 0.8) * 1.0;
+      positions.setY(i, Math.max(0, height));
+    }
+    groundGeo.computeVertexNormals();
+
+    const groundMat = new THREE.MeshLambertMaterial({ color: 0x4d9e3a, flatShading: true });
     this.groundMesh = new THREE.Mesh(groundGeo, groundMat);
     this.groundMesh.name = 'Ground';
-    this.groundMesh.rotation.x = -Math.PI / 2;
-    this.groundMesh.position.y = 0;
     this.scene.add(this.groundMesh);
 
-    // Subtle grid lines (lighter, less prominent)
-    const gridPoints: number[] = [];
-    const half = GROUND_SIZE / 2;
-    const step = 5;
-    for (let i = -half; i <= half; i += step) {
-      gridPoints.push(i, 0.01, -half, i, 0.01, half);
-      gridPoints.push(-half, 0.01, i, half, 0.01, i);
-    }
+    // No grid lines — natural terrain doesn't have grid
     const gridGeo = new THREE.BufferGeometry();
-    gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(gridPoints, 3));
-    const gridMat = new THREE.LineBasicMaterial({ color: 0x4a9e3d, transparent: true, opacity: 0.3 });
+    gridGeo.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
+    const gridMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0 });
     this.gridLines = new THREE.LineSegments(gridGeo, gridMat);
     this.gridLines.name = 'GridLines';
+    this.gridLines.visible = false;
     this.scene.add(this.gridLines);
 
     // Arena boundary — visible fence/walls
+    const half = GROUND_SIZE / 2;
     const boundaryGeo = new THREE.BoxGeometry(GROUND_SIZE + 2, 2, 1);
     const boundaryMat = new THREE.MeshLambertMaterial({ color: 0x8b6914 });
     const walls = [
@@ -668,6 +676,8 @@ export class GameScene {
       dash: raw.action1 ?? false,
       skill1: raw.action2 ?? false,
       skill2: raw.action3 ?? false,
+      jump: raw.action1 ?? false,   // Same as dash (⚡) — tap to jump
+      slide: raw.action3 ?? false,  // 🛡️ button = slide
     };
     this.platformInput.endFrame();
     this.session.sendAction(input);
@@ -873,14 +883,25 @@ export class GameScene {
 
   private updateCamera(state: GameState): void {
     const p = state.player;
-    const targetX = p.x;
-    const targetY = CAMERA_HEIGHT;
-    const targetZ = p.z + CAMERA_Z_OFFSET;
+    // Third-person behind player — camera offset behind based on player rotation
+    const behindDist = 8;
+    const camHeight = 4;
+    const lookAheadDist = 5;
 
-    this.camera.position.x += (targetX - this.camera.position.x) * CAMERA_LERP;
-    this.camera.position.y += (targetY - this.camera.position.y) * CAMERA_LERP;
-    this.camera.position.z += (targetZ - this.camera.position.z) * CAMERA_LERP;
-    this.camera.lookAt(p.x, 0, p.z);
+    // Camera position: behind the player
+    const targetCamX = p.x - Math.sin(p.rotation) * behindDist;
+    const targetCamZ = p.z - Math.cos(p.rotation) * behindDist;
+    const targetCamY = p.y + camHeight;
+
+    this.camera.position.x += (targetCamX - this.camera.position.x) * CAMERA_LERP;
+    this.camera.position.y += (targetCamY - this.camera.position.y) * CAMERA_LERP;
+    this.camera.position.z += (targetCamZ - this.camera.position.z) * CAMERA_LERP;
+
+    // Look at point slightly ahead of player
+    const lookX = p.x + Math.sin(p.rotation) * lookAheadDist;
+    const lookZ = p.z + Math.cos(p.rotation) * lookAheadDist;
+    this._tempVec.set(lookX, p.y + 1.5, lookZ);
+    this.camera.lookAt(this._tempVec);
   }
 
   // ===========================================================================

@@ -39,6 +39,10 @@ import {
   DASH_DISTANCE,
   DASH_DURATION,
   DASH_COOLDOWN,
+  JUMP_FORCE,
+  GRAVITY,
+  SLIDE_DURATION,
+  SLIDE_SPEED_MULTIPLIER,
   BOSS_SPAWN_TIME,
   BOSS_HP,
   BOSS_INTRO_DURATION,
@@ -73,7 +77,7 @@ export class GameInstance {
 
   constructor(config: GameConfig) {
     this.config = config;
-    this.currentInput = { moveX: 0, moveY: 0, dash: false, skill1: false, skill2: false };
+    this.currentInput = { moveX: 0, moveY: 0, dash: false, skill1: false, skill2: false, jump: false, slide: false };
     this.nextEnemyId = 1;
     this.nextProjectileId = 1;
     this.nextPickupId = 1;
@@ -291,6 +295,12 @@ export class GameInstance {
       y: 0,
       z: 0,
       rotation: 0,
+      velocityY: 0,
+      isGrounded: true,
+      isJumping: false,
+      isSliding: false,
+      slideTimer: 0,
+      slideSpeedBoost: 0,
       hp: PLAYER_BASE_HP,
       maxHp: PLAYER_BASE_HP,
       level: 1,
@@ -325,16 +335,63 @@ export class GameInstance {
     const moveX = this.currentInput.moveX;
     const moveZ = this.currentInput.moveY; // moveY maps to Z axis in 3D
 
+    // Update facing direction
     if (moveX !== 0 || moveZ !== 0) {
       this.facingX = moveX;
       this.facingZ = moveZ;
       player.rotation = Math.atan2(moveX, moveZ);
     }
 
+    // --- Jump ---
+    if (this.currentInput.jump && player.isGrounded && !player.isSliding) {
+      player.velocityY = JUMP_FORCE;
+      player.isGrounded = false;
+      player.isJumping = true;
+    }
+
+    // --- Gravity ---
+    if (!player.isGrounded) {
+      player.velocityY -= GRAVITY * dt;
+      player.y += player.velocityY * dt;
+
+      // Ground collision (terrain height = 0 for flat areas)
+      const groundHeight = this.getTerrainHeight(player.x, player.z);
+      if (player.y <= groundHeight) {
+        player.y = groundHeight;
+        player.velocityY = 0;
+        player.isGrounded = true;
+        player.isJumping = false;
+
+        // Landing → slide if holding slide input (MegaBonk slide mechanic)
+        if (this.currentInput.slide && !player.isSliding) {
+          player.isSliding = true;
+          player.slideTimer = SLIDE_DURATION;
+          player.slideSpeedBoost = SLIDE_SPEED_MULTIPLIER;
+        }
+      }
+    }
+
+    // --- Slide ---
+    if (this.currentInput.slide && player.isGrounded && !player.isSliding && !player.isJumping) {
+      player.isSliding = true;
+      player.slideTimer = SLIDE_DURATION;
+      player.slideSpeedBoost = SLIDE_SPEED_MULTIPLIER;
+    }
+
+    if (player.isSliding) {
+      player.slideTimer -= dt;
+      if (player.slideTimer <= 0) {
+        player.isSliding = false;
+        player.slideSpeedBoost = 0;
+      }
+    }
+
+    // --- Horizontal movement ---
+    const speedMultiplier = player.isSliding ? player.slideSpeedBoost : 1.0;
     const result = applyMovement3D(
       player.x, player.z,
       moveX, moveZ,
-      player.speed, dt,
+      player.speed * speedMultiplier, dt,
       this.config.mapSize,
     );
 
@@ -342,6 +399,15 @@ export class GameInstance {
       player.x = result.x;
       player.z = result.z;
     }
+  }
+
+  /** Get terrain height at position (for hilly terrain) */
+  private getTerrainHeight(x: number, z: number): number {
+    // Generate gentle rolling hills using sin/cos
+    const scale = 0.05;
+    const height = Math.sin(x * scale) * Math.cos(z * scale) * 2.0
+      + Math.sin(x * scale * 2.3 + 1.5) * Math.cos(z * scale * 1.7 + 0.8) * 1.0;
+    return Math.max(0, height);
   }
 
   private processDash(dt: number): void {

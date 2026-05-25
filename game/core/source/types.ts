@@ -7,6 +7,8 @@ export interface InputState {
   dash: boolean;
   skill1: boolean;
   skill2: boolean;
+  jump: boolean;
+  slide: boolean;
 }
 
 // --- Weapons ---
@@ -44,6 +46,12 @@ export interface PlayerState {
   y: number;
   z: number;
   rotation: number;
+  velocityY: number;
+  isGrounded: boolean;
+  isJumping: boolean;
+  isSliding: boolean;
+  slideTimer: number;
+  slideSpeedBoost: number;
   hp: number;
   maxHp: number;
   level: number;
