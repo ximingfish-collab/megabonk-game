@@ -1,22 +1,16 @@
 /**
  * Upgrade option generation for level-up screen.
+ * Uses MegaBonk-style tomes (passive items) and weapons.
  */
 
-import type { PlayerState, UpgradeOption, UpgradeRarity, WeaponType, PassiveType } from './types.ts';
-import { MAX_WEAPONS, XP_BASE, XP_GROWTH, PASSIVE_MAX_LEVELS, WEAPON_STATS } from './config.ts';
-
-const ALL_WEAPON_TYPES: WeaponType[] = ['bone_bouncer', 'lightning_staff', 'flame_ring', 'void_orb'];
-const ALL_PASSIVE_TYPES: PassiveType[] = [
-  'power_crystal', 'swift_boots', 'lifesteal_stone', 'magnet_gem',
-  'armor_shard', 'attack_heart', 'crit_eye', 'lucky_coin',
-  'revive_bone', 'xp_bonus', 'cooldown_reduce', 'extra_projectile',
-];
+import type { PlayerState, UpgradeOption, UpgradeRarity, WeaponType, TomeType } from './types.ts';
+import { XP_BASE, XP_GROWTH, TOME_MAX_LEVELS, WEAPON_STATS, ALL_WEAPON_TYPES, ALL_TOME_TYPES } from './config.ts';
 
 const RARITY_WEIGHTS: { rarity: UpgradeRarity; weight: number }[] = [
-  { rarity: 'common', weight: 60 },
-  { rarity: 'uncommon', weight: 25 },
-  { rarity: 'rare', weight: 12 },
-  { rarity: 'legendary', weight: 3 },
+  { rarity: 'common', weight: 55 },
+  { rarity: 'uncommon', weight: 28 },
+  { rarity: 'rare', weight: 13 },
+  { rarity: 'legendary', weight: 4 },
 ];
 
 const TOTAL_RARITY_WEIGHT = RARITY_WEIGHTS.reduce((sum, r) => sum + r.weight, 0);
@@ -30,10 +24,21 @@ export function xpForLevel(level: number): number {
 
 /**
  * Roll a random rarity based on configured weights.
+ * Luck tome increases rare/legendary chances.
  */
-function rollRarity(): UpgradeRarity {
-  let roll = Math.random() * TOTAL_RARITY_WEIGHT;
-  for (const { rarity, weight } of RARITY_WEIGHTS) {
+function rollRarity(luckLevel: number = 0): UpgradeRarity {
+  // Luck shifts weight from common to rare/legendary
+  const luckBonus = luckLevel * 5;
+  const adjustedWeights = RARITY_WEIGHTS.map(({ rarity, weight }) => {
+    if (rarity === 'common') return { rarity, weight: Math.max(20, weight - luckBonus * 2) };
+    if (rarity === 'rare') return { rarity, weight: weight + luckBonus };
+    if (rarity === 'legendary') return { rarity, weight: weight + luckBonus };
+    return { rarity, weight };
+  });
+
+  const total = adjustedWeights.reduce((sum, r) => sum + r.weight, 0);
+  let roll = Math.random() * total;
+  for (const { rarity, weight } of adjustedWeights) {
     roll -= weight;
     if (roll <= 0) return rarity;
   }
@@ -45,6 +50,7 @@ function rollRarity(): UpgradeRarity {
  */
 function buildAvailableOptions(player: PlayerState): UpgradeOption[] {
   const options: UpgradeOption[] = [];
+  const luckLevel = player.tomes.find(t => t.type === 'luck_tome')?.level ?? 0;
 
   // Weapon upgrades for existing weapons (level up)
   for (const weapon of player.weapons) {
@@ -53,7 +59,7 @@ function buildAvailableOptions(player: PlayerState): UpgradeOption[] {
       options.push({
         id: `upgrade_${weapon.type}_${weapon.level + 1}`,
         kind: 'weapon_upgrade',
-        rarity: rollRarity(),
+        rarity: rollRarity(luckLevel),
         weaponType: weapon.type,
         currentLevel: weapon.level,
         newLevel: weapon.level + 1,
@@ -62,14 +68,14 @@ function buildAvailableOptions(player: PlayerState): UpgradeOption[] {
   }
 
   // New weapons (if player has room)
-  if (player.weapons.length < MAX_WEAPONS) {
+  if (player.weapons.length < player.maxWeaponSlots) {
     const ownedTypes = new Set(player.weapons.map(w => w.type));
     for (const weaponType of ALL_WEAPON_TYPES) {
       if (!ownedTypes.has(weaponType)) {
         options.push({
           id: `new_${weaponType}`,
           kind: 'new_weapon',
-          rarity: rollRarity(),
+          rarity: rollRarity(luckLevel),
           weaponType,
           currentLevel: 0,
           newLevel: 1,
@@ -78,17 +84,18 @@ function buildAvailableOptions(player: PlayerState): UpgradeOption[] {
     }
   }
 
-  // Passive upgrades
-  const ownedPassives = new Map(player.passives.map(p => [p.type, p.level]));
-  for (const passiveType of ALL_PASSIVE_TYPES) {
-    const currentLevel = ownedPassives.get(passiveType) ?? 0;
-    const maxLevel = PASSIVE_MAX_LEVELS[passiveType] ?? 5;
+  // Tome upgrades
+  const ownedTomes = new Map(player.tomes.map(t => [t.type, t.level]));
+  for (const tomeType of ALL_TOME_TYPES) {
+    const currentLevel = ownedTomes.get(tomeType) ?? 0;
+    const maxLevel = TOME_MAX_LEVELS[tomeType] ?? 5;
     if (currentLevel < maxLevel) {
       options.push({
-        id: `passive_${passiveType}_${currentLevel + 1}`,
-        kind: 'passive',
-        rarity: rollRarity(),
-        passiveType,
+        id: `tome_${tomeType}_${currentLevel + 1}`,
+        kind: 'tome',
+        rarity: rollRarity(luckLevel),
+        tomeType,
+        passiveType: tomeType, // Legacy compatibility
         currentLevel,
         newLevel: currentLevel + 1,
       });
@@ -107,7 +114,7 @@ export function generateUpgradeOptions(player: PlayerState, count: number): Upgr
   const allOptions = buildAvailableOptions(player);
   if (allOptions.length === 0) return [];
 
-  // Separate weapon options from passive options
+  // Separate weapon options from tome options
   const weaponOptions = allOptions.filter(o => o.kind === 'weapon_upgrade' || o.kind === 'new_weapon');
   const result: UpgradeOption[] = [];
   const usedIds = new Set<string>();

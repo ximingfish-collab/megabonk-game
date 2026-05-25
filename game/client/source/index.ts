@@ -8,6 +8,7 @@ import {
   MAX_PROJECTILES,
   MAX_PICKUPS,
   DEFAULT_GAME_CONFIG,
+  CHARACTER_CONFIGS,
   type GameConfig,
   type GameState,
   type GameResult,
@@ -22,6 +23,8 @@ import {
   type UpgradeOption,
   type GamePhase,
   type UpgradeRarity,
+  type CharacterType,
+  type TeleporterState,
 } from '@minigame/core';
 import { PlatformInput } from '@minigame/platform';
 import { installThreeHighDpi } from '@minigame/render-adapter';
@@ -128,22 +131,38 @@ export class LocalGameSession {
 // =============================================================================
 
 const ENEMY_COLORS: Record<string, number> = {
-  skeleton_soldier: 0xd4a574,  // Warm tan/bone
-  ghost: 0xaaddff,             // Light blue glow
-  bat: 0x553366,               // Dark purple
-  zombie: 0x44cc55,            // Bright green
-  skeleton_archer: 0xc87533,   // Orange-brown
-  skeleton_knight: 0xdd4444,   // Bold red
-  necromancer: 0x9944cc,       // Bright purple
-  gargoyle: 0x667788,          // Steel blue-gray
+  skeleton_soldier: 0xd4a574,
+  ghost: 0xaaddff,
+  bat: 0x553366,
+  zombie: 0x44cc55,
+  skeleton_archer: 0xc87533,
+  skeleton_knight: 0xdd4444,
+  necromancer: 0x9944cc,
+  gargoyle: 0x667788,
+};
+
+const WEAPON_PROJECTILE_COLORS: Record<string, number> = {
+  sword: 0xcccccc,
+  bone_bouncer: 0xf5f5dc,
+  axe: 0x888888,
+  revolver: 0xffdd00,
+  bow: 0x8b4513,
+  lightning_staff: 0x44aaff,
+  fire_staff: 0xff4400,
+  flame_ring: 0xff6600,
+  tornado: 0x88ccaa,
+  shotgun: 0xffee44,
+  black_hole: 0x220044,
+  katana: 0xeeeeff,
+  aura: 0x44ffaa,
 };
 
 const PICKUP_COLORS: Record<string, number> = {
-  xp_green: 0x00ff66,   // Neon green
-  xp_blue: 0x22aaff,    // Bright blue
-  xp_purple: 0xcc44ff,  // Vivid purple
-  xp_orange: 0xffaa00,  // Bright orange
-  silver: 0xeeeeee,     // Shiny white
+  xp_green: 0x00ff66,
+  xp_blue: 0x22aaff,
+  xp_purple: 0xcc44ff,
+  xp_orange: 0xffaa00,
+  silver: 0xeeeeee,
 };
 
 const RARITY_COLORS: Record<string, string> = {
@@ -151,6 +170,12 @@ const RARITY_COLORS: Record<string, string> = {
   uncommon: '#44cc44',
   rare: '#4488ff',
   legendary: '#ffaa00',
+};
+
+const CHARACTER_COLORS: Record<string, number> = {
+  megachad: 0xf5d680,
+  roberto: 0x8844aa,
+  skateboard_skeleton: 0xd4a574,
 };
 
 const CAMERA_HEIGHT = 4;
@@ -200,7 +225,6 @@ async function loadModels(): Promise<void> {
       const gltf = await gltfLoader.loadAsync(path);
       const model = gltf.scene;
       model.name = `Model_${key}`;
-      // Ensure all meshes use MeshLambertMaterial for PS1 flat look
       model.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
           const mesh = child as THREE.Mesh;
@@ -214,7 +238,6 @@ async function loadModels(): Promise<void> {
       });
       loadedModels[key] = model;
     } catch {
-      // Model not found — will use fallback geometry
       loadedModels[key] = null;
     }
   });
@@ -236,7 +259,7 @@ export class GameScene {
   private animationId: number | null = null;
   private removeDisplayListener: (() => void) | null = null;
 
-  // Pre-allocated temporaries (no allocations in render loop)
+  // Pre-allocated temporaries
   private readonly _dummy = new THREE.Object3D();
   private readonly _tempVec = new THREE.Vector3();
   private readonly _tempColor = new THREE.Color();
@@ -247,6 +270,10 @@ export class GameScene {
   private groundMesh!: THREE.Mesh;
   private gridLines!: THREE.LineSegments;
   private bossMesh: THREE.Mesh | null = null;
+
+  // Teleporter meshes
+  private teleporterMeshes: THREE.Mesh[] = [];
+  private teleporterGlowMeshes: THREE.Mesh[] = [];
 
   // InstancedMeshes
   private enemyMeshes: Map<string, THREE.InstancedMesh> = new Map();
@@ -267,6 +294,7 @@ export class GameScene {
   private levelLabel!: HTMLDivElement;
   private timerLabel!: HTMLDivElement;
   private killLabel!: HTMLDivElement;
+  private weaponSlotsLabel!: HTMLDivElement;
   private pauseBtn!: HTMLDivElement;
   private upgradePanel: HTMLDivElement | null = null;
   private gameOverPanel: HTMLDivElement | null = null;
@@ -294,13 +322,13 @@ export class GameScene {
     this.renderer.domElement.style.display = 'block';
     this.container.appendChild(this.renderer.domElement);
 
-    // Scene — bright, colorful PS1 style (NOT dark)
+    // Scene
     this.scene = new THREE.Scene();
     this.scene.name = 'MainScene';
-    this.scene.background = new THREE.Color(0x6eaadc); // MegaBonk-style blue sky
+    this.scene.background = new THREE.Color(0x6eaadc);
     this.scene.fog = new THREE.Fog(0x6eaadc, 50, 100);
 
-    // Camera — third-person behind player (MegaBonk style)
+    // Camera
     this.camera = new THREE.PerspectiveCamera(65, 1, 0.1, 300);
     this.camera.name = 'MainCamera';
     this.camera.position.set(0, CAMERA_HEIGHT, CAMERA_Z_OFFSET);
@@ -316,14 +344,14 @@ export class GameScene {
     if (mobileInput) {
       mobileInput.attachButtons({
         buttons: [
-          { label: '⬆️', color: 'rgba(100,200,255,0.3)', size: 56 },  // Jump
-          { label: '⬇️', color: 'rgba(255,200,50,0.3)', size: 48 },   // Slide
-          { label: '🔥', color: 'rgba(255,100,50,0.3)', size: 48 },    // Skill
+          { label: '⬆️', color: 'rgba(100,200,255,0.3)', size: 56 },
+          { label: '⬇️', color: 'rgba(255,200,50,0.3)', size: 48 },
+          { label: '🔥', color: 'rgba(255,100,50,0.3)', size: 48 },
         ],
       });
     }
 
-    // Keyboard bindings for jump/slide (desktop)
+    // Keyboard bindings
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Space') { this.jumpKeyDown = true; e.preventDefault(); }
       if (e.code === 'ShiftLeft' || e.code === 'ControlLeft') { this.slideKeyDown = true; }
@@ -385,26 +413,21 @@ export class GameScene {
   // ===========================================================================
 
   private setupLighting(): void {
-    // Bright ambient — colorful PS1 style
     const ambient = new THREE.AmbientLight(0xffffff, 0.7);
     ambient.name = 'AmbientLight';
     this.scene.add(ambient);
 
-    // Warm directional — sun-like
     const dir = new THREE.DirectionalLight(0xfff4e0, 0.9);
     dir.name = 'DirectionalLight';
     dir.position.set(8, 15, 5);
     this.scene.add(dir);
 
-    // Subtle fill from below
     const fill = new THREE.HemisphereLight(0x88ccff, 0x44aa44, 0.3);
     fill.name = 'HemisphereLight';
     this.scene.add(fill);
   }
 
   private setupGround(): void {
-    // MegaBonk-style platform terrain: flat surfaces at different heights + ramps
-    // Base ground (large flat green plane at y=0)
     const baseGeo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE);
     baseGeo.rotateX(-Math.PI / 2);
     const baseMat = new THREE.MeshLambertMaterial({ color: 0x4d8c3a });
@@ -412,7 +435,6 @@ export class GameScene {
     this.groundMesh.name = 'Ground_Base';
     this.scene.add(this.groundMesh);
 
-    // Platform definitions: [centerX, centerZ, width, depth, height]
     const platforms: [number, number, number, number, number][] = [
       [-35, -30, 24, 20, 3],
       [35, -30, 24, 20, 3],
@@ -426,28 +448,28 @@ export class GameScene {
       [15, -20, 10, 10, 1.5],
       [-15, 20, 10, 10, 1.5],
       [15, 20, 10, 10, 1.5],
+      [-40, 0, 12, 12, 4],
+      [40, 0, 12, 12, 4],
+      [0, 0, 10, 10, 2.5],
+      [-20, -15, 6, 16, 1],
+      [20, -15, 6, 16, 1],
+      [-20, 15, 6, 16, 1],
+      [20, 15, 6, 16, 1],
     ];
 
-    // Color gradient by height
-    const heightColors = [0x5dba4c, 0x6bc45a, 0x7acc68, 0x88d478];
+    const heightColors = [0x5dba4c, 0x6bc45a, 0x7acc68, 0x88d478, 0x99dd88];
 
     for (const [cx, cz, w, d, h] of platforms) {
-      // Top surface
       const topGeo = new THREE.BoxGeometry(w, h, d);
-      const colorIdx = Math.min(Math.floor(h / 2), heightColors.length - 1);
+      const colorIdx = Math.min(Math.floor(h / 1.5), heightColors.length - 1);
       const topMat = new THREE.MeshLambertMaterial({ color: heightColors[colorIdx] });
       const platform = new THREE.Mesh(topGeo, topMat);
       platform.name = `Platform_${cx}_${cz}`;
       platform.position.set(cx, h / 2, cz);
       this.scene.add(platform);
-
-      // Side faces (brown/dirt)
-      // The BoxGeometry already has sides, but let's tint them
-      // Actually BoxGeometry handles this — the flat-shaded sides look good
     }
 
-    // Ramp connectors between platforms (simple angled planes)
-    // Add a few visible ramp meshes for key connections
+    // Ramp connectors
     const ramps: { x: number; z: number; rotY: number; length: number; height: number }[] = [
       { x: -25, z: -20, rotY: 0, length: 6, height: 3 },
       { x: 25, z: -20, rotY: 0, length: 6, height: 3 },
@@ -468,7 +490,7 @@ export class GameScene {
       this.scene.add(rampMesh);
     }
 
-    // Hidden line segments (required by type but invisible)
+    // Hidden grid lines (required by type)
     const gridGeo = new THREE.BufferGeometry();
     gridGeo.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3));
     const gridMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0 });
@@ -477,7 +499,7 @@ export class GameScene {
     this.gridLines.visible = false;
     this.scene.add(this.gridLines);
 
-    // Arena boundary — visible fence/walls
+    // Arena boundary walls
     const half = GROUND_SIZE / 2;
     const boundaryGeo = new THREE.BoxGeometry(GROUND_SIZE + 2, 2, 1);
     const boundaryMat = new THREE.MeshLambertMaterial({ color: 0x8b6914 });
@@ -495,20 +517,17 @@ export class GameScene {
       this.scene.add(wall);
     }
 
-    // Scatter environment props using loaded models
     this.addEnvironmentProps();
   }
 
   private addEnvironmentProps(): void {
     const propPositions: { x: number; z: number; type: 'tombstone' | 'tree' }[] = [];
-    const half = GROUND_SIZE / 2;
-    // Generate random prop positions (avoiding center area where player spawns)
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < 20; i++) {
       let x: number, z: number;
       do {
         x = (Math.random() - 0.5) * (GROUND_SIZE - 10);
         z = (Math.random() - 0.5) * (GROUND_SIZE - 10);
-      } while (Math.abs(x) < 8 && Math.abs(z) < 8); // Keep center clear
+      } while (Math.abs(x) < 8 && Math.abs(z) < 8);
       propPositions.push({ x, z, type: Math.random() > 0.5 ? 'tombstone' : 'tree' });
     }
 
@@ -523,7 +542,6 @@ export class GameScene {
         clone.scale.set(s, s, s);
         this.scene.add(clone);
       } else {
-        // Fallback: simple colored cylinder for trees, box for tombstones
         if (prop.type === 'tree') {
           const trunkGeo = new THREE.CylinderGeometry(0.2, 0.3, 2, 5);
           const trunkMat = new THREE.MeshLambertMaterial({ color: 0x6b3a1f });
@@ -550,7 +568,9 @@ export class GameScene {
   }
 
   private setupPlayer(): void {
-    // Use loaded GLB model if available, fallback to capsule
+    const state = this.session.getRenderState();
+    const charColor = CHARACTER_COLORS[state.character] ?? 0xf5d680;
+
     if (loadedModels.player) {
       this.playerMesh = loadedModels.player.clone() as unknown as THREE.Mesh;
       this.playerMesh.name = 'Player';
@@ -558,9 +578,8 @@ export class GameScene {
       this.playerMesh.position.y = 0;
       this.scene.add(this.playerMesh);
     } else {
-      // Fallback — chunky PS1 capsule
       const bodyGeo = new THREE.CapsuleGeometry(0.5, 1.0, 4, 8);
-      const bodyMat = new THREE.MeshLambertMaterial({ color: 0xf5d680 });
+      const bodyMat = new THREE.MeshLambertMaterial({ color: charColor });
       this.playerMesh = new THREE.Mesh(bodyGeo, bodyMat);
       this.playerMesh.name = 'Player';
       this.playerMesh.position.y = 1.0;
@@ -583,7 +602,6 @@ export class GameScene {
       'skeleton_knight', 'necromancer', 'gargoyle',
     ];
 
-    // Chunky low-poly box — PS1 proportions
     const boxGeo = new THREE.BoxGeometry(0.9, 1.2, 0.9);
 
     for (const type of enemyTypes) {
@@ -603,7 +621,7 @@ export class GameScene {
   }
 
   private setupProjectileMesh(): void {
-    const geo = new THREE.SphereGeometry(0.25, 6, 4); // Low-poly sphere
+    const geo = new THREE.SphereGeometry(0.25, 6, 4);
     const mat = new THREE.MeshLambertMaterial({ color: 0xffee44, emissive: 0xffaa00, emissiveIntensity: 0.8 });
     this.projectileMesh = new THREE.InstancedMesh(geo, mat, MAX_PROJECTILES);
     this.projectileMesh.name = 'Projectiles';
@@ -613,7 +631,7 @@ export class GameScene {
   }
 
   private setupPickupMesh(): void {
-    const geo = new THREE.OctahedronGeometry(0.3, 0); // Slightly bigger, low-poly gem
+    const geo = new THREE.OctahedronGeometry(0.3, 0);
     const mat = new THREE.MeshLambertMaterial({ color: 0x00ff66, emissive: 0x004400, emissiveIntensity: 0.5 });
     this.pickupMesh = new THREE.InstancedMesh(geo, mat, MAX_PICKUPS);
     this.pickupMesh.name = 'Pickups';
@@ -643,7 +661,7 @@ export class GameScene {
     this.hudContainer.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:100;font-family:Arial,sans-serif;';
     document.body.appendChild(this.hudContainer);
 
-    // HP bar (top center)
+    // HP bar
     const hpContainer = document.createElement('div');
     hpContainer.style.cssText = 'position:absolute;top:12px;left:50%;transform:translateX(-50%);width:200px;height:16px;background:rgba(40,40,40,0.8);border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,0.2);';
     this.hpBarInner = document.createElement('div');
@@ -652,7 +670,7 @@ export class GameScene {
     this.hpBar = hpContainer;
     this.hudContainer.appendChild(hpContainer);
 
-    // XP bar (bottom center)
+    // XP bar
     const xpContainer = document.createElement('div');
     xpContainer.style.cssText = 'position:absolute;bottom:16px;left:50%;transform:translateX(-50%);width:240px;height:10px;background:rgba(40,40,40,0.8);border-radius:5px;overflow:hidden;border:1px solid rgba(255,255,255,0.15);';
     this.xpBarInner = document.createElement('div');
@@ -661,22 +679,27 @@ export class GameScene {
     this.xpBar = xpContainer;
     this.hudContainer.appendChild(xpContainer);
 
-    // Level label (bottom center, above XP)
+    // Level label
     this.levelLabel = document.createElement('div');
     this.levelLabel.style.cssText = 'position:absolute;bottom:30px;left:50%;transform:translateX(-50%);color:#ffcc00;font-size:14px;font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.8);';
     this.hudContainer.appendChild(this.levelLabel);
 
-    // Timer (top right)
+    // Timer
     this.timerLabel = document.createElement('div');
     this.timerLabel.style.cssText = 'position:absolute;top:12px;right:16px;color:#ffffff;font-size:16px;font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.8);';
     this.hudContainer.appendChild(this.timerLabel);
 
-    // Kill count (below timer)
+    // Kill count
     this.killLabel = document.createElement('div');
     this.killLabel.style.cssText = 'position:absolute;top:36px;right:16px;color:#cccccc;font-size:13px;text-shadow:0 1px 3px rgba(0,0,0,0.8);';
     this.hudContainer.appendChild(this.killLabel);
 
-    // Pause button (top right, below kills)
+    // Weapon slots info
+    this.weaponSlotsLabel = document.createElement('div');
+    this.weaponSlotsLabel.style.cssText = 'position:absolute;top:12px;left:16px;color:#cccccc;font-size:12px;text-shadow:0 1px 3px rgba(0,0,0,0.8);';
+    this.hudContainer.appendChild(this.weaponSlotsLabel);
+
+    // Pause button
     this.pauseBtn = document.createElement('div');
     this.pauseBtn.style.cssText = 'position:absolute;top:60px;right:16px;color:#ffffff;font-size:13px;background:rgba(80,80,120,0.6);padding:4px 12px;border-radius:4px;cursor:pointer;pointer-events:auto;user-select:none;';
     this.pauseBtn.textContent = t('hud.pause');
@@ -702,17 +725,16 @@ export class GameScene {
 
     const state = this.session.getRenderState();
 
-    // Input (only send when playing)
     if (state.phase === 'playing' || state.phase === 'boss_fight') {
       this.handleInput();
     }
 
-    // Render scene
     this.renderPlayer(state);
     this.renderEnemies(state.enemies);
     this.renderProjectiles(state.projectiles);
     this.renderPickups(state.pickups);
     this.renderBoss(state.boss);
+    this.renderTeleporters(state.teleporters);
     this.updateParticles(state.damageEvents);
     this.updateCamera(state);
     this.updateHUD(state);
@@ -730,10 +752,10 @@ export class GameScene {
       moveX: raw.moveX ?? 0,
       moveY: raw.moveY ?? 0,
       dash: false,
-      skill1: raw.action3 ?? false,  // 🔥 button = skill
+      skill1: raw.action3 ?? false,
       skill2: false,
-      jump: this.jumpKeyDown || (raw.action1 ?? false),    // Space or ⬆️ button
-      slide: this.slideKeyDown || (raw.action2 ?? false),  // Shift/Ctrl or ⬇️ button
+      jump: this.jumpKeyDown || (raw.action1 ?? false),
+      slide: this.slideKeyDown || (raw.action2 ?? false),
     };
     this.platformInput.endFrame();
     this.session.sendAction(input);
@@ -746,24 +768,29 @@ export class GameScene {
   private renderPlayer(state: GameState): void {
     const p = state.player;
     if (loadedModels.player) {
-      this.playerMesh.position.set(p.x, 0, p.z);
+      this.playerMesh.position.set(p.x, p.y, p.z);
     } else {
-      this.playerMesh.position.set(p.x, 1.0, p.z);
+      this.playerMesh.position.set(p.x, p.y + 1.0, p.z);
     }
     this.playerMesh.rotation.y = p.rotation;
     this.playerMesh.visible = p.alive;
 
-    // Flash when invincible
     if (p.invincibleTimer > 0) {
       this.playerMesh.visible = Math.sin(performance.now() * 0.02) > 0;
     }
 
-    this.playerRing.position.set(p.x, 0.02, p.z);
+    // Squash when sliding
+    if (p.isSliding) {
+      this.playerMesh.scale.set(1.3, 0.7, 1.3);
+    } else {
+      this.playerMesh.scale.set(1.0, 1.0, 1.0);
+    }
+
+    this.playerRing.position.set(p.x, p.y + 0.02, p.z);
     this.playerRing.visible = p.alive;
   }
 
   private renderEnemies(enemies: EnemyState[]): void {
-    // Group enemies by type
     const groups: Map<string, EnemyState[]> = new Map();
     for (const enemy of enemies) {
       const list = groups.get(enemy.type) ?? [];
@@ -771,7 +798,6 @@ export class GameScene {
       groups.set(enemy.type, list);
     }
 
-    // Update each InstancedMesh
     for (const [type, mesh] of this.enemyMeshes) {
       const list = groups.get(type);
       if (!list || list.length === 0) {
@@ -789,7 +815,6 @@ export class GameScene {
         this._dummy.updateMatrix();
         mesh.setMatrixAt(count, this._dummy.matrix);
 
-        // Hit flash via color
         if (enemy.hitFlashTimer > 0) {
           this._tempColor.setHex(0xff4444);
         } else if (enemy.isElite) {
@@ -811,13 +836,25 @@ export class GameScene {
     let count = 0;
     for (const proj of projectiles) {
       this._dummy.position.set(proj.x, proj.y, proj.z);
-      const s = proj.fromPlayer ? 1.0 : 1.5;
+
+      // Size varies by weapon type
+      let s = proj.fromPlayer ? 1.0 : 1.5;
+      if (proj.weaponType === 'black_hole') s = 2.5;
+      else if (proj.weaponType === 'tornado') s = 1.8;
+      else if (proj.weaponType === 'fire_staff') s = 1.4;
+      else if (proj.weaponType === 'axe') s = 1.2;
+      else if (proj.weaponType === 'katana') s = 0.8;
+      else if (proj.weaponType === 'shotgun') s = 0.6;
+      else if (proj.weaponType === 'revolver') s = 0.5;
+      else if (proj.weaponType === 'bow') s = 0.7;
+
       this._dummy.scale.set(s, s, s);
       this._dummy.updateMatrix();
       this.projectileMesh.setMatrixAt(count, this._dummy.matrix);
 
       if (proj.fromPlayer) {
-        this._tempColor.setHex(0xffdd44);
+        const color = WEAPON_PROJECTILE_COLORS[proj.weaponType] ?? 0xffdd44;
+        this._tempColor.setHex(color);
       } else {
         this._tempColor.setHex(0xff4444);
       }
@@ -877,13 +914,81 @@ export class GameScene {
       mat.color.setHex(0x9933cc);
     }
 
-    // Scale pulse when enraged
     const scale = boss.enraged ? 3.0 + Math.sin(performance.now() * 0.01) * 0.15 : 3.0;
     this.bossMesh.scale.set(scale / 2.4, scale / 3.0, scale / 2.4);
   }
 
+  private renderTeleporters(teleporters: TeleporterState[]): void {
+    const time = performance.now() * 0.003;
+
+    // Create or update teleporter meshes
+    while (this.teleporterMeshes.length < teleporters.length) {
+      // Base ring (portal on ground)
+      const ringGeo = new THREE.RingGeometry(1.5, 2.0, 24);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0x00ccff,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.8,
+      });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.name = 'Teleporter_Ring';
+      ring.rotation.x = -Math.PI / 2;
+      this.scene.add(ring);
+      this.teleporterMeshes.push(ring);
+
+      // Glow pillar
+      const pillarGeo = new THREE.CylinderGeometry(0.3, 1.5, 4, 12);
+      const pillarMat = new THREE.MeshBasicMaterial({
+        color: 0x00ffff,
+        transparent: true,
+        opacity: 0.3,
+      });
+      const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+      pillar.name = 'Teleporter_Glow';
+      this.scene.add(pillar);
+      this.teleporterGlowMeshes.push(pillar);
+    }
+
+    for (let i = 0; i < this.teleporterMeshes.length; i++) {
+      if (i < teleporters.length) {
+        const tp = teleporters[i];
+        const ring = this.teleporterMeshes[i];
+        const pillar = this.teleporterGlowMeshes[i];
+
+        ring.visible = true;
+        ring.position.set(tp.x, 0.1, tp.z);
+        ring.rotation.z = time;
+
+        pillar.visible = true;
+        pillar.position.set(tp.x, 2, tp.z);
+
+        // Color based on phase
+        const ringMat = ring.material as THREE.MeshBasicMaterial;
+        const pillarMat = pillar.material as THREE.MeshBasicMaterial;
+
+        if (tp.phase === 'activated') {
+          ringMat.color.setHex(0xff4400);
+          pillarMat.color.setHex(0xff6600);
+          pillarMat.opacity = 0.6;
+        } else if (tp.phase === 'activating') {
+          const pulse = 0.5 + Math.sin(time * 3) * 0.3;
+          ringMat.color.setHex(0xffaa00);
+          pillarMat.color.setHex(0xffcc00);
+          pillarMat.opacity = pulse;
+        } else {
+          ringMat.color.setHex(0x00ccff);
+          pillarMat.color.setHex(0x00ffff);
+          pillarMat.opacity = 0.3 + Math.sin(time) * 0.1;
+        }
+      } else {
+        this.teleporterMeshes[i].visible = false;
+        this.teleporterGlowMeshes[i].visible = false;
+      }
+    }
+  }
+
   private updateParticles(damageEvents: DamageEvent[]): void {
-    // Spawn new particles from damage events
     for (const event of damageEvents) {
       if (event.isPlayerDamage) continue;
       const count = event.isCrit ? 8 : 4;
@@ -897,8 +1002,6 @@ export class GameScene {
       }
     }
 
-    // Update existing particles
-    let activeCount = 0;
     const dt = 1 / 60;
     for (let i = this.particleVelocities.length - 1; i >= 0; i--) {
       const p = this.particleVelocities[i];
@@ -912,7 +1015,6 @@ export class GameScene {
       p.z += (Math.random() - 0.5) * 0.5 * dt;
     }
 
-    // Write to buffer
     const maxP = this.particlePositions.length / 3;
     for (let i = 0; i < maxP; i++) {
       if (i < this.particleVelocities.length) {
@@ -920,7 +1022,6 @@ export class GameScene {
         this.particlePositions[i * 3] = p.x;
         this.particlePositions[i * 3 + 1] = p.y;
         this.particlePositions[i * 3 + 2] = p.z;
-        activeCount++;
       } else {
         this.particlePositions[i * 3] = 0;
         this.particlePositions[i * 3 + 1] = -100;
@@ -928,7 +1029,6 @@ export class GameScene {
       }
     }
 
-    // Trim excess particles
     if (this.particleVelocities.length > maxP) {
       this.particleVelocities.length = maxP;
     }
@@ -940,12 +1040,10 @@ export class GameScene {
   private updateCamera(state: GameState): void {
     const p = state.player;
 
-    // Camera gently follows player rotation (very slow, no snapping)
     let angleDiff = p.rotation - this.cameraAngle;
-    // Normalize angle difference to [-PI, PI]
     while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
     while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-    this.cameraAngle += angleDiff * 0.02; // Very slow rotation follow
+    this.cameraAngle += angleDiff * 0.02;
 
     const behindDist = 11;
     const camHeight = 5.5;
@@ -954,12 +1052,10 @@ export class GameScene {
     const targetZ = p.z - Math.cos(this.cameraAngle) * behindDist;
     const targetY = p.y + camHeight;
 
-    // Smooth position follow
     this.camera.position.x += (targetX - this.camera.position.x) * 0.06;
     this.camera.position.y += (targetY - this.camera.position.y) * 0.06;
     this.camera.position.z += (targetZ - this.camera.position.z) * 0.06;
 
-    // Look at player center (slightly above feet)
     this.camera.lookAt(p.x, p.y + 1.5, p.z);
   }
 
@@ -970,28 +1066,29 @@ export class GameScene {
   private updateHUD(state: GameState): void {
     const p = state.player;
 
-    // HP bar
     const hpPercent = Math.max(0, Math.min(100, (p.hp / p.maxHp) * 100));
     this.hpBarInner.style.width = `${hpPercent}%`;
 
-    // XP bar
     const xpPercent = p.xpToNext > 0 ? Math.max(0, Math.min(100, (p.xp / p.xpToNext) * 100)) : 0;
     this.xpBarInner.style.width = `${xpPercent}%`;
 
-    // Level
     this.levelLabel.textContent = t('hud.level', { level: String(p.level) });
 
-    // Timer (mm:ss)
     const totalSec = Math.floor(state.gameTime);
     const minutes = Math.floor(totalSec / 60);
     const seconds = totalSec % 60;
     const timeStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
     this.timerLabel.textContent = t('hud.time', { time: timeStr });
 
-    // Kills
     this.killLabel.textContent = t('hud.kills', { count: String(state.stats.killCount) });
 
-    // Damage numbers from events
+    // Weapon slots display
+    this.weaponSlotsLabel.textContent = t('hud.weaponSlots', {
+      current: String(p.weapons.length),
+      max: String(p.maxWeaponSlots),
+    });
+
+    // Damage numbers
     for (const evt of state.damageEvents) {
       this.spawnDamageNumber(evt);
     }
@@ -1005,7 +1102,6 @@ export class GameScene {
     const el = this.damageNums[this.damageNumIndex];
     this.damageNumIndex = (this.damageNumIndex + 1) % DAMAGE_NUM_POOL_SIZE;
 
-    // Project 3D position to screen coords
     this._tempVec.set(evt.x, evt.y, evt.z);
     this._tempVec.project(this.camera);
 
@@ -1014,7 +1110,6 @@ export class GameScene {
     const screenX = this._tempVec.x * hw + hw;
     const screenY = -(this._tempVec.y * hh) + hh;
 
-    // Determine color
     let color = '#ffffff';
     if (evt.isPlayerDamage) color = '#ff4444';
     else if (evt.isCrit) color = '#ffcc00';
@@ -1030,7 +1125,6 @@ export class GameScene {
     el.style.transform = 'translateY(0px)';
     el.style.transition = 'none';
 
-    // Force reflow
     void el.offsetWidth;
 
     el.style.transition = 'opacity 0.6s ease-out, transform 0.6s ease-out';
@@ -1090,15 +1184,23 @@ export class GameScene {
       card.style.boxShadow = '0 4px 12px rgba(0,0,0,0.5)';
     });
 
+    // Icon / Kind indicator
+    const iconEl = document.createElement('div');
+    iconEl.style.cssText = 'font-size:24px;margin-bottom:6px;';
+    if (option.kind === 'new_weapon') iconEl.textContent = '⚔️';
+    else if (option.kind === 'weapon_upgrade') iconEl.textContent = '⬆️';
+    else iconEl.textContent = '📖';
+    card.appendChild(iconEl);
+
     // Name
     const nameEl = document.createElement('div');
-    nameEl.style.cssText = `color:${borderColor};font-size:15px;font-weight:bold;margin-bottom:8px;`;
+    nameEl.style.cssText = `color:${borderColor};font-size:14px;font-weight:bold;margin-bottom:8px;`;
     nameEl.textContent = this.getUpgradeName(option);
     card.appendChild(nameEl);
 
     // Description
     const descEl = document.createElement('div');
-    descEl.style.cssText = 'color:#cccccc;font-size:12px;margin-bottom:8px;';
+    descEl.style.cssText = 'color:#cccccc;font-size:11px;margin-bottom:8px;';
     descEl.textContent = this.getUpgradeDesc(option);
     card.appendChild(descEl);
 
@@ -1125,14 +1227,16 @@ export class GameScene {
     if (option.kind === 'new_weapon' || option.kind === 'weapon_upgrade') {
       return t(`upgrade.weapon.${option.weaponType}`);
     }
-    return t(`upgrade.passive.${option.passiveType}`);
+    const tomeType = option.tomeType ?? option.passiveType;
+    return t(`upgrade.tome.${tomeType}`);
   }
 
   private getUpgradeDesc(option: UpgradeOption): string {
     if (option.kind === 'new_weapon' || option.kind === 'weapon_upgrade') {
       return t(`upgrade.weapon.${option.weaponType}_desc`);
     }
-    return t(`upgrade.passive.${option.passiveType}_desc`);
+    const tomeType = option.tomeType ?? option.passiveType;
+    return t(`upgrade.tome.${tomeType}_desc`);
   }
 
   private hideUpgradePanel(): void {
@@ -1150,13 +1254,11 @@ export class GameScene {
     this.gameOverPanel = document.createElement('div');
     this.gameOverPanel.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:400;font-family:Arial,sans-serif;gap:12px;';
 
-    // Title
     const title = document.createElement('div');
     title.style.cssText = `font-size:40px;font-weight:bold;text-shadow:0 2px 8px rgba(0,0,0,0.9);color:${result.victory ? '#ffcc00' : '#ff4444'};`;
     title.textContent = result.victory ? t('result.victory') : t('result.defeat');
     this.gameOverPanel.appendChild(title);
 
-    // Stats
     const statsContainer = document.createElement('div');
     statsContainer.style.cssText = 'display:flex;flex-direction:column;gap:6px;align-items:center;margin:16px 0;';
 
@@ -1180,7 +1282,6 @@ export class GameScene {
     }
     this.gameOverPanel.appendChild(statsContainer);
 
-    // Buttons
     const btnRow = document.createElement('div');
     btnRow.style.cssText = 'display:flex;gap:16px;margin-top:12px;';
 
@@ -1230,6 +1331,77 @@ export class GameScene {
 }
 
 // =============================================================================
+// Character Selection
+// =============================================================================
+
+let selectedCharacter: CharacterType = 'megachad';
+
+function showCharacterSelect(onSelect: (character: CharacterType) => void): HTMLDivElement {
+  const panel = document.createElement('div');
+  panel.style.cssText = 'display:flex;gap:16px;margin-top:16px;flex-wrap:wrap;justify-content:center;';
+
+  const characters: CharacterType[] = ['megachad', 'roberto', 'skateboard_skeleton'];
+
+  for (const char of characters) {
+    const card = document.createElement('div');
+    const isSelected = char === selectedCharacter;
+    const charColor = CHARACTER_COLORS[char] ?? 0xf5d680;
+    const hexColor = `#${charColor.toString(16).padStart(6, '0')}`;
+
+    card.style.cssText = `
+      width:140px;padding:14px;background:rgba(20,20,40,0.9);
+      border:2px solid ${isSelected ? hexColor : '#555555'};
+      border-radius:10px;cursor:pointer;text-align:center;transition:all 0.15s;
+      ${isSelected ? `box-shadow:0 0 15px ${hexColor}44;` : ''}
+    `;
+
+    // Character icon/color swatch
+    const iconEl = document.createElement('div');
+    iconEl.style.cssText = `width:40px;height:40px;border-radius:50%;margin:0 auto 8px;background:${hexColor};`;
+    card.appendChild(iconEl);
+
+    // Name
+    const nameEl = document.createElement('div');
+    nameEl.style.cssText = `color:${hexColor};font-size:13px;font-weight:bold;margin-bottom:4px;`;
+    nameEl.textContent = t(`character.${char}`);
+    card.appendChild(nameEl);
+
+    // Description
+    const descEl = document.createElement('div');
+    descEl.style.cssText = 'color:#999;font-size:10px;line-height:1.3;';
+    descEl.textContent = t(`character.${char}_desc`);
+    card.appendChild(descEl);
+
+    // Stats preview
+    const cfg = CHARACTER_CONFIGS[char];
+    const statsEl = document.createElement('div');
+    statsEl.style.cssText = 'color:#777;font-size:9px;margin-top:6px;line-height:1.4;';
+    statsEl.innerHTML = `HP:${cfg.hp} SPD:${cfg.speed} DMG:${cfg.damage}x`;
+    card.appendChild(statsEl);
+
+    card.addEventListener('click', () => {
+      selectedCharacter = char;
+      onSelect(char);
+      // Re-render all cards to show selection
+      panel.remove();
+      const newPanel = showCharacterSelect(onSelect);
+      panel.parentElement?.appendChild(newPanel);
+    });
+
+    card.addEventListener('mouseenter', () => {
+      card.style.transform = 'scale(1.03)';
+    });
+    card.addEventListener('mouseleave', () => {
+      card.style.transform = 'scale(1)';
+    });
+
+    panel.appendChild(card);
+  }
+
+  return panel;
+}
+
+// =============================================================================
 // Main Menu
 // =============================================================================
 
@@ -1237,7 +1409,6 @@ let mainMenuEl: HTMLDivElement | null = null;
 let menuScene: { renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.PerspectiveCamera; animId: number | null } | null = null;
 
 function showMainMenu(): void {
-  // Background scene
   const container = document.getElementById('game-container');
   if (!container) return;
 
@@ -1255,7 +1426,6 @@ function showMainMenu(): void {
   camera.position.set(0, 10, 18);
   camera.lookAt(0, 0, 0);
 
-  // Ground — green grass
   const groundGeo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE);
   const groundMat = new THREE.MeshLambertMaterial({ color: 0x5dba4c });
   const ground = new THREE.Mesh(groundGeo, groundMat);
@@ -1263,7 +1433,6 @@ function showMainMenu(): void {
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
 
-  // Lights — bright
   const ambient = new THREE.AmbientLight(0xffffff, 0.7);
   ambient.name = 'MenuAmbient';
   scene.add(ambient);
@@ -1272,7 +1441,7 @@ function showMainMenu(): void {
   dir.position.set(8, 15, 5);
   scene.add(dir);
 
-  // Decorative enemy boxes — colorful
+  // Decorative elements
   for (let i = 0; i < 20; i++) {
     const boxGeo = new THREE.BoxGeometry(0.9, 1.2, 0.9);
     const color = [0xd4a574, 0xaaddff, 0x44cc55, 0x553366, 0xc87533][i % 5];
@@ -1313,23 +1482,35 @@ function showMainMenu(): void {
 
   // Menu overlay
   mainMenuEl = document.createElement('div');
-  mainMenuEl.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:500;font-family:Arial,sans-serif;gap:24px;';
+  mainMenuEl.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:500;font-family:Arial,sans-serif;gap:16px;';
 
-  // Title — bold colorful
+  // Title
   const title = document.createElement('div');
   title.style.cssText = 'font-size:56px;font-weight:bold;color:#ffdd00;text-shadow:0 0 20px #ff8800,0 0 40px #ff4400,0 4px 8px rgba(0,0,0,0.6);letter-spacing:4px;-webkit-text-stroke:2px #cc6600;';
   title.textContent = t('game.title');
   mainMenuEl.appendChild(title);
 
-  // Start button — vibrant
+  // Character select label
+  const selectLabel = document.createElement('div');
+  selectLabel.style.cssText = 'color:#cccccc;font-size:14px;margin-top:12px;';
+  selectLabel.textContent = t('menu.selectCharacter');
+  mainMenuEl.appendChild(selectLabel);
+
+  // Character select cards
+  const charPanel = showCharacterSelect((_char) => {
+    // Character selection updates via the showCharacterSelect function
+  });
+  mainMenuEl.appendChild(charPanel);
+
+  // Start button
   const startBtn = document.createElement('div');
-  startBtn.style.cssText = 'padding:14px 40px;background:linear-gradient(135deg,#ff6600,#ffaa00);color:#ffffff;font-size:20px;font-weight:bold;border-radius:12px;cursor:pointer;user-select:none;box-shadow:0 4px 16px rgba(255,100,0,0.4);transition:transform 0.15s;text-shadow:0 2px 4px rgba(0,0,0,0.3);';
+  startBtn.style.cssText = 'padding:14px 40px;background:linear-gradient(135deg,#ff6600,#ffaa00);color:#ffffff;font-size:20px;font-weight:bold;border-radius:12px;cursor:pointer;user-select:none;box-shadow:0 4px 16px rgba(255,100,0,0.4);transition:transform 0.15s;text-shadow:0 2px 4px rgba(0,0,0,0.3);margin-top:16px;';
   startBtn.textContent = t('menu.start');
   startBtn.addEventListener('mouseenter', () => { startBtn.style.transform = 'scale(1.05)'; });
   startBtn.addEventListener('mouseleave', () => { startBtn.style.transform = 'scale(1)'; });
   startBtn.addEventListener('click', () => {
     destroyMainMenu();
-    startGame();
+    startGame(selectedCharacter);
   });
   mainMenuEl.appendChild(startBtn);
 
@@ -1354,13 +1535,18 @@ function destroyMainMenu(): void {
 
 let activeScene: GameScene | null = null;
 
-function startGame(): void {
+function startGame(character: CharacterType = 'megachad'): void {
   if (activeScene) {
     activeScene.destroy();
     activeScene = null;
   }
 
-  const session = new LocalGameSession();
+  const config: GameConfig = {
+    ...DEFAULT_GAME_CONFIG,
+    character,
+  };
+
+  const session = new LocalGameSession(config);
   const scene = new GameScene(session);
   activeScene = scene;
   scene.start();
@@ -1387,7 +1573,6 @@ async function main(): Promise<void> {
     mountDevtools();
   }
 
-  // Load 3D models before showing menu
   await loadModels();
 
   showMainMenu();

@@ -6,6 +6,10 @@ export type {
   WeaponState,
   PassiveType,
   PassiveState,
+  TomeType,
+  TomeState,
+  CharacterType,
+  CharacterConfig,
   PlayerState,
   EnemyType,
   EnemyBehavior,
@@ -13,6 +17,8 @@ export type {
   ProjectileState,
   PickupType,
   PickupState,
+  TeleporterPhase,
+  TeleporterState,
   UpgradeRarity,
   UpgradeKind,
   UpgradeOption,
@@ -43,7 +49,8 @@ export {
   DASH_DURATION,
   DASH_COOLDOWN,
   MAX_LEVEL,
-  MAX_WEAPONS,
+  MAX_WEAPONS_DEFAULT,
+  MAX_WEAPONS_CAP,
   XP_BASE,
   XP_GROWTH,
   BOSS_SPAWN_TIME,
@@ -56,6 +63,10 @@ export {
   WAVE_CONFIGS,
   WEAPON_STATS,
   PASSIVE_MAX_LEVELS,
+  TOME_MAX_LEVELS,
+  CHARACTER_CONFIGS,
+  ALL_WEAPON_TYPES,
+  ALL_TOME_TYPES,
   DEFAULT_GAME_CONFIG,
 } from './config.ts';
 
@@ -63,6 +74,6 @@ export type { EnemyConfig, WaveConfig, WeaponLevelStats } from './config.ts';
 
 export { applyMovement3D, distanceBetween, normalizeDirection } from './physics.ts';
 export { SpatialHash } from './spatial-hash.ts';
-export { fireWeapon, applyBounce } from './weapons.ts';
+export { fireWeapon, applyBounce, updateOrbitingProjectile, updateSpinningProjectile, applyGravitationalPull } from './weapons.ts';
 export { generateUpgradeOptions, xpForLevel } from './upgrades.ts';
 export { GameInstance } from './GameInstance.ts';

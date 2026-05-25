@@ -1,6 +1,8 @@
 /**
  * MegaBonk 3D Roguelike Survivor - Core Game Instance
  * Pure game logic — NO Three.js or rendering imports.
+ * Features: MegaBonk-style movement (jump, slide, bunny hop),
+ * 13 weapons, 10 tomes, 3 characters, teleporter system.
  */
 
 import type {
@@ -23,6 +25,9 @@ import type {
   BossPhase,
   BossAttack,
   PickupType,
+  CharacterType,
+  TeleporterState,
+  TomeState,
 } from './types.ts';
 
 import {
@@ -43,20 +48,29 @@ import {
   GRAVITY,
   SLIDE_DURATION,
   SLIDE_SPEED_MULTIPLIER,
+  BUNNY_HOP_WINDOW,
+  BUNNY_HOP_BONUS,
   BOSS_SPAWN_TIME,
   BOSS_HP,
   BOSS_INTRO_DURATION,
   PICKUP_LIFETIME,
   PICKUP_ATTRACT_SPEED,
+  TELEPORTER_ACTIVATION_DURATION,
+  TELEPORTER_APPEAR_TIME,
+  TELEPORTER_RADIUS,
   XP_VALUES,
   ENEMY_CONFIGS,
   WAVE_CONFIGS,
   WEAPON_STATS,
+  CHARACTER_CONFIGS,
+  MAX_WEAPONS_DEFAULT,
+  MAX_WEAPONS_CAP,
 } from './config.ts';
 
 import { applyMovement3D, distanceBetween, normalizeDirection } from './physics.ts';
 import { SpatialHash } from './spatial-hash.ts';
 import { generateUpgradeOptions, xpForLevel } from './upgrades.ts';
+import { updateOrbitingProjectile, updateSpinningProjectile, applyGravitationalPull } from './weapons.ts';
 
 export class GameInstance {
   private config: GameConfig;
@@ -71,9 +85,12 @@ export class GameInstance {
 
   // Track last input for dash edge-detection
   private lastDashInput: boolean = false;
+  private lastJumpInput: boolean = false;
   // Player facing direction for projectile aiming
   private facingX: number = 0;
   private facingZ: number = 1;
+  // Bunny hop: track time since last landing
+  private landingTimer: number = 0;
 
   constructor(config: GameConfig) {
     this.config = config;
@@ -101,6 +118,8 @@ export class GameInstance {
       damageEvents: [],
       stats: { killCount: 0, damageDealt: 0, damageTaken: 0, silverEarned: 0 },
       waveIndex: 0,
+      teleporters: [],
+      character: config.character,
     };
   }
 
@@ -119,21 +138,22 @@ export class GameInstance {
     this.state.upgradeOptions = null;
     this.state.stats = { killCount: 0, damageDealt: 0, damageTaken: 0, silverEarned: 0 };
     this.state.waveIndex = 0;
+    this.state.teleporters = [];
+    this.state.character = this.config.character;
     this.state.player = this.createInitialPlayer();
     this.nextEnemyId = 1;
     this.nextProjectileId = 1;
     this.nextPickupId = 1;
     this.spawnTimer = 1.0;
     this.aiGroup = 0;
+    this.landingTimer = 0;
   }
 
   tick(): boolean {
-    // Step 1: If paused or not running, return
     if (!this.state.running || this.state.finished || this.state.paused) {
       return this.state.finished;
     }
 
-    // During level-up, halt game logic
     if (this.state.phase === 'level_up') {
       return false;
     }
@@ -154,55 +174,60 @@ export class GameInstance {
 
     const dt = TICK_INTERVAL_MS / 1000;
 
-    // Step 2: Increment gameTime
     this.state.gameTime += dt;
     this.state.tick++;
 
-    // Step 3: Process player movement
+    // Process player movement (with bunny hop)
     this.processPlayerMovement(dt);
 
-    // Step 4: Process dash
+    // Process dash
     this.processDash(dt);
 
-    // Step 5: Update timers
+    // Update timers
     this.updateTimers(dt);
 
-    // Step 6: Update enemies AI
+    // Update enemies AI
     this.updateEnemiesAI(dt);
 
-    // Step 7: Fire weapons
+    // Fire weapons
     this.fireWeapons(dt);
 
-    // Step 8: Update projectiles
+    // Update projectiles (including orbiting, spinning, gravitational)
     this.updateProjectiles(dt);
 
-    // Step 9: Collision detection
+    // Collision detection
     this.processCollisions();
 
-    // Step 10: Process deaths
+    // Process deaths
     this.processDeaths();
 
-    // Step 11: Update pickups
+    // Update pickups
     this.updatePickups(dt);
 
-    // Step 12: Check level up
+    // Check level up
     this.checkLevelUp();
 
-    // Step 13: Spawn enemies
+    // Spawn enemies
     this.spawnEnemies(dt);
 
-    // Step 14: Check boss spawn
+    // Update teleporters
+    this.updateTeleporters(dt);
+
+    // Check boss spawn
     this.checkBossSpawn();
 
-    // Step 15: Update boss AI
+    // Update boss AI
     if (this.state.boss && this.state.phase === 'boss_fight') {
       this.updateBossAI(dt);
     }
 
-    // Step 16: Check game over
+    // Apply thorns damage
+    this.applyThornsDamage();
+
+    // Check game over
     this.checkGameOver();
 
-    // Step 17: Clear old damage events
+    // Clear old damage events
     this.state.damageEvents = [];
 
     // Cycle AI group
@@ -225,7 +250,7 @@ export class GameInstance {
 
     switch (option.kind) {
       case 'new_weapon':
-        if (option.weaponType) {
+        if (option.weaponType && player.weapons.length < player.maxWeaponSlots) {
           player.weapons.push({
             type: option.weaponType,
             level: 1,
@@ -243,15 +268,17 @@ export class GameInstance {
         }
         break;
 
-      case 'passive':
-        if (option.passiveType) {
-          const existing = player.passives.find(p => p.type === option.passiveType);
+      case 'tome':
+        if (option.tomeType) {
+          const existing = player.tomes.find(t => t.type === option.tomeType);
           if (existing) {
             existing.level = option.newLevel;
           } else {
-            player.passives.push({ type: option.passiveType!, level: option.newLevel });
+            player.tomes.push({ type: option.tomeType!, level: option.newLevel });
           }
-          this.recalculatePassiveStats();
+          // Keep passives in sync
+          player.passives = player.tomes;
+          this.recalculateTomeStats();
         }
         break;
     }
@@ -290,6 +317,8 @@ export class GameInstance {
   // =========================================================================
 
   private createInitialPlayer(): PlayerState {
+    const charCfg = CHARACTER_CONFIGS[this.config.character];
+
     return {
       x: 0,
       y: 0,
@@ -301,39 +330,43 @@ export class GameInstance {
       isSliding: false,
       slideTimer: 0,
       slideSpeedBoost: 0,
-      hp: PLAYER_BASE_HP,
-      maxHp: PLAYER_BASE_HP,
+      bunnyHopTimer: 0,
+      hp: charCfg.hp,
+      maxHp: charCfg.hp,
       level: 1,
       xp: 0,
       xpToNext: xpForLevel(1),
-      speed: PLAYER_BASE_SPEED,
-      damageMultiplier: 1.0,
+      speed: charCfg.speed,
+      damageMultiplier: charCfg.damage,
       attackSpeedMultiplier: 1.0,
-      critChance: PLAYER_BASE_CRIT_CHANCE,
+      critChance: charCfg.critChance,
       critDamage: PLAYER_BASE_CRIT_DAMAGE,
-      armor: 0,
+      armor: charCfg.armor,
       pickupRadius: PLAYER_PICKUP_RADIUS,
-      weapons: [{ type: 'bone_bouncer', level: 1, cooldownTimer: 0 }],
+      weapons: [{ type: charCfg.startingWeapon, level: 1, cooldownTimer: 0 }],
+      tomes: [],
       passives: [],
       dashCooldown: 0,
       dashCooldownMax: DASH_COOLDOWN,
       dashTimer: 0,
       invincibleTimer: 0,
       alive: true,
+      character: this.config.character,
+      maxWeaponSlots: charCfg.weaponSlots,
     };
   }
 
   // =========================================================================
-  // Private: Player Movement & Dash
+  // Private: Player Movement & Dash (MegaBonk movement system)
   // =========================================================================
 
   private processPlayerMovement(dt: number): void {
     const player = this.state.player;
     if (!player.alive) return;
-    if (player.dashTimer > 0) return; // Dash handles its own movement
+    if (player.dashTimer > 0) return;
 
     const moveX = this.currentInput.moveX;
-    const moveZ = this.currentInput.moveY; // moveY maps to Z axis in 3D
+    const moveZ = this.currentInput.moveY;
 
     // Update facing direction
     if (moveX !== 0 || moveZ !== 0) {
@@ -342,11 +375,23 @@ export class GameInstance {
       player.rotation = Math.atan2(moveX, moveZ);
     }
 
-    // --- Jump ---
-    if (this.currentInput.jump && player.isGrounded && !player.isSliding) {
-      player.velocityY = JUMP_FORCE;
+    // --- Bunny Hop Timer ---
+    if (player.bunnyHopTimer > 0) {
+      player.bunnyHopTimer -= dt;
+    }
+
+    // --- Jump (with bunny hop mechanic) ---
+    const jumpPressed = this.currentInput.jump && !this.lastJumpInput;
+    this.lastJumpInput = this.currentInput.jump;
+
+    if (jumpPressed && player.isGrounded && !player.isSliding) {
+      // Bunny hop: if jump within BUNNY_HOP_WINDOW of landing, get extra height
+      const isBunnyHop = player.bunnyHopTimer > 0;
+      const jumpMultiplier = isBunnyHop ? BUNNY_HOP_BONUS : 1.0;
+      player.velocityY = JUMP_FORCE * jumpMultiplier;
       player.isGrounded = false;
       player.isJumping = true;
+      player.bunnyHopTimer = 0;
     }
 
     // --- Gravity ---
@@ -354,15 +399,16 @@ export class GameInstance {
       player.velocityY -= GRAVITY * dt;
       player.y += player.velocityY * dt;
 
-      // Ground collision (terrain height = 0 for flat areas)
       const groundHeight = this.getTerrainHeight(player.x, player.z);
       if (player.y <= groundHeight) {
         player.y = groundHeight;
         player.velocityY = 0;
         player.isGrounded = true;
         player.isJumping = false;
+        // Set bunny hop window timer on landing
+        player.bunnyHopTimer = BUNNY_HOP_WINDOW;
 
-        // Landing → slide if holding slide input (MegaBonk slide mechanic)
+        // Landing → slide if holding slide input
         if (this.currentInput.slide && !player.isSliding) {
           player.isSliding = true;
           player.slideTimer = SLIDE_DURATION;
@@ -401,22 +447,20 @@ export class GameInstance {
     }
   }
 
-  /** Get terrain height at position — platform-based (flat + ramps) */
+  /** Get terrain height at position — MegaBonk style: platforms with ramps */
   private getTerrainHeight(x: number, z: number): number {
-    // MegaBonk style: flat platforms at different heights connected by ramps
-    // Define platforms as rectangles: [centerX, centerZ, halfWidth, halfDepth, height]
     const platforms: [number, number, number, number, number][] = [
       // Central arena (ground level)
       [0, 0, 25, 25, 0],
-      // Elevated platforms around edges
+      // Corner elevated platforms
       [-35, -30, 12, 10, 3],
       [35, -30, 12, 10, 3],
       [-35, 30, 12, 10, 3],
       [35, 30, 12, 10, 3],
-      // Higher platforms
+      // Higher platforms (north/south)
       [0, -40, 10, 8, 5],
       [0, 40, 10, 8, 5],
-      // Medium platforms
+      // Medium side platforms
       [-25, 0, 8, 12, 2],
       [25, 0, 8, 12, 2],
       // Small elevated spots
@@ -424,6 +468,15 @@ export class GameInstance {
       [15, -20, 5, 5, 1.5],
       [-15, 20, 5, 5, 1.5],
       [15, 20, 5, 5, 1.5],
+      // Additional mid-level platforms for more vertical gameplay
+      [-40, 0, 6, 6, 4],
+      [40, 0, 6, 6, 4],
+      [0, 0, 5, 5, 2.5], // Small center elevated spot
+      // Bridge-like platforms connecting areas
+      [-20, -15, 3, 8, 1],
+      [20, -15, 3, 8, 1],
+      [-20, 15, 3, 8, 1],
+      [20, 15, 3, 8, 1],
     ];
 
     let height = 0;
@@ -431,12 +484,9 @@ export class GameInstance {
       const dx = Math.abs(x - cx);
       const dz = Math.abs(z - cz);
 
-      // On platform
       if (dx <= hw && dz <= hd) {
         height = Math.max(height, h);
-      }
-      // Ramp zone (within 3 units of platform edge)
-      else if (dx <= hw + 3 && dz <= hd + 3) {
+      } else if (dx <= hw + 3 && dz <= hd + 3) {
         const edgeDist = Math.max(dx - hw, dz - hd, 0);
         if (edgeDist <= 3) {
           const rampHeight = h * (1 - edgeDist / 3);
@@ -451,7 +501,6 @@ export class GameInstance {
     const player = this.state.player;
     if (!player.alive) return;
 
-    // Edge-detect dash press
     const dashPressed = this.currentInput.dash && !this.lastDashInput;
     this.lastDashInput = this.currentInput.dash;
 
@@ -461,7 +510,6 @@ export class GameInstance {
       player.invincibleTimer = DASH_DURATION;
     }
 
-    // Process active dash movement
     if (player.dashTimer > 0) {
       player.dashTimer -= dt;
       const dashSpeed = DASH_DISTANCE / DASH_DURATION;
@@ -490,13 +538,11 @@ export class GameInstance {
     if (player.dashCooldown > 0) player.dashCooldown = Math.max(0, player.dashCooldown - dt);
     if (player.invincibleTimer > 0) player.invincibleTimer = Math.max(0, player.invincibleTimer - dt);
 
-    // Enemy timers
     for (const enemy of this.state.enemies) {
       if (enemy.hitFlashTimer > 0) enemy.hitFlashTimer = Math.max(0, enemy.hitFlashTimer - dt);
       if (enemy.attackCooldown > 0) enemy.attackCooldown = Math.max(0, enemy.attackCooldown - dt);
     }
 
-    // Boss hit flash
     if (this.state.boss && this.state.boss.hitFlashTimer > 0) {
       this.state.boss.hitFlashTimer = Math.max(0, this.state.boss.hitFlashTimer - dt);
     }
@@ -512,13 +558,9 @@ export class GameInstance {
 
     for (let i = 0; i < enemies.length; i++) {
       const enemy = enemies[i];
-
-      // Only 1/4 of enemies recalculate AI each frame (performance)
       if ((i % 4) === this.aiGroup) {
         this.computeEnemyTarget(enemy, player);
       }
-
-      // ALL enemies move every tick
       this.moveEnemy(enemy, dt);
     }
   }
@@ -538,16 +580,13 @@ export class GameInstance {
       case 'ranged': {
         const preferredRange = cfg?.preferredRange ?? 8;
         if (dist < preferredRange) {
-          // Move away from player
           const dir = normalizeDirection(enemy.x - px, enemy.z - pz);
           enemy.targetX = enemy.x + dir.x * 4;
           enemy.targetZ = enemy.z + dir.z * 4;
         } else if (dist > preferredRange * 1.5) {
-          // Move toward player
           enemy.targetX = px;
           enemy.targetZ = pz;
         } else {
-          // Stay put
           enemy.targetX = enemy.x;
           enemy.targetZ = enemy.z;
         }
@@ -584,12 +623,17 @@ export class GameInstance {
     if (enemy.behavior === 'charge') speedMult = 2.0;
     else if (enemy.behavior === 'dive') speedMult = 1.5;
 
+    // Curse tome: enemies move faster but drop more XP
+    const curseTome = this.state.player.tomes.find(t => t.type === 'curse_tome');
+    if (curseTome) {
+      speedMult *= (1 + curseTome.level * 0.1);
+    }
+
     const moveSpeed = enemy.speed * speedMult * dt;
     const actualMove = Math.min(moveSpeed, dist);
     const nx = dx / dist;
     const nz = dz / dist;
 
-    // Enemies can roam slightly outside map bounds
     const halfMap = (this.config.mapSize + 10) * 0.5;
     enemy.x = Math.max(-halfMap, Math.min(halfMap, enemy.x + nx * actualMove));
     enemy.z = Math.max(-halfMap, Math.min(halfMap, enemy.z + nz * actualMove));
@@ -614,31 +658,101 @@ export class GameInstance {
   }
 
   private fireWeapon(weapon: WeaponState, stats: typeof WEAPON_STATS['bone_bouncer'][0]): void {
+    const player = this.state.player;
+
     switch (weapon.type) {
+      case 'sword':
+        this.fireSword(stats);
+        break;
       case 'bone_bouncer':
         this.fireBoneBouncer(stats);
+        break;
+      case 'axe':
+        this.fireAxe(stats);
+        break;
+      case 'revolver':
+        this.fireRevolver(stats);
+        break;
+      case 'bow':
+        this.fireBow(stats);
         break;
       case 'lightning_staff':
         this.fireLightningStaff(stats);
         break;
+      case 'fire_staff':
+        this.fireFireStaff(stats);
+        break;
       case 'flame_ring':
         this.fireFlameRing(stats);
         break;
-      case 'void_orb':
-        this.fireVoidOrb(stats);
+      case 'tornado':
+        this.fireTornado(stats);
         break;
+      case 'shotgun':
+        this.fireShotgun(stats);
+        break;
+      case 'black_hole':
+        this.fireBlackHole(stats);
+        break;
+      case 'katana':
+        this.fireKatana(stats);
+        break;
+      case 'aura':
+        this.fireAura(stats);
+        break;
+    }
+  }
+
+  private fireSword(stats: typeof WEAPON_STATS['sword'][0]): void {
+    const player = this.state.player;
+    const arcAngle = Math.PI * 0.6;
+    const swipeCount = stats.projectileCount;
+
+    for (let s = 0; s < swipeCount; s++) {
+      const baseAngle = player.rotation + (s - (swipeCount - 1) / 2) * 0.3;
+      for (const enemy of this.state.enemies) {
+        if (enemy.hp <= 0) continue;
+        const dist = distanceBetween(player.x, player.z, enemy.x, enemy.z);
+        if (dist > stats.range) continue;
+
+        const angleToEnemy = Math.atan2(enemy.x - player.x, enemy.z - player.z);
+        let angleDiff = angleToEnemy - baseAngle;
+        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+
+        if (Math.abs(angleDiff) <= arcAngle / 2) {
+          const isCrit = Math.random() < player.critChance;
+          const damage = Math.round(stats.damage * player.damageMultiplier * (isCrit ? player.critDamage : 1));
+          enemy.hp -= damage;
+          enemy.hitFlashTimer = 0.15;
+          this.state.stats.damageDealt += damage;
+          this.addDamageEvent(enemy.x, 1.0, enemy.z, damage, isCrit, false);
+          this.applyKnockback(enemy, player.x, player.z);
+        }
+      }
+    }
+
+    // Also hit boss with sword
+    if (this.state.boss && this.state.boss.hp > 0) {
+      const dist = distanceBetween(player.x, player.z, this.state.boss.x, this.state.boss.z);
+      if (dist <= stats.range) {
+        const isCrit = Math.random() < player.critChance;
+        const damage = Math.round(stats.damage * player.damageMultiplier * (isCrit ? player.critDamage : 1));
+        this.state.boss.hp -= damage;
+        this.state.boss.hitFlashTimer = 0.15;
+        this.state.stats.damageDealt += damage;
+        this.addDamageEvent(this.state.boss.x, 2, this.state.boss.z, damage, isCrit, false);
+      }
     }
   }
 
   private fireBoneBouncer(stats: typeof WEAPON_STATS['bone_bouncer'][0]): void {
     const player = this.state.player;
-    const extraProj = this.getExtraProjectileCount();
-    const count = stats.projectileCount + extraProj;
+    const count = stats.projectileCount;
 
     for (let i = 0; i < count; i++) {
       if (this.state.projectiles.length >= MAX_PROJECTILES) break;
 
-      // Aim at nearest enemy
       const target = this.findNearestEnemy(player.x, player.z);
       let vx: number, vz: number;
 
@@ -651,7 +765,6 @@ export class GameInstance {
         vz = Math.cos(player.rotation) * stats.speed;
       }
 
-      // Spread for multiple projectiles
       if (count > 1) {
         const angle = ((i - (count - 1) / 2) * 0.25);
         const cos = Math.cos(angle);
@@ -668,9 +781,7 @@ export class GameInstance {
       this.state.projectiles.push({
         id: this.nextProjectileId++,
         weaponType: 'bone_bouncer',
-        x: player.x,
-        y: 1.0,
-        z: player.z,
+        x: player.x, y: 1.0, z: player.z,
         vx, vy: 0, vz,
         damage,
         bouncesLeft: stats.bounces,
@@ -683,21 +794,128 @@ export class GameInstance {
     }
   }
 
+  private fireAxe(stats: typeof WEAPON_STATS['axe'][0]): void {
+    const player = this.state.player;
+    const count = stats.projectileCount;
+
+    for (let i = 0; i < count; i++) {
+      if (this.state.projectiles.length >= MAX_PROJECTILES) break;
+
+      const startAngle = (i / count) * Math.PI * 2;
+      const isCrit = Math.random() < player.critChance;
+      const damage = Math.round(stats.damage * player.damageMultiplier * (isCrit ? player.critDamage : 1));
+
+      this.state.projectiles.push({
+        id: this.nextProjectileId++,
+        weaponType: 'axe',
+        x: player.x + Math.cos(startAngle) * stats.range,
+        y: 1.0,
+        z: player.z + Math.sin(startAngle) * stats.range,
+        vx: 0, vy: 0, vz: 0,
+        damage,
+        bouncesLeft: 0,
+        pierceLeft: stats.pierce,
+        lifetime: 3.0,
+        radius: stats.aoeRadius,
+        fromPlayer: true,
+        hitEnemyIds: [],
+        orbiting: true,
+        orbitAngle: startAngle,
+        orbitRadius: stats.range,
+        orbitSpeed: stats.speed,
+      });
+    }
+  }
+
+  private fireRevolver(stats: typeof WEAPON_STATS['revolver'][0]): void {
+    const player = this.state.player;
+    const count = stats.projectileCount;
+
+    for (let i = 0; i < count; i++) {
+      if (this.state.projectiles.length >= MAX_PROJECTILES) break;
+
+      const target = this.findNearestEnemy(player.x, player.z, stats.range);
+      let vx: number, vz: number;
+
+      if (target) {
+        const dir = normalizeDirection(target.x - player.x, target.z - player.z);
+        vx = dir.x * stats.speed;
+        vz = dir.z * stats.speed;
+      } else {
+        vx = Math.sin(player.rotation) * stats.speed;
+        vz = Math.cos(player.rotation) * stats.speed;
+      }
+
+      const isCrit = Math.random() < player.critChance;
+      const damage = Math.round(stats.damage * player.damageMultiplier * (isCrit ? player.critDamage : 1));
+
+      this.state.projectiles.push({
+        id: this.nextProjectileId++,
+        weaponType: 'revolver',
+        x: player.x, y: 1.0, z: player.z,
+        vx, vy: 0, vz,
+        damage,
+        bouncesLeft: 0,
+        pierceLeft: stats.pierce,
+        lifetime: 2.0,
+        radius: 0.2,
+        fromPlayer: true,
+        hitEnemyIds: [],
+      });
+    }
+  }
+
+  private fireBow(stats: typeof WEAPON_STATS['bow'][0]): void {
+    const player = this.state.player;
+    const count = stats.projectileCount;
+
+    for (let i = 0; i < count; i++) {
+      if (this.state.projectiles.length >= MAX_PROJECTILES) break;
+
+      const target = this.findNearestEnemy(player.x, player.z, stats.range);
+      let vx: number, vz: number;
+
+      if (target && i === 0) {
+        const dir = normalizeDirection(target.x - player.x, target.z - player.z);
+        vx = dir.x * stats.speed;
+        vz = dir.z * stats.speed;
+      } else {
+        const angle = player.rotation + (count > 1 ? (i - (count - 1) / 2) * 0.15 : 0);
+        vx = Math.sin(angle) * stats.speed;
+        vz = Math.cos(angle) * stats.speed;
+      }
+
+      const isCrit = Math.random() < player.critChance;
+      const damage = Math.round(stats.damage * player.damageMultiplier * (isCrit ? player.critDamage : 1));
+
+      this.state.projectiles.push({
+        id: this.nextProjectileId++,
+        weaponType: 'bow',
+        x: player.x, y: 1.0, z: player.z,
+        vx, vy: 0, vz,
+        damage,
+        bouncesLeft: 0,
+        pierceLeft: stats.pierce,
+        lifetime: 3.0,
+        radius: 0.25,
+        fromPlayer: true,
+        hitEnemyIds: [],
+      });
+    }
+  }
+
   private fireLightningStaff(stats: typeof WEAPON_STATS['lightning_staff'][0]): void {
     const player = this.state.player;
 
-    // Find nearest enemy in range
     const target = this.findNearestEnemy(player.x, player.z, stats.range);
     if (!target) return;
 
-    // Damage first target
     const isCrit = Math.random() < player.critChance;
     const damage = Math.round(stats.damage * player.damageMultiplier * (isCrit ? player.critDamage : 1));
     target.hp -= damage;
     target.hitFlashTimer = 0.15;
     this.state.stats.damageDealt += damage;
     this.addDamageEvent(target.x, 1.5, target.z, damage, isCrit, false);
-    this.applyLifesteal(damage);
 
     // Chain to nearby enemies
     const hitIds = new Set<number>([target.id]);
@@ -726,7 +944,6 @@ export class GameInstance {
       nearestEnemy.hitFlashTimer = 0.15;
       this.state.stats.damageDealt += chainDmg;
       this.addDamageEvent(nearestEnemy.x, 1.5, nearestEnemy.z, chainDmg, chainCrit, false);
-      this.applyLifesteal(chainDmg);
 
       hitIds.add(nearestEnemy.id);
       currentX = nearestEnemy.x;
@@ -734,7 +951,7 @@ export class GameInstance {
       chainsLeft--;
     }
 
-    // Also hit boss if in range and not already targeted
+    // Hit boss if in range
     if (this.state.boss && this.state.boss.hp > 0 && chainsLeft > 0) {
       const bossDist = distanceBetween(currentX, currentZ, this.state.boss.x, this.state.boss.z);
       if (bossDist < stats.range) {
@@ -748,12 +965,50 @@ export class GameInstance {
     }
   }
 
+  private fireFireStaff(stats: typeof WEAPON_STATS['fire_staff'][0]): void {
+    const player = this.state.player;
+    const count = stats.projectileCount;
+
+    for (let i = 0; i < count; i++) {
+      if (this.state.projectiles.length >= MAX_PROJECTILES) break;
+
+      const target = this.findNearestEnemy(player.x, player.z);
+      let vx: number, vz: number;
+
+      if (target) {
+        const dir = normalizeDirection(target.x - player.x, target.z - player.z);
+        vx = dir.x * stats.speed;
+        vz = dir.z * stats.speed;
+      } else {
+        const angle = player.rotation + (count > 1 ? (i - (count - 1) / 2) * 0.4 : 0);
+        vx = Math.sin(angle) * stats.speed;
+        vz = Math.cos(angle) * stats.speed;
+      }
+
+      const isCrit = Math.random() < player.critChance;
+      const damage = Math.round(stats.damage * player.damageMultiplier * (isCrit ? player.critDamage : 1));
+
+      this.state.projectiles.push({
+        id: this.nextProjectileId++,
+        weaponType: 'fire_staff',
+        x: player.x, y: 1.0, z: player.z,
+        vx, vy: 0, vz,
+        damage,
+        bouncesLeft: 0,
+        pierceLeft: 0,
+        lifetime: 4.0,
+        radius: stats.aoeRadius,
+        fromPlayer: true,
+        hitEnemyIds: [],
+      });
+    }
+  }
+
   private fireFlameRing(stats: typeof WEAPON_STATS['flame_ring'][0]): void {
     const player = this.state.player;
     const px = player.x;
     const pz = player.z;
 
-    // Damage all enemies in AOE radius
     for (const enemy of this.state.enemies) {
       if (enemy.hp <= 0) continue;
       const dist = distanceBetween(px, pz, enemy.x, enemy.z);
@@ -764,11 +1019,9 @@ export class GameInstance {
         enemy.hitFlashTimer = 0.1;
         this.state.stats.damageDealt += damage;
         this.addDamageEvent(enemy.x, 1.0, enemy.z, damage, isCrit, false);
-        this.applyLifesteal(damage);
       }
     }
 
-    // Also damage boss if in range
     if (this.state.boss && this.state.boss.hp > 0) {
       const dist = distanceBetween(px, pz, this.state.boss.x, this.state.boss.z);
       if (dist <= stats.aoeRadius) {
@@ -782,20 +1035,14 @@ export class GameInstance {
     }
   }
 
-  private fireVoidOrb(stats: typeof WEAPON_STATS['void_orb'][0]): void {
+  private fireTornado(stats: typeof WEAPON_STATS['tornado'][0]): void {
     const player = this.state.player;
-    const extraProj = this.getExtraProjectileCount();
-    const count = stats.projectileCount + extraProj;
+    const count = stats.projectileCount;
 
     for (let i = 0; i < count; i++) {
       if (this.state.projectiles.length >= MAX_PROJECTILES) break;
 
-      let angle = player.rotation;
-      if (count > 1) {
-        const spread = Math.PI * 0.4;
-        angle = player.rotation + ((i - (count - 1) / 2) / Math.max(1, count - 1)) * spread;
-      }
-
+      const angle = player.rotation + (i / count) * Math.PI * 2;
       const vx = Math.sin(angle) * stats.speed;
       const vz = Math.cos(angle) * stats.speed;
 
@@ -804,19 +1051,165 @@ export class GameInstance {
 
       this.state.projectiles.push({
         id: this.nextProjectileId++,
-        weaponType: 'void_orb',
-        x: player.x,
-        y: 1.0,
-        z: player.z,
+        weaponType: 'tornado',
+        x: player.x, y: 0.5, z: player.z,
         vx, vy: 0, vz,
         damage,
         bouncesLeft: 0,
         pierceLeft: stats.pierce,
-        lifetime: 5.0,
+        lifetime: 8.0,
+        radius: stats.aoeRadius,
+        fromPlayer: true,
+        hitEnemyIds: [],
+        spinning: true,
+        spinAngle: angle,
+      });
+    }
+  }
+
+  private fireShotgun(stats: typeof WEAPON_STATS['shotgun'][0]): void {
+    const player = this.state.player;
+    const count = stats.projectileCount;
+    const spreadAngle = Math.PI * 0.35;
+
+    for (let i = 0; i < count; i++) {
+      if (this.state.projectiles.length >= MAX_PROJECTILES) break;
+
+      const angleOffset = count > 1
+        ? ((i / (count - 1)) - 0.5) * spreadAngle
+        : 0;
+      const angle = player.rotation + angleOffset;
+      const vx = Math.sin(angle) * stats.speed;
+      const vz = Math.cos(angle) * stats.speed;
+
+      const isCrit = Math.random() < player.critChance;
+      const damage = Math.round(stats.damage * player.damageMultiplier * (isCrit ? player.critDamage : 1));
+
+      this.state.projectiles.push({
+        id: this.nextProjectileId++,
+        weaponType: 'shotgun',
+        x: player.x, y: 1.0, z: player.z,
+        vx, vy: 0, vz,
+        damage,
+        bouncesLeft: 0,
+        pierceLeft: stats.pierce,
+        lifetime: 1.5,
+        radius: 0.2,
+        fromPlayer: true,
+        hitEnemyIds: [],
+      });
+    }
+  }
+
+  private fireBlackHole(stats: typeof WEAPON_STATS['black_hole'][0]): void {
+    const player = this.state.player;
+    const count = stats.projectileCount;
+
+    for (let i = 0; i < count; i++) {
+      if (this.state.projectiles.length >= MAX_PROJECTILES) break;
+
+      const target = this.findNearestEnemy(player.x, player.z);
+      let px: number, pz: number;
+      if (target) {
+        px = target.x;
+        pz = target.z;
+      } else {
+        const angle = player.rotation + (i / count) * Math.PI * 2;
+        px = player.x + Math.sin(angle) * 8;
+        pz = player.z + Math.cos(angle) * 8;
+      }
+
+      const isCrit = Math.random() < player.critChance;
+      const damage = Math.round(stats.damage * player.damageMultiplier * (isCrit ? player.critDamage : 1));
+
+      this.state.projectiles.push({
+        id: this.nextProjectileId++,
+        weaponType: 'black_hole',
+        x: px, y: 0.5, z: pz,
+        vx: 0, vy: 0, vz: 0,
+        damage,
+        bouncesLeft: 0,
+        pierceLeft: 999,
+        lifetime: 4.0,
+        radius: stats.aoeRadius,
+        fromPlayer: true,
+        hitEnemyIds: [],
+        gravitational: true,
+        gravityStrength: 8.0,
+      });
+    }
+  }
+
+  private fireKatana(stats: typeof WEAPON_STATS['katana'][0]): void {
+    const player = this.state.player;
+    const count = stats.projectileCount;
+
+    for (let i = 0; i < count; i++) {
+      if (this.state.projectiles.length >= MAX_PROJECTILES) break;
+
+      const target = this.findNearestEnemy(player.x, player.z, stats.range);
+      let vx: number, vz: number;
+
+      if (target) {
+        const dir = normalizeDirection(target.x - player.x, target.z - player.z);
+        vx = dir.x * stats.speed;
+        vz = dir.z * stats.speed;
+      } else {
+        const angle = player.rotation + (count > 1 ? (i - (count - 1) / 2) * 0.2 : 0);
+        vx = Math.sin(angle) * stats.speed;
+        vz = Math.cos(angle) * stats.speed;
+      }
+
+      const isCrit = Math.random() < player.critChance;
+      const damage = Math.round(stats.damage * player.damageMultiplier * (isCrit ? player.critDamage : 1));
+
+      this.state.projectiles.push({
+        id: this.nextProjectileId++,
+        weaponType: 'katana',
+        x: player.x, y: 1.0, z: player.z,
+        vx, vy: 0, vz,
+        damage,
+        bouncesLeft: 0,
+        pierceLeft: stats.pierce,
+        lifetime: 0.8,
         radius: stats.aoeRadius,
         fromPlayer: true,
         hitEnemyIds: [],
       });
+    }
+  }
+
+  private fireAura(stats: typeof WEAPON_STATS['aura'][0]): void {
+    // Expanding damage ring — similar to flame_ring but with knockback
+    const player = this.state.player;
+    const px = player.x;
+    const pz = player.z;
+
+    for (const enemy of this.state.enemies) {
+      if (enemy.hp <= 0) continue;
+      const dist = distanceBetween(px, pz, enemy.x, enemy.z);
+      if (dist <= stats.aoeRadius) {
+        const isCrit = Math.random() < player.critChance;
+        const damage = Math.round(stats.damage * player.damageMultiplier * (isCrit ? player.critDamage : 1));
+        enemy.hp -= damage;
+        enemy.hitFlashTimer = 0.1;
+        this.state.stats.damageDealt += damage;
+        this.addDamageEvent(enemy.x, 1.0, enemy.z, damage, isCrit, false);
+        // Aura pushes enemies away
+        this.applyKnockback(enemy, px, pz);
+      }
+    }
+
+    if (this.state.boss && this.state.boss.hp > 0) {
+      const dist = distanceBetween(px, pz, this.state.boss.x, this.state.boss.z);
+      if (dist <= stats.aoeRadius) {
+        const isCrit = Math.random() < player.critChance;
+        const damage = Math.round(stats.damage * player.damageMultiplier * (isCrit ? player.critDamage : 1));
+        this.state.boss.hp -= damage;
+        this.state.boss.hitFlashTimer = 0.15;
+        this.state.stats.damageDealt += damage;
+        this.addDamageEvent(this.state.boss.x, 2, this.state.boss.z, damage, isCrit, false);
+      }
     }
   }
 
@@ -826,14 +1219,38 @@ export class GameInstance {
 
   private updateProjectiles(dt: number): void {
     const projectiles = this.state.projectiles;
+    const player = this.state.player;
+
     for (let i = projectiles.length - 1; i >= 0; i--) {
       const proj = projectiles[i];
-      proj.x += proj.vx * dt;
-      proj.y += proj.vy * dt;
-      proj.z += proj.vz * dt;
-      proj.lifetime -= dt;
 
+      // Handle orbiting projectiles (axe)
+      if (proj.orbiting) {
+        updateOrbitingProjectile(proj, player.x, player.z, dt);
+      }
+      // Handle spinning/curving projectiles (tornado)
+      else if (proj.spinning) {
+        updateSpinningProjectile(proj, dt);
+        proj.x += proj.vx * dt;
+        proj.z += proj.vz * dt;
+      }
+      // Handle gravitational (black hole) — doesn't move but pulls enemies
+      else if (proj.gravitational) {
+        applyGravitationalPull(proj, this.state.enemies, dt);
+      }
+      // Normal movement
+      else {
+        proj.x += proj.vx * dt;
+        proj.y += proj.vy * dt;
+        proj.z += proj.vz * dt;
+      }
+
+      proj.lifetime -= dt;
       if (proj.lifetime <= 0) {
+        // Fire staff AOE explosion on expiry
+        if (proj.weaponType === 'fire_staff' && proj.fromPlayer) {
+          this.fireStaffExplosion(proj);
+        }
         projectiles.splice(i, 1);
         continue;
       }
@@ -846,6 +1263,21 @@ export class GameInstance {
     }
   }
 
+  private fireStaffExplosion(proj: ProjectileState): void {
+    // AOE damage at fireball's final position
+    for (const enemy of this.state.enemies) {
+      if (enemy.hp <= 0) continue;
+      const dist = distanceBetween(proj.x, proj.z, enemy.x, enemy.z);
+      if (dist <= proj.radius) {
+        const damage = Math.round(proj.damage * 0.5); // 50% splash
+        enemy.hp -= damage;
+        enemy.hitFlashTimer = 0.15;
+        this.state.stats.damageDealt += damage;
+        this.addDamageEvent(enemy.x, 1.0, enemy.z, damage, false, false);
+      }
+    }
+  }
+
   // =========================================================================
   // Private: Collision Detection
   // =========================================================================
@@ -854,21 +1286,28 @@ export class GameInstance {
     const player = this.state.player;
     const enemies = this.state.enemies;
 
-    // Step 9a: Insert all enemies into spatial hash
+    // Insert all enemies into spatial hash
     this.spatialHash.clear();
     for (const enemy of enemies) {
       if (enemy.hp <= 0) continue;
       this.spatialHash.insert(enemy.id, enemy.x, enemy.z, 0.5);
     }
-    // Insert boss
     if (this.state.boss && this.state.boss.hp > 0) {
       this.spatialHash.insert(-1, this.state.boss.x, this.state.boss.z, 1.5);
     }
 
-    // Step 9b: Player projectiles vs enemies
+    // Player projectiles vs enemies
     for (let i = this.state.projectiles.length - 1; i >= 0; i--) {
       const proj = this.state.projectiles[i];
       if (!proj.fromPlayer) continue;
+
+      // Gravitational projectiles deal periodic damage (handled via hit reset)
+      if (proj.gravitational) {
+        // Reset hit list periodically (every 0.5s)
+        if (proj.lifetime % 0.5 < TICK_INTERVAL_MS / 1000) {
+          proj.hitEnemyIds = [];
+        }
+      }
 
       const nearbyIds = this.spatialHash.query(proj.x, proj.z, proj.radius);
       let consumed = false;
@@ -883,13 +1322,14 @@ export class GameInstance {
           this.state.stats.damageDealt += proj.damage;
           this.addDamageEvent(this.state.boss.x, 2, this.state.boss.z, proj.damage, false, false);
           proj.hitEnemyIds.push(id);
-          this.applyLifesteal(proj.damage);
 
           if (proj.pierceLeft > 0) {
             proj.pierceLeft--;
             continue;
           }
-          consumed = true;
+          if (!proj.gravitational && !proj.orbiting) {
+            consumed = true;
+          }
           break;
         }
 
@@ -902,7 +1342,9 @@ export class GameInstance {
         this.state.stats.damageDealt += proj.damage;
         this.addDamageEvent(enemy.x, 1.0, enemy.z, proj.damage, false, false);
         proj.hitEnemyIds.push(id);
-        this.applyLifesteal(proj.damage);
+
+        // Knockback from knockback tome
+        this.applyKnockback(enemy, proj.x, proj.z);
 
         // Handle bone_bouncer bounce
         if (proj.weaponType === 'bone_bouncer' && proj.bouncesLeft > 0) {
@@ -916,7 +1358,7 @@ export class GameInstance {
           } else {
             consumed = true;
           }
-          break; // One hit per frame for bouncing
+          break;
         }
 
         // Handle pierce
@@ -925,24 +1367,36 @@ export class GameInstance {
           continue;
         }
 
-        // No pierce/bounce -> remove
+        // Gravitational/orbiting projectiles don't get consumed on single hits
+        if (proj.gravitational || proj.orbiting) {
+          continue;
+        }
+
         consumed = true;
         break;
       }
 
       if (consumed) {
+        // Fire staff AOE on impact
+        if (proj.weaponType === 'fire_staff') {
+          this.fireStaffExplosion(proj);
+        }
         this.state.projectiles.splice(i, 1);
       }
     }
 
-    // Step 9c: Enemies attacking player (melee)
+    // Enemies attacking player (melee)
     if (player.alive && player.invincibleTimer <= 0) {
       for (const enemy of enemies) {
         if (enemy.hp <= 0 || enemy.attackCooldown > 0) continue;
 
         const dist = distanceBetween(player.x, player.z, enemy.x, enemy.z);
         if (dist < 1.2) {
-          const damage = Math.max(1, enemy.damage - player.armor);
+          // Shield tome reduces damage
+          const shieldTome = player.tomes.find(t => t.type === 'shield_tome');
+          const shieldReduction = shieldTome ? shieldTome.level * 0.05 : 0;
+          const rawDamage = Math.max(1, enemy.damage - player.armor);
+          const damage = Math.max(1, Math.round(rawDamage * (1 - shieldReduction)));
           player.hp -= damage;
           player.invincibleTimer = PLAYER_INVINCIBLE_DURATION;
           enemy.attackCooldown = enemy.attackCooldownMax;
@@ -952,7 +1406,7 @@ export class GameInstance {
           if (player.hp <= 0) {
             this.checkPlayerDeath();
           }
-          break; // Only one hit during invincibility window
+          break;
         }
       }
     }
@@ -962,7 +1416,10 @@ export class GameInstance {
       const dist = distanceBetween(player.x, player.z, this.state.boss.x, this.state.boss.z);
       if (dist < 2.0 && this.state.boss.attackCooldown <= 0) {
         const bossDmg = this.getBossMeleeDamage();
-        const damage = Math.max(1, bossDmg - player.armor);
+        const shieldTome = player.tomes.find(t => t.type === 'shield_tome');
+        const shieldReduction = shieldTome ? shieldTome.level * 0.05 : 0;
+        const rawDamage = Math.max(1, bossDmg - player.armor);
+        const damage = Math.max(1, Math.round(rawDamage * (1 - shieldReduction)));
         player.hp -= damage;
         player.invincibleTimer = PLAYER_INVINCIBLE_DURATION;
         this.state.boss.attackCooldown = 2.0;
@@ -984,7 +1441,10 @@ export class GameInstance {
         const dist = distanceBetween(proj.x, proj.z, player.x, player.z);
         const yDist = Math.abs(proj.y - 0.5);
         if (dist < proj.radius + 0.5 && yDist < 1.5) {
-          const damage = Math.max(1, proj.damage - player.armor);
+          const shieldTome = player.tomes.find(t => t.type === 'shield_tome');
+          const shieldReduction = shieldTome ? shieldTome.level * 0.05 : 0;
+          const rawDamage = Math.max(1, proj.damage - player.armor);
+          const damage = Math.max(1, Math.round(rawDamage * (1 - shieldReduction)));
           player.hp -= damage;
           player.invincibleTimer = PLAYER_INVINCIBLE_DURATION;
           this.state.stats.damageTaken += damage;
@@ -995,6 +1455,57 @@ export class GameInstance {
             this.checkPlayerDeath();
           }
           break;
+        }
+      }
+    }
+  }
+
+  // =========================================================================
+  // Private: Teleporter System
+  // =========================================================================
+
+  private updateTeleporters(dt: number): void {
+    const player = this.state.player;
+
+    // Spawn teleporter when time is right
+    if (this.state.teleporters.length === 0 && this.state.gameTime >= TELEPORTER_APPEAR_TIME && !this.state.boss) {
+      // Spawn teleporter at a random location away from player
+      const angle = Math.random() * Math.PI * 2;
+      const distance = 25 + Math.random() * 15;
+      const tx = Math.cos(angle) * distance;
+      const tz = Math.sin(angle) * distance;
+      const halfMap = this.config.mapSize * 0.4;
+
+      this.state.teleporters.push({
+        x: Math.max(-halfMap, Math.min(halfMap, tx)),
+        z: Math.max(-halfMap, Math.min(halfMap, tz)),
+        phase: 'available',
+        activationTimer: 0,
+        activationDuration: TELEPORTER_ACTIVATION_DURATION,
+      });
+    }
+
+    // Update existing teleporters
+    for (const tp of this.state.teleporters) {
+      if (tp.phase === 'available') {
+        // Check if player is standing on it
+        const dist = distanceBetween(player.x, player.z, tp.x, tp.z);
+        if (dist < TELEPORTER_RADIUS) {
+          tp.phase = 'activating';
+          tp.activationTimer = 0;
+        }
+      } else if (tp.phase === 'activating') {
+        const dist = distanceBetween(player.x, player.z, tp.x, tp.z);
+        if (dist >= TELEPORTER_RADIUS) {
+          // Player walked away, reset
+          tp.phase = 'available';
+          tp.activationTimer = 0;
+        } else {
+          tp.activationTimer += dt;
+          if (tp.activationTimer >= tp.activationDuration) {
+            tp.phase = 'activated';
+            // Teleporter activated → trigger boss spawn
+          }
         }
       }
     }
@@ -1022,9 +1533,15 @@ export class GameInstance {
     const cfg = ENEMY_CONFIGS[enemy.type];
     if (!cfg) return;
 
-    const xpReward = cfg.xpReward;
-    let pickupType: PickupType;
+    let xpReward = cfg.xpReward;
 
+    // Curse tome: more XP from kills
+    const curseTome = this.state.player.tomes.find(t => t.type === 'curse_tome');
+    if (curseTome) {
+      xpReward = Math.round(xpReward * (1 + curseTome.level * 0.2));
+    }
+
+    let pickupType: PickupType;
     if (xpReward >= 30) {
       pickupType = 'xp_orange';
     } else if (xpReward >= 10) {
@@ -1077,7 +1594,6 @@ export class GameInstance {
 
       const dist = distanceBetween(player.x, player.z, pickup.x, pickup.z);
 
-      // Attract if within pickup radius
       if (dist < player.pickupRadius) {
         pickup.attracted = true;
       }
@@ -1099,19 +1615,18 @@ export class GameInstance {
   private collectPickup(pickup: PickupState): void {
     if (pickup.type === 'silver') {
       this.state.stats.silverEarned += pickup.value;
-      // Lucky coin bonus
-      const luckyCoin = this.state.player.passives.find(p => p.type === 'lucky_coin');
-      if (luckyCoin) {
-        this.state.stats.silverEarned += luckyCoin.level;
+      const luckTome = this.state.player.tomes.find(t => t.type === 'luck_tome');
+      if (luckTome) {
+        this.state.stats.silverEarned += luckTome.level;
       }
       return;
     }
 
     // XP pickup
     let xpValue = pickup.value;
-    const xpBonus = this.state.player.passives.find(p => p.type === 'xp_bonus');
-    if (xpBonus) {
-      xpValue = Math.floor(xpValue * (1 + xpBonus.level * 0.15));
+    const xpGainTome = this.state.player.tomes.find(t => t.type === 'xp_gain_tome');
+    if (xpGainTome) {
+      xpValue = Math.floor(xpValue * (1 + xpGainTome.level * 0.15));
     }
     this.state.player.xp += xpValue;
   }
@@ -1130,8 +1645,14 @@ export class GameInstance {
       player.level++;
       player.xpToNext = xpForLevel(player.level);
 
-      // Heal a bit on level up
+      // Heal on level up
       player.hp = Math.min(player.maxHp, player.hp + Math.round(player.maxHp * 0.1));
+
+      // Unlock weapon slots at certain levels (MegaBonk progression)
+      if (player.level === 5 && player.maxWeaponSlots < 3) player.maxWeaponSlots = 3;
+      if (player.level === 10 && player.maxWeaponSlots < 4) player.maxWeaponSlots = 4;
+      if (player.level === 20 && player.maxWeaponSlots < 5) player.maxWeaponSlots = 5;
+      if (player.level === 30 && player.maxWeaponSlots < MAX_WEAPONS_CAP) player.maxWeaponSlots = MAX_WEAPONS_CAP;
 
       // Generate upgrade options
       const options = generateUpgradeOptions(player, 3);
@@ -1148,14 +1669,11 @@ export class GameInstance {
   // =========================================================================
 
   private spawnEnemies(dt: number): void {
-    // Don't spawn during boss fight
     if (this.state.phase === 'boss_fight' || this.state.phase === 'boss_intro') return;
 
-    // Find current wave
     const wave = this.getCurrentWave();
     if (!wave) return;
 
-    // Update wave index
     for (let i = 0; i < WAVE_CONFIGS.length; i++) {
       if (this.state.gameTime >= WAVE_CONFIGS[i].timeStart && this.state.gameTime < WAVE_CONFIGS[i].timeEnd) {
         this.state.waveIndex = i;
@@ -1163,28 +1681,33 @@ export class GameInstance {
       }
     }
 
-    // Don't exceed max alive
     if (this.state.enemies.length >= wave.maxAlive) return;
     if (this.state.enemies.length >= this.config.maxEnemies) return;
 
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0) {
-      this.spawnTimer = wave.spawnInterval;
+      // Curse tome: faster spawn rate
+      const curseTome = this.state.player.tomes.find(t => t.type === 'curse_tome');
+      const curseSpawnMult = curseTome ? (1 - curseTome.level * 0.1) : 1.0;
+      this.spawnTimer = wave.spawnInterval * Math.max(0.5, curseSpawnMult);
 
       const groupMin = wave.groupSize[0];
       const groupMax = wave.groupSize[1];
-      const groupSize = groupMin + Math.floor(Math.random() * (groupMax - groupMin + 1));
+      let groupSize = groupMin + Math.floor(Math.random() * (groupMax - groupMin + 1));
+
+      // Curse tome: bigger groups
+      if (curseTome) {
+        groupSize = Math.round(groupSize * (1 + curseTome.level * 0.15));
+      }
 
       for (let i = 0; i < groupSize; i++) {
         if (this.state.enemies.length >= wave.maxAlive) break;
         if (this.state.enemies.length >= this.config.maxEnemies) break;
 
-        // Determine if this should be an elite
         const isEliteRoll = Math.random() < wave.eliteChance;
-
         let enemyType: string;
+
         if (isEliteRoll) {
-          // Pick an elite type that has appeared by now
           const eliteTypes = Object.keys(ENEMY_CONFIGS).filter(
             t => ENEMY_CONFIGS[t].isElite && ENEMY_CONFIGS[t].firstAppear <= this.state.gameTime
           );
@@ -1209,7 +1732,6 @@ export class GameInstance {
         return wave;
       }
     }
-    // After all waves, use last wave
     if (WAVE_CONFIGS.length > 0 && this.state.gameTime >= WAVE_CONFIGS[WAVE_CONFIGS.length - 1].timeEnd) {
       return WAVE_CONFIGS[WAVE_CONFIGS.length - 1];
     }
@@ -1217,7 +1739,6 @@ export class GameInstance {
   }
 
   private pickWeightedEnemy(types: string[]): string {
-    // Filter by firstAppear
     const available = types.filter(
       t => ENEMY_CONFIGS[t] && ENEMY_CONFIGS[t].firstAppear <= this.state.gameTime
     );
@@ -1241,8 +1762,6 @@ export class GameInstance {
     if (!cfg) return;
 
     const spawnPos = this.getSpawnPosition();
-
-    // Scale HP with game time (10% per minute)
     const timeScale = 1 + this.state.gameTime / 600;
 
     const enemy: EnemyState = {
@@ -1287,8 +1806,11 @@ export class GameInstance {
 
   private checkBossSpawn(): void {
     if (this.state.boss) return;
-    if (this.state.gameTime < BOSS_SPAWN_TIME) return;
     if (this.state.phase === 'victory' || this.state.phase === 'defeat') return;
+
+    // Boss spawns when: teleporter is activated OR time exceeds BOSS_SPAWN_TIME
+    const teleporterActivated = this.state.teleporters.some(t => t.phase === 'activated');
+    if (!teleporterActivated && this.state.gameTime < BOSS_SPAWN_TIME) return;
 
     this.state.boss = {
       x: 0,
@@ -1306,7 +1828,6 @@ export class GameInstance {
     };
 
     this.state.phase = 'boss_intro';
-    // Clear regular enemies when boss arrives
     this.state.enemies = [];
   }
 
@@ -1316,7 +1837,6 @@ export class GameInstance {
 
     const player = this.state.player;
 
-    // Update phase based on HP
     const hpRatio = boss.hp / boss.maxHp;
     if (hpRatio <= 0.3) {
       boss.phase = 3;
@@ -1330,20 +1850,17 @@ export class GameInstance {
       boss.speed = 3.0;
     }
 
-    // Decrement attack timer
     boss.attackTimer -= dt;
     if (boss.attackCooldown > 0) {
       boss.attackCooldown -= dt;
     }
 
-    // Execute attack when timer fires
     if (boss.attackTimer <= 0) {
       boss.currentAttack = this.chooseBossAttack(boss.phase);
       boss.attackTimer = (boss.enraged ? 1.5 : 2.5) + Math.random() * 1.0;
       this.executeBossAttack(boss);
     }
 
-    // Move toward player
     const dist = distanceBetween(boss.x, boss.z, player.x, player.z);
     if (dist > 2.0) {
       const dir = normalizeDirection(player.x - boss.x, player.z - boss.z);
@@ -1397,7 +1914,7 @@ export class GameInstance {
           const dir = normalizeDirection(player.x - boss.x, player.z - boss.z);
           this.state.projectiles.push({
             id: this.nextProjectileId++,
-            weaponType: 'void_orb',
+            weaponType: 'black_hole',
             x: boss.x, y: 1.0, z: boss.z,
             vx: dir.x * 10, vy: 0, vz: dir.z * 10,
             damage: 20,
@@ -1453,7 +1970,6 @@ export class GameInstance {
         break;
 
       case 'charge':
-        // Boss temporarily charges at high speed
         boss.speed = 12.0;
         break;
 
@@ -1464,7 +1980,7 @@ export class GameInstance {
           const oz = (Math.random() - 0.5) * 12;
           this.state.projectiles.push({
             id: this.nextProjectileId++,
-            weaponType: 'void_orb',
+            weaponType: 'black_hole',
             x: player.x + ox, y: 10, z: player.z + oz,
             vx: 0, vy: -12, vz: 0,
             damage: 15,
@@ -1492,11 +2008,42 @@ export class GameInstance {
   }
 
   // =========================================================================
+  // Private: Thorns & Knockback
+  // =========================================================================
+
+  private applyThornsDamage(): void {
+    const player = this.state.player;
+    const thornsTome = player.tomes.find(t => t.type === 'thorns_tome');
+    if (!thornsTome || thornsTome.level <= 0) return;
+
+    const thornsDamage = thornsTome.level * 3;
+    for (const enemy of this.state.enemies) {
+      if (enemy.hp <= 0) continue;
+      const dist = distanceBetween(player.x, player.z, enemy.x, enemy.z);
+      if (dist < 1.5) {
+        enemy.hp -= thornsDamage;
+        enemy.hitFlashTimer = 0.1;
+        this.state.stats.damageDealt += thornsDamage;
+      }
+    }
+  }
+
+  private applyKnockback(enemy: EnemyState, fromX: number, fromZ: number): void {
+    const knockbackTome = this.state.player.tomes.find(t => t.type === 'knockback_tome');
+    if (!knockbackTome || knockbackTome.level <= 0) return;
+
+    const dir = normalizeDirection(enemy.x - fromX, enemy.z - fromZ);
+    const force = knockbackTome.level * 1.5;
+    const halfMap = (this.config.mapSize + 10) * 0.5;
+    enemy.x = Math.max(-halfMap, Math.min(halfMap, enemy.x + dir.x * force));
+    enemy.z = Math.max(-halfMap, Math.min(halfMap, enemy.z + dir.z * force));
+  }
+
+  // =========================================================================
   // Private: Game Over
   // =========================================================================
 
   private checkGameOver(): void {
-    // Player dead -> defeat
     if (!this.state.player.alive) {
       this.state.phase = 'defeat';
       this.state.finished = true;
@@ -1504,72 +2051,62 @@ export class GameInstance {
       return;
     }
 
-    // Boss dead -> victory
     if (this.state.boss && this.state.boss.hp <= 0) {
       this.state.phase = 'victory';
       this.state.finished = true;
       this.state.running = false;
-      this.state.stats.silverEarned += 50; // Boss kill bonus
+      this.state.stats.silverEarned += 50;
     }
   }
 
   private checkPlayerDeath(): void {
     const player = this.state.player;
     if (player.hp <= 0) {
-      const revive = player.passives.find(p => p.type === 'revive_bone');
-      if (revive && revive.level > 0) {
-        player.hp = Math.floor(player.maxHp * 0.3);
-        player.invincibleTimer = 2.0;
-        revive.level = 0; // Consumed
-      } else {
-        player.alive = false;
-      }
+      // No revive mechanic in MegaBonk — just die
+      player.alive = false;
     }
   }
 
   // =========================================================================
-  // Private: Passive Stats Recalculation
+  // Private: Tome Stats Recalculation
   // =========================================================================
 
-  private recalculatePassiveStats(): void {
+  private recalculateTomeStats(): void {
     const player = this.state.player;
+    const charCfg = CHARACTER_CONFIGS[this.config.character];
+
     let speedMult = 1.0;
-    let damageMult = 1.0;
+    let damageMult = charCfg.damage;
     let attackSpeedMult = 1.0;
-    let critChance = PLAYER_BASE_CRIT_CHANCE;
+    let critChance = charCfg.critChance;
     let critDamage = PLAYER_BASE_CRIT_DAMAGE;
-    let armor = 0;
+    let armor = charCfg.armor;
     let pickupRadius = PLAYER_PICKUP_RADIUS;
 
-    for (const passive of player.passives) {
-      switch (passive.type) {
-        case 'power_crystal':
-          damageMult += passive.level * 0.1;
+    for (const tome of player.tomes) {
+      switch (tome.type) {
+        case 'attack_speed_tome':
+          attackSpeedMult += tome.level * 0.1;
           break;
-        case 'swift_boots':
-          speedMult += passive.level * 0.08;
+        case 'speed_tome':
+          speedMult += tome.level * 0.08;
           break;
-        case 'magnet_gem':
-          pickupRadius += passive.level * 1.0;
+        case 'attraction_tome':
+          pickupRadius += tome.level * 1.2;
           break;
-        case 'armor_shard':
-          armor += passive.level * 2;
+        case 'shield_tome':
+          armor += tome.level * 2;
           break;
-        case 'attack_heart':
-          attackSpeedMult += passive.level * 0.08;
+        case 'precision_tome':
+          critChance += tome.level * 0.05;
+          critDamage += tome.level * 0.1;
           break;
-        case 'crit_eye':
-          critChance += passive.level * 0.05;
-          break;
-        case 'cooldown_reduce':
-          attackSpeedMult += passive.level * 0.06;
-          break;
-        // lifesteal_stone, lucky_coin, revive_bone, xp_bonus, extra_projectile
+        // thorns_tome, knockback_tome, luck_tome, xp_gain_tome, curse_tome
         // are handled contextually in their respective code paths
       }
     }
 
-    player.speed = PLAYER_BASE_SPEED * speedMult;
+    player.speed = charCfg.speed * speedMult;
     player.damageMultiplier = damageMult;
     player.attackSpeedMultiplier = attackSpeedMult;
     player.critChance = critChance;
@@ -1584,13 +2121,9 @@ export class GameInstance {
 
   private getWeaponStats(weapon: WeaponState) {
     const levelStats = WEAPON_STATS[weapon.type];
+    if (!levelStats) return WEAPON_STATS['bone_bouncer'][0];
     const idx = Math.max(0, Math.min(weapon.level - 1, levelStats.length - 1));
     return levelStats[idx];
-  }
-
-  private getExtraProjectileCount(): number {
-    const extra = this.state.player.passives.find(p => p.type === 'extra_projectile');
-    return extra ? extra.level : 0;
   }
 
   private findNearestEnemy(x: number, z: number, maxRange?: number): EnemyState | null {
@@ -1629,14 +2162,6 @@ export class GameInstance {
       if (this.state.enemies[i].id === id) return this.state.enemies[i];
     }
     return null;
-  }
-
-  private applyLifesteal(damage: number): void {
-    const lifesteal = this.state.player.passives.find(p => p.type === 'lifesteal_stone');
-    if (lifesteal && lifesteal.level > 0) {
-      const healAmount = damage * lifesteal.level * 0.03;
-      this.state.player.hp = Math.min(this.state.player.maxHp, this.state.player.hp + healAmount);
-    }
   }
 
   private addDamageEvent(x: number, y: number, z: number, damage: number, isCrit: boolean, isPlayerDamage: boolean): void {

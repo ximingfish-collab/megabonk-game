@@ -11,8 +11,35 @@ export interface InputState {
   slide: boolean;
 }
 
+// --- Characters ---
+export type CharacterType = 'megachad' | 'roberto' | 'skateboard_skeleton';
+
+export interface CharacterConfig {
+  type: CharacterType;
+  hp: number;
+  speed: number;
+  damage: number;
+  armor: number;
+  critChance: number;
+  weaponSlots: number;
+  startingWeapon: WeaponType;
+}
+
 // --- Weapons ---
-export type WeaponType = 'bone_bouncer' | 'lightning_staff' | 'flame_ring' | 'void_orb';
+export type WeaponType =
+  | 'sword'
+  | 'bone_bouncer'
+  | 'axe'
+  | 'revolver'
+  | 'bow'
+  | 'lightning_staff'
+  | 'fire_staff'
+  | 'flame_ring'
+  | 'tornado'
+  | 'shotgun'
+  | 'black_hole'
+  | 'katana'
+  | 'aura';
 
 export interface WeaponState {
   type: WeaponType;
@@ -20,25 +47,29 @@ export interface WeaponState {
   cooldownTimer: number;
 }
 
-// --- Passives ---
-export type PassiveType =
-  | 'power_crystal'
-  | 'swift_boots'
-  | 'lifesteal_stone'
-  | 'magnet_gem'
-  | 'armor_shard'
-  | 'attack_heart'
-  | 'crit_eye'
-  | 'lucky_coin'
-  | 'revive_bone'
-  | 'xp_bonus'
-  | 'cooldown_reduce'
-  | 'extra_projectile';
+// --- Tomes (passive items) ---
+export type TomeType =
+  | 'attack_speed_tome'
+  | 'luck_tome'
+  | 'thorns_tome'
+  | 'shield_tome'
+  | 'xp_gain_tome'
+  | 'attraction_tome'
+  | 'curse_tome'
+  | 'precision_tome'
+  | 'knockback_tome'
+  | 'speed_tome';
 
-export interface PassiveState {
-  type: PassiveType;
+// Legacy alias
+export type PassiveType = TomeType;
+
+export interface TomeState {
+  type: TomeType;
   level: number;
 }
+
+// Legacy alias
+export type PassiveState = TomeState;
 
 // --- Player ---
 export interface PlayerState {
@@ -52,6 +83,7 @@ export interface PlayerState {
   isSliding: boolean;
   slideTimer: number;
   slideSpeedBoost: number;
+  bunnyHopTimer: number;
   hp: number;
   maxHp: number;
   level: number;
@@ -65,12 +97,16 @@ export interface PlayerState {
   armor: number;
   pickupRadius: number;
   weapons: WeaponState[];
-  passives: PassiveState[];
+  tomes: TomeState[];
+  // Legacy alias kept for compatibility
+  passives: TomeState[];
   dashCooldown: number;
   dashCooldownMax: number;
   dashTimer: number;
   invincibleTimer: number;
   alive: boolean;
+  character: CharacterType;
+  maxWeaponSlots: number;
 }
 
 // --- Enemies ---
@@ -122,6 +158,15 @@ export interface ProjectileState {
   radius: number;
   fromPlayer: boolean;
   hitEnemyIds: number[];
+  // Special behaviors
+  orbiting?: boolean;
+  orbitAngle?: number;
+  orbitRadius?: number;
+  orbitSpeed?: number;
+  gravitational?: boolean;
+  gravityStrength?: number;
+  spinning?: boolean;
+  spinAngle?: number;
 }
 
 // --- Pickups ---
@@ -138,16 +183,29 @@ export interface PickupState {
   attracted: boolean;
 }
 
+// --- Teleporter ---
+export type TeleporterPhase = 'inactive' | 'available' | 'activating' | 'activated';
+
+export interface TeleporterState {
+  x: number;
+  z: number;
+  phase: TeleporterPhase;
+  activationTimer: number;
+  activationDuration: number;
+}
+
 // --- Upgrades ---
 export type UpgradeRarity = 'common' | 'uncommon' | 'rare' | 'legendary';
-export type UpgradeKind = 'weapon_upgrade' | 'new_weapon' | 'passive';
+export type UpgradeKind = 'weapon_upgrade' | 'new_weapon' | 'tome';
 
 export interface UpgradeOption {
   id: string;
   kind: UpgradeKind;
   rarity: UpgradeRarity;
   weaponType?: WeaponType;
-  passiveType?: PassiveType;
+  tomeType?: TomeType;
+  /** @deprecated use tomeType */
+  passiveType?: TomeType;
   currentLevel: number;
   newLevel: number;
 }
@@ -207,6 +265,8 @@ export interface GameState {
   damageEvents: DamageEvent[];
   stats: GameStats;
   waveIndex: number;
+  teleporters: TeleporterState[];
+  character: CharacterType;
 }
 
 // --- Config ---
@@ -214,6 +274,7 @@ export interface GameConfig {
   mapSize: number;
   tickIntervalMs: number;
   maxEnemies: number;
+  character: CharacterType;
 }
 
 // --- Result ---
