@@ -1280,7 +1280,7 @@ export class GameScene {
     // PlatformInput: moveY negative = up on joystick/W key
     // Need to FLIP moveY so W = +Z (forward into screen)
     const input: InputState = {
-      moveX: mx,
+      moveX: -mx,
       moveY: -my,
       dash: false,
       skill1: raw.action3 ?? false,
