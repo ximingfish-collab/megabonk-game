@@ -277,9 +277,21 @@ export class GameScene {
   // Scene objects
   private playerMesh!: THREE.Mesh;
   private playerRing!: THREE.Mesh;
+  private playerAuraMesh!: THREE.Mesh;
   private groundMesh!: THREE.Mesh;
   private gridLines!: THREE.LineSegments;
   private bossMesh: THREE.Mesh | null = null;
+
+  // Weapon orbs
+  private weaponOrbMesh!: THREE.InstancedMesh;
+  private readonly MAX_WEAPON_ORBS = 6;
+
+  // Animation state
+  private deathAnimTimer = 0;
+  private levelUpAnimTimer = 0;
+  private wasAlive = true;
+  private lastPhase: GamePhase = 'playing';
+  private screenFlashEl: HTMLDivElement | null = null;
 
   // Teleporter meshes
   private teleporterMeshes: THREE.Mesh[] = [];
@@ -383,6 +395,7 @@ export class GameScene {
     this.setupLighting();
     this.setupGround();
     this.setupPlayer();
+    this.setupWeaponOrbs();
     this.setupEnemyMeshes();
     this.setupProjectileMesh();
     this.setupPickupMesh();
@@ -424,6 +437,7 @@ export class GameScene {
     this.gameOverPanel?.remove();
     this.finalSwarmLabel?.remove();
     this.finalSwarmBorder?.remove();
+    this.screenFlashEl?.remove();
     for (const el of this.damageNums) el.remove();
   }
 
@@ -1110,6 +1124,28 @@ export class GameScene {
     this.playerRing.rotation.x = -Math.PI / 2;
     this.playerRing.position.y = 0.02;
     this.scene.add(this.playerRing);
+
+    // Evolved weapon golden aura (invisible by default)
+    const auraGeo = new THREE.SphereGeometry(1.2, 12, 8);
+    const auraMat = new THREE.MeshBasicMaterial({
+      color: 0xffcc00,
+      transparent: true,
+      opacity: 0,
+    });
+    this.playerAuraMesh = new THREE.Mesh(auraGeo, auraMat);
+    this.playerAuraMesh.name = 'PlayerAura';
+    this.playerAuraMesh.visible = false;
+    this.scene.add(this.playerAuraMesh);
+  }
+
+  private setupWeaponOrbs(): void {
+    const orbGeo = new THREE.SphereGeometry(0.15, 6, 4);
+    const orbMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    this.weaponOrbMesh = new THREE.InstancedMesh(orbGeo, orbMat, this.MAX_WEAPON_ORBS);
+    this.weaponOrbMesh.name = 'WeaponOrbs';
+    this.weaponOrbMesh.count = 0;
+    this.weaponOrbMesh.frustumCulled = false;
+    this.scene.add(this.weaponOrbMesh);
   }
 
   private setupEnemyMeshes(): void {
@@ -1318,42 +1354,220 @@ export class GameScene {
 
   private renderPlayer(state: GameState): void {
     const p = state.player;
-    if (loadedModels.player) {
-      this.playerMesh.position.set(p.x, p.y, p.z);
-    } else {
-      this.playerMesh.position.set(p.x, p.y + 1.0, p.z);
-    }
+    const time = performance.now() * 0.001;
+
+    // === Position ===
+    const modelY = loadedModels.player ? 0 : 1.0;
+    this.playerMesh.position.set(p.x, p.y + modelY, p.z);
     this.playerMesh.rotation.y = p.rotation;
     this.playerMesh.visible = p.alive;
 
-    if (p.invincibleTimer > 0) {
-      this.playerMesh.visible = Math.sin(performance.now() * 0.02) > 0;
+    // === Death Animation ===
+    if (!p.alive && this.wasAlive) {
+      // Player just died — trigger death animation
+      this.deathAnimTimer = 0.5;
+      this.spawnDeathBurst(p.x, p.y, p.z);
+      this.triggerScreenFlash('#ff0000', 0.3);
+    }
+    this.wasAlive = p.alive;
+
+    if (this.deathAnimTimer > 0) {
+      const dt = 1 / 60;
+      this.deathAnimTimer -= dt;
+      const t2 = Math.max(0, this.deathAnimTimer / 0.5);
+      this.playerMesh.scale.set(t2, t2, t2);
+      this.playerMesh.visible = true; // keep visible during shrink
+      if (this.deathAnimTimer <= 0) {
+        this.playerMesh.visible = false;
+      }
+    } else if (p.alive) {
+      // === Animation States ===
+      const isMoving = Math.abs(p.currentSpeed) > 0.5;
+
+      // Moving bob (sine wave up/down while moving)
+      if (isMoving && p.isGrounded && !p.isSliding) {
+        const bobAmount = Math.sin(time * 12) * 0.08;
+        this.playerMesh.position.y += bobAmount;
+        // Slight tilt in move direction
+        this.playerMesh.rotation.z = Math.sin(time * 6) * 0.03;
+      } else {
+        this.playerMesh.rotation.z = 0;
+      }
+
+      // Jump stretch (stretch vertically when going up)
+      if (p.isJumping && p.velocityY > 0) {
+        this.playerMesh.scale.set(0.85, 1.2, 0.85);
+      }
+      // Fall squash (squash when falling fast)
+      else if (!p.isGrounded && p.velocityY < -3) {
+        this.playerMesh.scale.set(1.1, 0.8, 1.1);
+      }
+      // Slide squash (low and wide)
+      else if (p.isSliding) {
+        this.playerMesh.scale.set(1.2, 0.6, 1.2);
+        this.spawnSlideDust(p.x, p.y, p.z);
+      }
+      // Landing squash (brief squash on land — bunnyHopTimer indicates recent land)
+      else if (p.isGrounded && p.bunnyHopTimer > 0.1) {
+        const landT = p.bunnyHopTimer / 0.15;
+        this.playerMesh.scale.set(1 + landT * 0.15, 1 - landT * 0.2, 1 + landT * 0.15);
+      }
+      // Normal
+      else {
+        this.playerMesh.scale.set(1, 1, 1);
+      }
+
+      // === Invincibility flash ===
+      if (p.invincibleTimer > 0) {
+        this.playerMesh.visible = Math.sin(time * 20) > 0;
+      }
     }
 
-    // Squash when sliding
-    if (p.isSliding) {
-      this.playerMesh.scale.set(1.3, 0.7, 1.3);
-    } else {
-      this.playerMesh.scale.set(1.0, 1.0, 1.0);
+    // === Level Up Animation ===
+    if (state.phase === 'level_up' && this.lastPhase !== 'level_up') {
+      this.levelUpAnimTimer = 0.3;
+      this.spawnLevelUpBurst(p.x, p.y, p.z);
+      this.triggerScreenFlash('#ffcc00', 0.2);
+    }
+    this.lastPhase = state.phase;
+
+    if (this.levelUpAnimTimer > 0 && p.alive && this.deathAnimTimer <= 0) {
+      const dt = 1 / 60;
+      this.levelUpAnimTimer -= dt;
+      const progress = 1 - (this.levelUpAnimTimer / 0.3);
+      // Pulse 1.0 → 1.3 → 1.0
+      const pulseScale = 1 + 0.3 * Math.sin(progress * Math.PI);
+      this.playerMesh.scale.set(pulseScale, pulseScale, pulseScale);
     }
 
+    // === Ring follows player ===
     this.playerRing.position.set(p.x, p.y + 0.02, p.z);
     this.playerRing.visible = p.alive;
 
-    // Evolved weapon glow: pulse the ring golden if player has any evolved weapon
-    const hasEvolved = p.weapons.some(w => w.evolved);
+    // Ring pulse when many pickups attracted
     const ringMat = this.playerRing.material as THREE.MeshBasicMaterial;
-    if (hasEvolved) {
-      const pulse = 0.7 + Math.sin(performance.now() * 0.005) * 0.3;
-      ringMat.color.setHex(0xffcc00);
+    const attractedCount = state.pickups.filter(pk => pk.attracted).length;
+    if (attractedCount > 5) {
+      const pulse = 0.7 + Math.sin(time * 8) * 0.3;
       ringMat.opacity = pulse;
-      const ringScale = 1.0 + Math.sin(performance.now() * 0.003) * 0.15;
-      this.playerRing.scale.set(ringScale, ringScale, 1);
+      this.playerRing.scale.set(1 + attractedCount * 0.02, 1, 1 + attractedCount * 0.02);
     } else {
-      ringMat.color.setHex(0x00ff88);
       ringMat.opacity = 0.7;
       this.playerRing.scale.set(1, 1, 1);
     }
+
+    // === Evolved weapon glow ===
+    const hasEvolved = p.weapons.some(w => w.evolved);
+    if (hasEvolved) {
+      ringMat.color.setHex(0xffcc00);
+      const ringPulse = 0.7 + Math.sin(time * 5) * 0.3;
+      ringMat.opacity = ringPulse;
+      const ringScale = 1.0 + Math.sin(time * 3) * 0.15;
+      this.playerRing.scale.set(ringScale, 1, ringScale);
+
+      // Golden aura
+      this.playerAuraMesh.visible = p.alive;
+      this.playerAuraMesh.position.set(p.x, p.y + modelY, p.z);
+      const auraPulse = 0.08 + Math.sin(time * 4) * 0.04;
+      (this.playerAuraMesh.material as THREE.MeshBasicMaterial).opacity = auraPulse;
+      const auraScale = 1.0 + Math.sin(time * 2.5) * 0.1;
+      this.playerAuraMesh.scale.set(auraScale, auraScale, auraScale);
+    } else {
+      ringMat.color.setHex(0x00ff88);
+      this.playerAuraMesh.visible = false;
+    }
+
+    // === Weapon orbs ===
+    this.renderWeaponOrbs(state);
+  }
+
+  private renderWeaponOrbs(state: GameState): void {
+    const weapons = state.player.weapons;
+    const time = performance.now() * 0.002;
+    const count = Math.min(weapons.length, this.MAX_WEAPON_ORBS);
+
+    for (let i = 0; i < count; i++) {
+      const angle = time + i * (Math.PI * 2 / count);
+      const radius = 1.5;
+      const orbX = state.player.x + Math.cos(angle) * radius;
+      const orbZ = state.player.z + Math.sin(angle) * radius;
+      const orbY = state.player.y + 0.8 + Math.sin(time * 3 + i) * 0.1;
+
+      this._dummy.position.set(orbX, orbY, orbZ);
+      this._dummy.scale.set(1, 1, 1);
+      this._dummy.rotation.set(0, 0, 0);
+      this._dummy.updateMatrix();
+      this.weaponOrbMesh.setMatrixAt(i, this._dummy.matrix);
+
+      // Color based on weapon type
+      const wColor = WEAPON_PROJECTILE_COLORS[weapons[i].type] ?? 0xffffff;
+      this._tempColor.setHex(wColor);
+      this.weaponOrbMesh.setColorAt(i, this._tempColor);
+    }
+
+    this.weaponOrbMesh.count = state.player.alive ? count : 0;
+    this.weaponOrbMesh.instanceMatrix.needsUpdate = true;
+    if (this.weaponOrbMesh.instanceColor) this.weaponOrbMesh.instanceColor.needsUpdate = true;
+  }
+
+  private spawnSlideDust(x: number, y: number, z: number): void {
+    // Spawn 1-2 light particles at player feet moving backward
+    const count = 1 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < count; i++) {
+      this.particleVelocities.push({
+        x: x + (Math.random() - 0.5) * 0.5,
+        y: y + Math.random() * 0.2,
+        z: z + (Math.random() - 0.5) * 0.5,
+        life: 0.3,
+      });
+    }
+  }
+
+  private spawnDeathBurst(x: number, y: number, z: number): void {
+    // Spawn 20 particles in a burst
+    for (let i = 0; i < 20; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 1 + Math.random() * 2;
+      this.particleVelocities.push({
+        x: x + Math.cos(angle) * speed * 0.3,
+        y: y + 0.5 + Math.random() * 1.5,
+        z: z + Math.sin(angle) * speed * 0.3,
+        life: 0.6 + Math.random() * 0.4,
+      });
+    }
+  }
+
+  private spawnLevelUpBurst(x: number, y: number, z: number): void {
+    // Spawn golden particles upward from player
+    for (let i = 0; i < 15; i++) {
+      this.particleVelocities.push({
+        x: x + (Math.random() - 0.5) * 1.0,
+        y: y + 0.5 + Math.random() * 2.5,
+        z: z + (Math.random() - 0.5) * 1.0,
+        life: 0.5 + Math.random() * 0.3,
+      });
+    }
+  }
+
+  private triggerScreenFlash(color: string, duration: number): void {
+    if (this.screenFlashEl) {
+      this.screenFlashEl.remove();
+    }
+    this.screenFlashEl = document.createElement('div');
+    this.screenFlashEl.style.cssText = `position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:150;background:${color};opacity:0.4;transition:opacity ${duration}s ease-out;`;
+    document.body.appendChild(this.screenFlashEl);
+
+    // Force reflow then fade out
+    void this.screenFlashEl.offsetWidth;
+    this.screenFlashEl.style.opacity = '0';
+
+    const el = this.screenFlashEl;
+    setTimeout(() => {
+      el.remove();
+      if (this.screenFlashEl === el) {
+        this.screenFlashEl = null;
+      }
+    }, duration * 1000 + 50);
   }
 
   private renderEnemies(enemies: EnemyState[]): void {
