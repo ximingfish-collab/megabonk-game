@@ -12,7 +12,8 @@
       "Bash(node screenshot-game.mjs)",
       "Bash(pkill -f \"vite --host --port 5174\")",
       "Bash(awk '{print $NF}')",
-      "Bash(pkill -f \"vite --host\")"
+      "Bash(pkill -f \"vite --host\")",
+      "Bash(mdfind \"kMDItemFSName == 'Blender*'\")"
     ]
   }
 }

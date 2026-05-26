@@ -482,6 +482,18 @@ export class GameScene {
   private slideKeyDown = false;
   private lastTime = 0;
 
+  // Dying enemies (death animation tracking)
+  private dyingEnemies: Map<number, { obj: THREE.Object3D; timer: number; type: string }> = new Map();
+
+  // Boss attack warning elements
+  private bossWarningRing: THREE.Mesh | null = null;
+  private bossAoeFlashTimer = 0;
+
+  // Combo HUD elements
+  private comboLabel: HTMLDivElement | null = null;
+  private comboFadeTimer = 0;
+  private lastComboCount = 0;
+
   // Advanced Camera System
   private cameraAngle = 0;
   private ghostTargetX = 0;
@@ -603,6 +615,7 @@ export class GameScene {
     this.finalSwarmLabel?.remove();
     this.finalSwarmBorder?.remove();
     this.screenFlashEl?.remove();
+    this.comboLabel?.remove();
     for (const el of this.damageNums) el.remove();
   }
 
@@ -1242,7 +1255,7 @@ export class GameScene {
 
   private setupHUD(): void {
     this.hudContainer = document.createElement('div');
-    this.hudContainer.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:100;font-family:Arial,sans-serif;';
+    this.hudContainer.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:100;font-family:Arial,sans-serif;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right);box-sizing:border-box;';
     document.body.appendChild(this.hudContainer);
 
     // HP bar (top-center)
@@ -1275,17 +1288,17 @@ export class GameScene {
 
     // Timer (top-right, pill background)
     this.timerLabel = document.createElement('div');
-    this.timerLabel.style.cssText = 'position:absolute;top:12px;right:16px;color:#ffffff;font-size:18px;font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.8);background:rgba(20,20,40,0.7);padding:4px 12px;border-radius:12px;';
+    this.timerLabel.style.cssText = 'position:absolute;top:12px;right:16px;color:#ffffff;font-size:clamp(10px, 2.5vw, 18px);font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.8);background:rgba(20,20,40,0.7);padding:4px 12px;border-radius:12px;';
     this.hudContainer.appendChild(this.timerLabel);
 
     // Kill count (below timer)
     this.killLabel = document.createElement('div');
-    this.killLabel.style.cssText = 'position:absolute;top:42px;right:16px;color:#cccccc;font-size:14px;text-shadow:0 1px 3px rgba(0,0,0,0.8);';
+    this.killLabel.style.cssText = 'position:absolute;top:42px;right:16px;color:#cccccc;font-size:clamp(10px, 2.5vw, 14px);text-shadow:0 1px 3px rgba(0,0,0,0.8);';
     this.hudContainer.appendChild(this.killLabel);
 
     // Silver earned this run (below kills)
     this.silverLabel = document.createElement('div');
-    this.silverLabel.style.cssText = 'position:absolute;top:62px;right:16px;color:#eeeeaa;font-size:13px;text-shadow:0 1px 3px rgba(0,0,0,0.8);';
+    this.silverLabel.style.cssText = 'position:absolute;top:62px;right:16px;color:#eeeeaa;font-size:clamp(10px, 2.5vw, 13px);text-shadow:0 1px 3px rgba(0,0,0,0.8);';
     this.hudContainer.appendChild(this.silverLabel);
 
     // Tier badge (top-left small)
@@ -1334,10 +1347,24 @@ export class GameScene {
 
     // Pause button
     this.pauseBtn = document.createElement('div');
-    this.pauseBtn.style.cssText = 'position:absolute;top:86px;right:16px;color:#ffffff;font-size:13px;background:rgba(80,80,120,0.6);padding:4px 12px;border-radius:4px;cursor:pointer;pointer-events:auto;user-select:none;';
+    this.pauseBtn.style.cssText = 'position:absolute;top:86px;right:16px;color:#ffffff;font-size:clamp(10px, 2.5vw, 16px);background:rgba(80,80,120,0.6);padding:8px 16px;border-radius:4px;cursor:pointer;pointer-events:auto;user-select:none;min-width:44px;min-height:44px;display:flex;align-items:center;justify-content:center;';
     this.pauseBtn.textContent = t('hud.pause');
     this.pauseBtn.addEventListener('click', () => this.togglePause());
     this.hudContainer.appendChild(this.pauseBtn);
+
+    // Combo label (hidden initially)
+    this.comboLabel = document.createElement('div');
+    this.comboLabel.style.cssText = 'position:absolute;top:35%;left:50%;transform:translate(-50%,-50%);color:#ffd700;font-size:28px;font-weight:bold;text-shadow:0 0 12px rgba(255,215,0,0.8),0 2px 4px rgba(0,0,0,0.9);pointer-events:none;opacity:0;transition:opacity 0.3s ease-out;white-space:nowrap;';
+    this.hudContainer.appendChild(this.comboLabel);
+
+    // Boss attack warning ring (3D scene)
+    const ringGeo = new THREE.RingGeometry(0.5, 3.5, 32);
+    ringGeo.rotateX(-Math.PI / 2);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
+    this.bossWarningRing = new THREE.Mesh(ringGeo, ringMat);
+    this.bossWarningRing.name = 'BossWarningRing';
+    this.bossWarningRing.visible = false;
+    this.scene.add(this.bossWarningRing);
   }
 
   private setupDamageNumbers(): void {
@@ -1672,12 +1699,30 @@ export class GameScene {
       aliveIds.add(enemy.id);
     }
 
-    // Remove objects for dead enemies → return to pool, clean up mixers
+    // Move newly dead enemies to dying animation state instead of immediately removing
     for (const [id, obj] of this.enemyObjects) {
-      if (!aliveIds.has(id)) {
-        obj.visible = false;
-        // Clean up animation mixer
-        const mixer = this.enemyMixers.get(id);
+      if (!aliveIds.has(id) && !this.dyingEnemies.has(id)) {
+        // Start death animation
+        this.playEnemyAnim(id, 'Death');
+        this.dyingEnemies.set(id, { obj, timer: 0.6, type: obj.userData['enemyType'] as string });
+        this.enemyObjects.delete(id);
+      }
+    }
+
+    // Update dying enemies (play death anim, count down timer)
+    const dt = 1 / 60;
+    for (const [id, dying] of this.dyingEnemies) {
+      dying.timer -= dt;
+      // Keep updating mixer for death animation
+      const mixer = this.enemyMixers.get(id);
+      if (mixer) {
+        mixer.update(dt);
+      }
+      // Sink into ground and fade
+      dying.obj.position.y -= dt * 1.5;
+      if (dying.timer <= 0) {
+        // Fully dead — hide and recycle
+        dying.obj.visible = false;
         if (mixer) {
           mixer.stopAllAction();
           this.enemyMixers.delete(id);
@@ -1685,11 +1730,10 @@ export class GameScene {
         this.enemyAnimStates.delete(id);
         this.enemyAnimActions.delete(id);
         // Return to pool
-        const type = obj.userData['enemyType'] as string;
-        const pool = this.enemyPool.get(type) ?? [];
-        pool.push(obj);
-        this.enemyPool.set(type, pool);
-        this.enemyObjects.delete(id);
+        const pool = this.enemyPool.get(dying.type) ?? [];
+        pool.push(dying.obj);
+        this.enemyPool.set(dying.type, pool);
+        this.dyingEnemies.delete(id);
       }
     }
 
@@ -1926,6 +1970,9 @@ export class GameScene {
       if (this.bossMesh) {
         this.bossMesh.visible = false;
       }
+      if (this.bossWarningRing) {
+        this.bossWarningRing.visible = false;
+      }
       return;
     }
 
@@ -1962,10 +2009,49 @@ export class GameScene {
       }
     }
 
-    // Scale pulse when enraged
+    // === Boss Attack Warning (#4) ===
+    const time = performance.now() * 0.001;
+
+    // 1. Ground warning ring when boss is charging an attack
+    if (this.bossWarningRing && boss.attackTimer > 0 && boss.currentAttack !== 'idle') {
+      this.bossWarningRing.visible = true;
+      // Position at the player (where damage will land)
+      const state = this.session.getRenderState();
+      this.bossWarningRing.position.set(state.player.x, 0.05, state.player.z);
+      // Scale from 0 to 1 as attack timer counts down
+      const maxTimer = boss.enraged ? 2.5 : 3.5;
+      const progress = 1 - Math.min(boss.attackTimer / maxTimer, 1);
+      this.bossWarningRing.scale.set(progress, 1, progress);
+      // Pulse opacity
+      const ringMat = this.bossWarningRing.material as THREE.MeshBasicMaterial;
+      ringMat.opacity = 0.3 + Math.sin(time * 10) * 0.2;
+    } else if (this.bossWarningRing) {
+      this.bossWarningRing.visible = false;
+    }
+
+    // 2. Boss scale pulse when charging (body glow effect)
     const baseScale = 10;
-    const scale = boss.enraged ? baseScale + Math.sin(performance.now() * 0.01) * 0.5 : baseScale;
-    this.bossMesh.scale.set(scale, scale, scale);
+    if (boss.attackTimer > 0 && boss.currentAttack !== 'idle') {
+      const pulse = Math.sin(time * 12) * 0.5;
+      const scale = baseScale + pulse;
+      this.bossMesh.scale.set(scale, scale, scale);
+    } else if (boss.enraged) {
+      const scale = baseScale + Math.sin(time) * 0.5;
+      this.bossMesh.scale.set(scale, scale, scale);
+    } else {
+      this.bossMesh.scale.set(baseScale, baseScale, baseScale);
+    }
+
+    // 3. Full-screen red flash on AOE explosion
+    if (boss.currentAttack === 'aoe_explosion' && boss.attackTimer > 0 && boss.attackTimer < 0.1) {
+      if (this.bossAoeFlashTimer <= 0) {
+        this.triggerScreenFlash('#ff0000', 0.4);
+        this.bossAoeFlashTimer = 1.0;
+      }
+    }
+    if (this.bossAoeFlashTimer > 0) {
+      this.bossAoeFlashTimer -= 1 / 60;
+    }
   }
 
   private renderTeleporters(teleporters: TeleporterState[]): void {
@@ -2242,6 +2328,44 @@ export class GameScene {
       }
     }
 
+    // === Weapon Trail VFX (#12) ===
+    // Projectile trails for player weapons
+    for (const proj of state.projectiles) {
+      if (!proj.fromPlayer) continue;
+      // Every 2 ticks spawn a trail particle
+      if (state.tick % 2 === 0) {
+        const color = GameScene.WEAPON_VFX_COLORS[proj.weaponType] ?? [1, 1, 1];
+        this.spawnParticle(
+          proj.x, proj.y, proj.z,
+          0, 0, 0, // trail stays in place
+          0.4,     // small size
+          0.2,     // short lifetime
+          color[0] * 0.7, color[1] * 0.7, color[2] * 0.7, // slightly dimmer
+        );
+      }
+    }
+
+    // Melee weapon slash arc (sword/katana) — emit arc particles when weapon cooldown just reset
+    for (const weapon of player.weapons) {
+      if ((weapon.type === 'sword' || weapon.type === 'katana') && weapon.cooldownTimer > 0 && weapon.cooldownTimer < 0.1 && player.alive) {
+        // Spawn 6 particles in an arc in front of player
+        const baseAngle = player.rotation;
+        for (let i = 0; i < 6; i++) {
+          const arcAngle = baseAngle + (i - 2.5) * 0.25;
+          const dist = 1.5 + Math.random() * 0.5;
+          const px = player.x + Math.sin(arcAngle) * dist;
+          const pz = player.z + Math.cos(arcAngle) * dist;
+          this.spawnParticle(
+            px, player.y + 1.0, pz,
+            Math.sin(arcAngle) * 2, 0.5, Math.cos(arcAngle) * 2,
+            0.5,
+            0.15,
+            0.95, 0.95, 1.0,
+          );
+        }
+      }
+    }
+
     // --- Update particle physics ---
     const positions = this.vfxGeometry.attributes.position as THREE.BufferAttribute;
     const sizes = this.vfxGeometry.attributes.aSize as THREE.BufferAttribute;
@@ -2513,6 +2637,24 @@ export class GameScene {
     for (const evt of state.damageEvents) {
       this.spawnDamageNumber(evt);
     }
+
+    // === Combo HUD (#6) ===
+    if (this.comboLabel) {
+      const combo = state.player.comboCount;
+      if (combo > 3) {
+        this.comboLabel.style.opacity = '1';
+        this.comboLabel.textContent = t('hud.combo', { count: String(combo) });
+        // Scale up with combo count
+        const fontSize = Math.min(28 + combo * 1.5, 56);
+        this.comboLabel.style.fontSize = `${fontSize}px`;
+        this.comboFadeTimer = 0.5;
+        this.lastComboCount = combo;
+      } else if (this.lastComboCount > 3 && combo <= 3) {
+        // Combo dropped — fade out
+        this.comboLabel.style.opacity = '0';
+        this.lastComboCount = combo;
+      }
+    }
   }
 
   private getWeaponCooldownInfo(weapon: { type: string; cooldownTimer: number; level: number; evolved: boolean }): { cooldownPercent: number } {
@@ -2594,7 +2736,13 @@ export class GameScene {
     this.upgradePanel.appendChild(title);
 
     const cardRow = document.createElement('div');
-    cardRow.style.cssText = 'display:flex;gap:16px;flex-wrap:wrap;justify-content:center;padding:0 16px;';
+    cardRow.style.cssText = 'display:flex;gap:16px;flex-wrap:wrap;justify-content:center;padding:0 16px;max-width:100%;';
+
+    // On narrow screens (<400px), force vertical layout
+    if (window.innerWidth < 400) {
+      cardRow.style.flexDirection = 'column';
+      cardRow.style.alignItems = 'center';
+    }
 
     for (const option of options) {
       const card = this.createUpgradeCard(option);

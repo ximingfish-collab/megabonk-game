@@ -109,6 +109,8 @@ export interface PlayerState {
   alive: boolean;
   character: CharacterType;
   maxWeaponSlots: number;
+  comboCount: number;
+  comboTimer: number;
 }
 
 // --- Enemies ---

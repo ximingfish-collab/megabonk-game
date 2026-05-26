@@ -400,6 +400,8 @@ export class GameInstance {
       alive: true,
       character: this.config.character,
       maxWeaponSlots: Math.min(MAX_WEAPONS_CAP, charCfg.weaponSlots + extraSlots),
+      comboCount: 0,
+      comboTimer: 0,
     };
   }
 
@@ -635,6 +637,15 @@ export class GameInstance {
     const player = this.state.player;
     if (player.dashCooldown > 0) player.dashCooldown = Math.max(0, player.dashCooldown - dt);
     if (player.invincibleTimer > 0) player.invincibleTimer = Math.max(0, player.invincibleTimer - dt);
+
+    // Combo timer decay
+    if (player.comboTimer > 0) {
+      player.comboTimer -= dt;
+      if (player.comboTimer <= 0) {
+        player.comboCount = 0;
+        player.comboTimer = 0;
+      }
+    }
 
     for (const enemy of this.state.enemies) {
       if (enemy.hitFlashTimer > 0) enemy.hitFlashTimer = Math.max(0, enemy.hitFlashTimer - dt);
@@ -1086,6 +1097,11 @@ export class GameInstance {
     const halfMap = (this.config.mapSize + 10) * 0.5;
     enemy.x = Math.max(-halfMap, Math.min(halfMap, enemy.x + nx * actualMove));
     enemy.z = Math.max(-halfMap, Math.min(halfMap, enemy.z + nz * actualMove));
+
+    // Apply terrain height to ground-based enemies (not flying types)
+    if (enemy.type !== 'gargoyle' && enemy.type !== 'bat' && enemy.type !== 'ghost') {
+      enemy.y = this.getTerrainHeight(enemy.x, enemy.z);
+    }
   }
 
   // =========================================================================
@@ -1694,6 +1710,12 @@ export class GameInstance {
         proj.z += proj.vz * dt;
       }
 
+      // Ensure projectile y does not go below terrain height
+      const terrainY = this.getTerrainHeight(proj.x, proj.z);
+      if (proj.y < terrainY + 0.1) {
+        proj.y = terrainY + 0.1;
+      }
+
       proj.lifetime -= dt;
       if (proj.lifetime <= 0) {
         // Fire staff AOE explosion on expiry
@@ -1977,6 +1999,9 @@ export class GameInstance {
       if (enemy.hp <= 0) {
         this.spawnPickupFromEnemy(enemy);
         this.state.stats.killCount++;
+        // Combo system: increment on each kill
+        this.state.player.comboCount++;
+        this.state.player.comboTimer = 2.0;
         enemies.splice(i, 1);
       }
     }
@@ -2095,6 +2120,9 @@ export class GameInstance {
     if (shopXpBonus > 0) {
       xpValue = Math.floor(xpValue * (1 + shopXpBonus));
     }
+    // Combo multiplier: 1 + min(comboCount * 0.05, 1.0) → max 2x
+    const comboMultiplier = 1 + Math.min(this.state.player.comboCount * 0.05, 1.0);
+    xpValue = Math.floor(xpValue * comboMultiplier);
     // Tier XP multiplier
     const tierCfg = TIER_CONFIGS[this.config.tier];
     xpValue = Math.floor(xpValue * tierCfg.xpMultiplier);

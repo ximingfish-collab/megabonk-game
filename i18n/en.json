@@ -25,7 +25,8 @@
     "weaponSlots": "Weapons: {{current}}/{{max}}",
     "teleporter": "Teleporter nearby!",
     "silver": "Silver: {{count}}",
-    "finalSwarm": "FINAL SWARM!"
+    "finalSwarm": "FINAL SWARM!",
+    "combo": "COMBO x{{count}}"
   },
   "upgrade": {
     "title": "Choose Upgrade",
