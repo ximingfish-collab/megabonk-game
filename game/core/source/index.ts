@@ -31,6 +31,7 @@ export type {
   GameState,
   GameConfig,
   GameResult,
+  DifficultyTier,
 } from './types.ts';
 
 export {
@@ -69,9 +70,10 @@ export {
   ALL_TOME_TYPES,
   DEFAULT_GAME_CONFIG,
   WEAPON_EVOLUTIONS,
+  TIER_CONFIGS,
 } from './config.ts';
 
-export type { EnemyConfig, WaveConfig, WeaponLevelStats, WeaponEvolution } from './config.ts';
+export type { EnemyConfig, WaveConfig, WeaponLevelStats, WeaponEvolution, TierConfig } from './config.ts';
 
 export { applyMovement3D, distanceBetween, normalizeDirection } from './physics.ts';
 export { SpatialHash } from './spatial-hash.ts';

@@ -183,6 +183,12 @@
     "anubis": "Anubis",
     "warning": "Boss incoming!"
   },
+  "tier": {
+    "1": "Tier 1 - Normal",
+    "2": "Tier 2 - Hard",
+    "3": "Tier 3 - Nightmare",
+    "select": "Select Difficulty"
+  },
   "teleporter": {
     "found": "Teleporter Found!",
     "activating": "Activating...",

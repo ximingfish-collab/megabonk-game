@@ -12,6 +12,7 @@ import {
   WEAPON_EVOLUTIONS,
   SHOP_UPGRADES,
   QUESTS,
+  TIER_CONFIGS,
   loadSave,
   purchaseUpgrade,
   getUpgradeCost,
@@ -35,6 +36,7 @@ import {
   type UpgradeRarity,
   type CharacterType,
   type TeleporterState,
+  type DifficultyTier,
 } from '@minigame/core';
 import { PlatformInput } from '@minigame/platform';
 import { installThreeHighDpi } from '@minigame/render-adapter';
@@ -194,6 +196,54 @@ const CAMERA_LERP = 0.1;
 const GROUND_SIZE = 120;
 const DAMAGE_NUM_POOL_SIZE = 30;
 
+const WEAPON_ICONS: Record<string, string> = {
+  sword: '⚔️',
+  bone_bouncer: '🦴',
+  axe: '🪓',
+  revolver: '🔫',
+  bow: '🏹',
+  lightning_staff: '⚡',
+  fire_staff: '🔥',
+  flame_ring: '🔥',
+  tornado: '🌪️',
+  shotgun: '💥',
+  black_hole: '🕳️',
+  katana: '⚔️',
+  aura: '✨',
+};
+
+const TOME_ICONS: Record<string, string> = {
+  attack_speed_tome: '⚡',
+  luck_tome: '🍀',
+  thorns_tome: '🌹',
+  shield_tome: '🛡️',
+  xp_gain_tome: '📚',
+  attraction_tome: '🧲',
+  curse_tome: '💀',
+  precision_tome: '🎯',
+  knockback_tome: '💨',
+  speed_tome: '👟',
+};
+
+const TOME_COLORS: Record<string, string> = {
+  attack_speed_tome: '#ffaa00',
+  luck_tome: '#44cc44',
+  thorns_tome: '#cc4444',
+  shield_tome: '#4488ff',
+  xp_gain_tome: '#aa44ff',
+  attraction_tome: '#ff44aa',
+  curse_tome: '#884488',
+  precision_tome: '#ff8800',
+  knockback_tome: '#88cccc',
+  speed_tome: '#44ffaa',
+};
+
+const TIER_COLORS: Record<number, string> = {
+  1: '#aaaaaa',
+  2: '#ff8844',
+  3: '#ff4444',
+};
+
 // =============================================================================
 // Asset Loader — loads GLB models
 // =============================================================================
@@ -313,10 +363,19 @@ export class GameScene {
   private hpBarInner!: HTMLDivElement;
   private xpBar!: HTMLDivElement;
   private xpBarInner!: HTMLDivElement;
+  private xpNumbers!: HTMLDivElement;
   private levelLabel!: HTMLDivElement;
   private timerLabel!: HTMLDivElement;
   private killLabel!: HTMLDivElement;
-  private weaponSlotsLabel!: HTMLDivElement;
+  private silverLabel!: HTMLDivElement;
+  private weaponSlotsContainer!: HTMLDivElement;
+  private tomesSlotsContainer!: HTMLDivElement;
+  private bossHpContainer!: HTMLDivElement;
+  private bossHpBarInner!: HTMLDivElement;
+  private bossNameLabel!: HTMLDivElement;
+  private bossPhaseMarkers!: HTMLDivElement;
+  private tierBadge!: HTMLDivElement;
+  private teleporterIndicator!: HTMLDivElement;
   private pauseBtn!: HTMLDivElement;
   private upgradePanel: HTMLDivElement | null = null;
   private gameOverPanel: HTMLDivElement | null = null;
@@ -324,6 +383,8 @@ export class GameScene {
   private damageNumIndex = 0;
   private finalSwarmLabel: HTMLDivElement | null = null;
   private finalSwarmBorder: HTMLDivElement | null = null;
+  private lastXp = 0;
+  private xpFlashTimer = 0;
 
   // State
   private isPaused = false;
@@ -1213,7 +1274,7 @@ export class GameScene {
     this.hudContainer.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:100;font-family:Arial,sans-serif;';
     document.body.appendChild(this.hudContainer);
 
-    // HP bar
+    // HP bar (top-center)
     const hpContainer = document.createElement('div');
     hpContainer.style.cssText = 'position:absolute;top:12px;left:50%;transform:translateX(-50%);width:200px;height:16px;background:rgba(40,40,40,0.8);border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,0.2);';
     this.hpBarInner = document.createElement('div');
@@ -1222,38 +1283,87 @@ export class GameScene {
     this.hpBar = hpContainer;
     this.hudContainer.appendChild(hpContainer);
 
-    // XP bar
+    // XP bar (bottom-center)
     const xpContainer = document.createElement('div');
-    xpContainer.style.cssText = 'position:absolute;bottom:16px;left:50%;transform:translateX(-50%);width:240px;height:10px;background:rgba(40,40,40,0.8);border-radius:5px;overflow:hidden;border:1px solid rgba(255,255,255,0.15);';
+    xpContainer.style.cssText = 'position:absolute;bottom:16px;left:50%;transform:translateX(-50%);width:260px;height:12px;background:rgba(40,40,40,0.8);border-radius:6px;overflow:hidden;border:1px solid rgba(255,255,255,0.15);';
     this.xpBarInner = document.createElement('div');
-    this.xpBarInner.style.cssText = 'width:0%;height:100%;background:linear-gradient(90deg,#cc9900,#ffcc00);transition:width 0.15s;border-radius:5px;';
+    this.xpBarInner.style.cssText = 'width:0%;height:100%;background:linear-gradient(90deg,#cc9900,#ffcc00);transition:width 0.15s;border-radius:6px;';
     xpContainer.appendChild(this.xpBarInner);
     this.xpBar = xpContainer;
     this.hudContainer.appendChild(xpContainer);
 
-    // Level label
+    // XP numbers above XP bar
+    this.xpNumbers = document.createElement('div');
+    this.xpNumbers.style.cssText = 'position:absolute;bottom:30px;left:50%;transform:translateX(-50%);color:#cccccc;font-size:10px;text-shadow:0 1px 3px rgba(0,0,0,0.8);white-space:nowrap;';
+    this.hudContainer.appendChild(this.xpNumbers);
+
+    // Level label (prominent, above XP numbers)
     this.levelLabel = document.createElement('div');
-    this.levelLabel.style.cssText = 'position:absolute;bottom:30px;left:50%;transform:translateX(-50%);color:#ffcc00;font-size:14px;font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.8);';
+    this.levelLabel.style.cssText = 'position:absolute;bottom:42px;left:50%;transform:translateX(-50%);color:#ffcc00;font-size:18px;font-weight:bold;text-shadow:0 0 8px rgba(255,200,0,0.4),0 1px 3px rgba(0,0,0,0.8);transition:color 0.3s;';
     this.hudContainer.appendChild(this.levelLabel);
 
-    // Timer
+    // Timer (top-right, pill background)
     this.timerLabel = document.createElement('div');
-    this.timerLabel.style.cssText = 'position:absolute;top:12px;right:16px;color:#ffffff;font-size:16px;font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.8);';
+    this.timerLabel.style.cssText = 'position:absolute;top:12px;right:16px;color:#ffffff;font-size:18px;font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.8);background:rgba(20,20,40,0.7);padding:4px 12px;border-radius:12px;';
     this.hudContainer.appendChild(this.timerLabel);
 
-    // Kill count
+    // Kill count (below timer)
     this.killLabel = document.createElement('div');
-    this.killLabel.style.cssText = 'position:absolute;top:36px;right:16px;color:#cccccc;font-size:13px;text-shadow:0 1px 3px rgba(0,0,0,0.8);';
+    this.killLabel.style.cssText = 'position:absolute;top:42px;right:16px;color:#cccccc;font-size:14px;text-shadow:0 1px 3px rgba(0,0,0,0.8);';
     this.hudContainer.appendChild(this.killLabel);
 
-    // Weapon slots info
-    this.weaponSlotsLabel = document.createElement('div');
-    this.weaponSlotsLabel.style.cssText = 'position:absolute;top:12px;left:16px;color:#cccccc;font-size:12px;text-shadow:0 1px 3px rgba(0,0,0,0.8);';
-    this.hudContainer.appendChild(this.weaponSlotsLabel);
+    // Silver earned this run (below kills)
+    this.silverLabel = document.createElement('div');
+    this.silverLabel.style.cssText = 'position:absolute;top:62px;right:16px;color:#eeeeaa;font-size:13px;text-shadow:0 1px 3px rgba(0,0,0,0.8);';
+    this.hudContainer.appendChild(this.silverLabel);
+
+    // Tier badge (top-left small)
+    this.tierBadge = document.createElement('div');
+    this.tierBadge.style.cssText = 'position:absolute;top:12px;left:16px;color:#ffffff;font-size:11px;font-weight:bold;background:rgba(40,40,60,0.8);padding:3px 8px;border-radius:4px;border:1px solid #555;';
+    this.hudContainer.appendChild(this.tierBadge);
+
+    // Weapon slots container (bottom-left)
+    this.weaponSlotsContainer = document.createElement('div');
+    this.weaponSlotsContainer.style.cssText = 'position:absolute;bottom:70px;left:12px;display:flex;gap:4px;flex-wrap:wrap;max-width:240px;';
+    this.hudContainer.appendChild(this.weaponSlotsContainer);
+
+    // Tome slots container (bottom-right, above mobile buttons)
+    this.tomesSlotsContainer = document.createElement('div');
+    this.tomesSlotsContainer.style.cssText = 'position:absolute;bottom:70px;right:12px;display:flex;gap:3px;flex-wrap:wrap;max-width:180px;justify-content:flex-end;';
+    this.hudContainer.appendChild(this.tomesSlotsContainer);
+
+    // Boss HP bar (top-center, hidden by default)
+    this.bossHpContainer = document.createElement('div');
+    this.bossHpContainer.style.cssText = 'position:absolute;top:36px;left:50%;transform:translateX(-50%);width:60%;max-width:500px;height:22px;background:rgba(20,20,20,0.9);border-radius:4px;overflow:hidden;border:1px solid rgba(255,100,0,0.4);display:none;';
+    this.bossHpBarInner = document.createElement('div');
+    this.bossHpBarInner.style.cssText = 'width:100%;height:100%;background:linear-gradient(90deg,#cc3300,#ff6600);transition:width 0.2s;border-radius:4px;';
+    this.bossHpContainer.appendChild(this.bossHpBarInner);
+    // Phase threshold markers
+    this.bossPhaseMarkers = document.createElement('div');
+    this.bossPhaseMarkers.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
+    // 60% marker
+    const marker60 = document.createElement('div');
+    marker60.style.cssText = 'position:absolute;left:60%;top:0;width:2px;height:100%;background:rgba(255,255,255,0.4);';
+    this.bossPhaseMarkers.appendChild(marker60);
+    // 30% marker
+    const marker30 = document.createElement('div');
+    marker30.style.cssText = 'position:absolute;left:30%;top:0;width:2px;height:100%;background:rgba(255,255,255,0.4);';
+    this.bossPhaseMarkers.appendChild(marker30);
+    this.bossHpContainer.appendChild(this.bossPhaseMarkers);
+    // Boss name label
+    this.bossNameLabel = document.createElement('div');
+    this.bossNameLabel.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#ffffff;font-size:11px;font-weight:bold;text-shadow:0 1px 2px rgba(0,0,0,0.9);pointer-events:none;';
+    this.bossHpContainer.appendChild(this.bossNameLabel);
+    this.hudContainer.appendChild(this.bossHpContainer);
+
+    // Teleporter indicator
+    this.teleporterIndicator = document.createElement('div');
+    this.teleporterIndicator.style.cssText = 'position:absolute;top:90px;left:50%;transform:translateX(-50%);color:#00ccff;font-size:13px;font-weight:bold;text-shadow:0 0 8px #00ccff,0 1px 3px rgba(0,0,0,0.8);display:none;background:rgba(0,20,40,0.6);padding:4px 12px;border-radius:6px;';
+    this.hudContainer.appendChild(this.teleporterIndicator);
 
     // Pause button
     this.pauseBtn = document.createElement('div');
-    this.pauseBtn.style.cssText = 'position:absolute;top:60px;right:16px;color:#ffffff;font-size:13px;background:rgba(80,80,120,0.6);padding:4px 12px;border-radius:4px;cursor:pointer;pointer-events:auto;user-select:none;';
+    this.pauseBtn.style.cssText = 'position:absolute;top:86px;right:16px;color:#ffffff;font-size:13px;background:rgba(80,80,120,0.6);padding:4px 12px;border-radius:4px;cursor:pointer;pointer-events:auto;user-select:none;';
     this.pauseBtn.textContent = t('hud.pause');
     this.pauseBtn.addEventListener('click', () => this.togglePause());
     this.hudContainer.appendChild(this.pauseBtn);
@@ -1903,35 +2013,123 @@ export class GameScene {
 
   private updateHUD(state: GameState): void {
     const p = state.player;
+    const time = performance.now();
 
+    // HP bar
     const hpPercent = Math.max(0, Math.min(100, (p.hp / p.maxHp) * 100));
     this.hpBarInner.style.width = `${hpPercent}%`;
 
+    // XP bar with exact numbers
     const xpPercent = p.xpToNext > 0 ? Math.max(0, Math.min(100, (p.xp / p.xpToNext) * 100)) : 0;
     this.xpBarInner.style.width = `${xpPercent}%`;
+    this.xpNumbers.textContent = `${p.xp} / ${p.xpToNext}`;
 
+    // XP flash on gain
+    if (p.xp !== this.lastXp) {
+      this.xpFlashTimer = 0.4;
+      this.lastXp = p.xp;
+    }
+    if (this.xpFlashTimer > 0) {
+      this.xpFlashTimer -= 1 / 60;
+      this.xpBarInner.style.background = 'linear-gradient(90deg,#ffdd00,#ffff44)';
+    } else {
+      this.xpBarInner.style.background = 'linear-gradient(90deg,#cc9900,#ffcc00)';
+    }
+
+    // Level label
     this.levelLabel.textContent = t('hud.level', { level: String(p.level) });
 
+    // Timer
     const totalSec = Math.floor(state.gameTime);
     const minutes = Math.floor(totalSec / 60);
     const seconds = totalSec % 60;
     const timeStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-    this.timerLabel.textContent = t('hud.time', { time: timeStr });
+    this.timerLabel.textContent = timeStr;
 
-    this.killLabel.textContent = t('hud.kills', { count: String(state.stats.killCount) });
+    // Kill count
+    this.killLabel.textContent = `💀 ${state.stats.killCount}`;
 
-    // Weapon slots display (show evolved weapons with star)
-    const weaponNames = p.weapons.map(w => {
-      if (w.evolved) {
-        const evo = WEAPON_EVOLUTIONS.find(e => e.baseWeapon === w.type);
-        return evo ? `★${evo.evolvedName}` : `★${w.type}`;
+    // Silver this run
+    this.silverLabel.textContent = `🪙 ${state.stats.silverEarned}`;
+
+    // --- Weapon Icons Bar (bottom-left) ---
+    this.weaponSlotsContainer.innerHTML = '';
+    for (const weapon of p.weapons) {
+      const slot = document.createElement('div');
+      const borderColor = weapon.evolved ? '#ffcc00' : '#555';
+      const borderWidth = weapon.evolved ? '2px' : '2px';
+      slot.style.cssText = `width:44px;height:44px;background:rgba(0,0,0,0.6);border:${borderWidth} solid ${borderColor};border-radius:6px;position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0;`;
+      // Weapon icon
+      const icon = document.createElement('span');
+      icon.style.cssText = 'font-size:20px;';
+      icon.textContent = WEAPON_ICONS[weapon.type] ?? '?';
+      slot.appendChild(icon);
+      // Cooldown overlay
+      const stats = this.getWeaponCooldownInfo(weapon);
+      if (stats.cooldownPercent > 0) {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `position:absolute;bottom:0;left:0;right:0;height:${stats.cooldownPercent}%;background:rgba(0,0,0,0.7);border-radius:0 0 4px 4px;pointer-events:none;`;
+        slot.appendChild(overlay);
       }
-      return `${w.type} Lv${w.level}`;
-    }).join(' | ');
-    this.weaponSlotsLabel.textContent = `${t('hud.weaponSlots', {
-      current: String(p.weapons.length),
-      max: String(p.maxWeaponSlots),
-    })}\n${weaponNames}`;
+      // Level number
+      const lvl = document.createElement('span');
+      lvl.style.cssText = 'position:absolute;bottom:2px;right:3px;font-size:9px;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,0.9);';
+      lvl.textContent = String(weapon.level);
+      slot.appendChild(lvl);
+      this.weaponSlotsContainer.appendChild(slot);
+    }
+
+    // --- Tome Icons Bar (bottom-right) ---
+    this.tomesSlotsContainer.innerHTML = '';
+    for (const tome of p.tomes) {
+      const slot = document.createElement('div');
+      const bgColor = TOME_COLORS[tome.type] ?? '#444';
+      slot.style.cssText = `width:36px;height:36px;background:${bgColor}33;border:1px solid ${bgColor};border-radius:5px;position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0;`;
+      const icon = document.createElement('span');
+      icon.style.cssText = 'font-size:16px;';
+      icon.textContent = TOME_ICONS[tome.type] ?? '📖';
+      slot.appendChild(icon);
+      // Level number
+      const lvl = document.createElement('span');
+      lvl.style.cssText = 'position:absolute;bottom:1px;right:2px;font-size:8px;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,0.9);';
+      lvl.textContent = String(tome.level);
+      slot.appendChild(lvl);
+      this.tomesSlotsContainer.appendChild(slot);
+    }
+
+    // --- Boss HP Bar ---
+    if (state.boss && state.boss.hp > 0) {
+      this.bossHpContainer.style.display = 'block';
+      const bossHpPercent = Math.max(0, Math.min(100, (state.boss.hp / state.boss.maxHp) * 100));
+      this.bossHpBarInner.style.width = `${bossHpPercent}%`;
+      this.bossNameLabel.textContent = `${t('boss.anubis')} - Phase ${state.boss.phase}`;
+      // Pulsing glow when enraged
+      if (state.boss.enraged) {
+        const pulse = 0.6 + Math.sin(time * 0.008) * 0.4;
+        this.bossHpContainer.style.boxShadow = `0 0 ${8 + pulse * 8}px rgba(255,50,0,${pulse})`;
+      } else {
+        this.bossHpContainer.style.boxShadow = 'none';
+      }
+    } else {
+      this.bossHpContainer.style.display = 'none';
+    }
+
+    // --- Teleporter Indicator ---
+    const availableTeleporter = state.teleporters.find(tp => tp.phase === 'available' || tp.phase === 'activating');
+    if (availableTeleporter) {
+      this.teleporterIndicator.style.display = 'block';
+      const dx = availableTeleporter.x - p.x;
+      const dz = availableTeleporter.z - p.z;
+      const dist = Math.round(Math.sqrt(dx * dx + dz * dz));
+      if (availableTeleporter.phase === 'activating') {
+        const pct = Math.min(100, Math.round((availableTeleporter.activationTimer / availableTeleporter.activationDuration) * 100));
+        this.teleporterIndicator.textContent = `${t('teleporter.activating')} ${pct}%`;
+      } else {
+        this.teleporterIndicator.textContent = `🌀 Teleporter: ${dist}m`;
+      }
+    } else {
+      this.teleporterIndicator.style.display = 'none';
+    }
 
     // --- Final Swarm visual effects ---
     if (state.finalSwarm) {
@@ -1942,19 +2140,23 @@ export class GameScene {
         document.body.appendChild(this.finalSwarmBorder);
       }
       // Pulse the border opacity
-      const pulse = 0.4 + Math.sin(performance.now() * 0.005) * 0.3;
+      const pulse = 0.4 + Math.sin(time * 0.005) * 0.3;
       this.finalSwarmBorder.style.borderColor = `rgba(255,50,50,${pulse})`;
 
       // Show "FINAL SWARM!" text
       if (!this.finalSwarmLabel) {
         this.finalSwarmLabel = document.createElement('div');
-        this.finalSwarmLabel.style.cssText = 'position:fixed;top:50px;left:50%;transform:translateX(-50%);color:#ff4444;font-size:22px;font-weight:bold;text-shadow:0 0 10px #ff0000,0 2px 4px rgba(0,0,0,0.8);pointer-events:none;z-index:101;letter-spacing:2px;';
-        this.finalSwarmLabel.textContent = t('hud.finalSwarm');
+        this.finalSwarmLabel.style.cssText = 'position:fixed;top:66px;left:50%;transform:translateX(-50%);color:#ff4444;font-size:20px;font-weight:bold;text-shadow:0 0 10px #ff0000,0 2px 4px rgba(0,0,0,0.8);pointer-events:none;z-index:101;letter-spacing:2px;';
+        this.finalSwarmLabel.textContent = `⚠️ ${t('hud.finalSwarm')} ⚠️`;
         document.body.appendChild(this.finalSwarmLabel);
       }
       // Pulse the text
-      const textPulse = 0.7 + Math.sin(performance.now() * 0.006) * 0.3;
+      const textPulse = 0.7 + Math.sin(time * 0.006) * 0.3;
       this.finalSwarmLabel.style.opacity = String(textPulse);
+
+      // Red-tint HUD elements during final swarm
+      this.timerLabel.style.color = '#ff8888';
+      this.killLabel.style.color = '#ff8888';
     } else {
       // Remove final swarm visuals
       if (this.finalSwarmBorder) {
@@ -1965,12 +2167,21 @@ export class GameScene {
         this.finalSwarmLabel.remove();
         this.finalSwarmLabel = null;
       }
+      this.timerLabel.style.color = '#ffffff';
+      this.killLabel.style.color = '#cccccc';
     }
 
     // Damage numbers
     for (const evt of state.damageEvents) {
       this.spawnDamageNumber(evt);
     }
+  }
+
+  private getWeaponCooldownInfo(weapon: { type: string; cooldownTimer: number; level: number; evolved: boolean }): { cooldownPercent: number } {
+    // Show cooldown as proportion — use a reasonable max cooldown for visual display
+    const maxCd = 4.0;
+    const pct = Math.max(0, Math.min(100, (weapon.cooldownTimer / maxCd) * 100));
+    return { cooldownPercent: pct };
   }
 
   // ===========================================================================
@@ -2246,6 +2457,13 @@ export class GameScene {
       this.pauseBtn.textContent = '▶';
     }
   }
+
+  setTierBadge(tier: DifficultyTier): void {
+    const color = TIER_COLORS[tier] ?? '#aaa';
+    this.tierBadge.textContent = t(`tier.${tier}`);
+    this.tierBadge.style.borderColor = color;
+    this.tierBadge.style.color = color;
+  }
 }
 
 // =============================================================================
@@ -2253,6 +2471,7 @@ export class GameScene {
 // =============================================================================
 
 let selectedCharacter: CharacterType = 'megachad';
+let selectedTier: DifficultyTier = 1;
 
 function showCharacterSelect(onSelect: (character: CharacterType) => void): HTMLDivElement {
   const panel = document.createElement('div');
@@ -2314,6 +2533,58 @@ function showCharacterSelect(onSelect: (character: CharacterType) => void): HTML
     });
 
     panel.appendChild(card);
+  }
+
+  return panel;
+}
+
+// =============================================================================
+// Tier Selection
+// =============================================================================
+
+function showTierSelect(onSelect: (tier: DifficultyTier) => void): HTMLDivElement {
+  const panel = document.createElement('div');
+  panel.style.cssText = 'display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;justify-content:center;';
+
+  const tiers: DifficultyTier[] = [1, 2, 3];
+
+  for (const tier of tiers) {
+    const cfg = TIER_CONFIGS[tier];
+    const isSelected = tier === selectedTier;
+    const color = TIER_COLORS[tier];
+
+    const btn = document.createElement('div');
+    btn.style.cssText = `
+      padding:10px 18px;background:rgba(20,20,40,0.9);
+      border:2px solid ${isSelected ? color : '#444'};
+      border-radius:8px;cursor:pointer;text-align:center;transition:all 0.15s;min-width:100px;
+      ${isSelected ? `box-shadow:0 0 12px ${color}44;` : ''}
+    `;
+
+    const nameEl = document.createElement('div');
+    nameEl.style.cssText = `color:${color};font-size:13px;font-weight:bold;margin-bottom:4px;`;
+    nameEl.textContent = t(`tier.${tier}`);
+    btn.appendChild(nameEl);
+
+    const descEl = document.createElement('div');
+    descEl.style.cssText = 'color:#888;font-size:9px;line-height:1.3;';
+    if (tier === 1) descEl.textContent = 'Boss on timer';
+    else if (tier === 2) descEl.textContent = `HP x${cfg.enemyHpMultiplier} | Silver x${cfg.silverMultiplier}`;
+    else descEl.textContent = `HP x${cfg.enemyHpMultiplier} | Silver x${cfg.silverMultiplier}`;
+    btn.appendChild(descEl);
+
+    btn.addEventListener('click', () => {
+      selectedTier = tier;
+      onSelect(tier);
+      panel.remove();
+      const newPanel = showTierSelect(onSelect);
+      panel.parentElement?.appendChild(newPanel);
+    });
+
+    btn.addEventListener('mouseenter', () => { btn.style.transform = 'scale(1.05)'; });
+    btn.addEventListener('mouseleave', () => { btn.style.transform = 'scale(1)'; });
+
+    panel.appendChild(btn);
   }
 
   return panel;
@@ -2426,6 +2697,18 @@ function showMainMenu(): void {
     // Character selection updates via the showCharacterSelect function
   });
   mainMenuEl.appendChild(charPanel);
+
+  // Tier select label
+  const tierLabel = document.createElement('div');
+  tierLabel.style.cssText = 'color:#cccccc;font-size:13px;margin-top:10px;';
+  tierLabel.textContent = t('tier.select');
+  mainMenuEl.appendChild(tierLabel);
+
+  // Tier select buttons
+  const tierPanel = showTierSelect((_tier) => {
+    // Tier selection updates via the showTierSelect function
+  });
+  mainMenuEl.appendChild(tierPanel);
 
   // Button row (Start + Shop + Quests)
   const btnRow = document.createElement('div');
@@ -2753,6 +3036,7 @@ function startGame(character: CharacterType = 'megachad'): void {
   const config: GameConfig = {
     ...DEFAULT_GAME_CONFIG,
     character,
+    tier: selectedTier,
   };
 
   const session = new LocalGameSession(config);
@@ -2760,6 +3044,9 @@ function startGame(character: CharacterType = 'megachad'): void {
   activeScene = scene;
   scene.start();
   session.start();
+
+  // Set tier badge text after start
+  scene.setTierBadge(selectedTier);
 }
 
 // =============================================================================

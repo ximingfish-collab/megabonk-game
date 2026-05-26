@@ -1,4 +1,4 @@
-import type { GameConfig, CharacterType, CharacterConfig, TomeType, WeaponType } from './types.ts';
+import type { GameConfig, CharacterType, CharacterConfig, TomeType, WeaponType, DifficultyTier } from './types.ts';
 
 export const MAP_SIZE = 120;
 export const TICK_INTERVAL_MS = 1000 / 60;
@@ -333,4 +333,24 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   tickIntervalMs: TICK_INTERVAL_MS,
   maxEnemies: MAX_ENEMIES,
   character: 'megachad',
+  tier: 1,
+};
+
+// === Difficulty Tier System ===
+export interface TierConfig {
+  tier: DifficultyTier;
+  name: string;
+  enemyHpMultiplier: number;
+  enemyDamageMultiplier: number;
+  enemySpeedMultiplier: number;
+  xpMultiplier: number;
+  silverMultiplier: number;
+  teleporterCount: number;
+  bossHpMultiplier: number;
+}
+
+export const TIER_CONFIGS: Record<DifficultyTier, TierConfig> = {
+  1: { tier: 1, name: 'Normal', enemyHpMultiplier: 1.0, enemyDamageMultiplier: 1.0, enemySpeedMultiplier: 1.0, xpMultiplier: 1.0, silverMultiplier: 1.0, teleporterCount: 0, bossHpMultiplier: 1.0 },
+  2: { tier: 2, name: 'Hard', enemyHpMultiplier: 1.5, enemyDamageMultiplier: 1.3, enemySpeedMultiplier: 1.1, xpMultiplier: 1.5, silverMultiplier: 2.0, teleporterCount: 1, bossHpMultiplier: 1.5 },
+  3: { tier: 3, name: 'Nightmare', enemyHpMultiplier: 2.5, enemyDamageMultiplier: 1.8, enemySpeedMultiplier: 1.2, xpMultiplier: 2.0, silverMultiplier: 3.0, teleporterCount: 2, bossHpMultiplier: 2.5 },
 };

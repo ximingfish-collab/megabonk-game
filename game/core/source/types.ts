@@ -286,12 +286,16 @@ export interface GameState {
   finalSwarm: boolean;
 }
 
+// --- Difficulty ---
+export type DifficultyTier = 1 | 2 | 3;
+
 // --- Config ---
 export interface GameConfig {
   mapSize: number;
   tickIntervalMs: number;
   maxEnemies: number;
   character: CharacterType;
+  tier: DifficultyTier;
 }
 
 // --- Result ---

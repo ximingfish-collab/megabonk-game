@@ -66,6 +66,7 @@ import {
   MAX_WEAPONS_DEFAULT,
   MAX_WEAPONS_CAP,
   WEAPON_EVOLUTIONS,
+  TIER_CONFIGS,
 } from './config.ts';
 
 import { loadSave, saveSave, updateRunStats } from './save.ts';
@@ -318,9 +319,10 @@ export class GameInstance {
 
   getResult(): GameResult {
     // Calculate silver earned for this run
+    const tierCfg = TIER_CONFIGS[this.config.tier];
     const baseSilver = Math.floor(this.state.stats.killCount * 0.5 + this.state.player.level * 5);
     const victoryBonus = this.state.phase === 'victory' ? 100 : 0;
-    const totalSilver = baseSilver + victoryBonus + this.state.stats.silverEarned;
+    const totalSilver = Math.round((baseSilver + victoryBonus + this.state.stats.silverEarned) * tierCfg.silverMultiplier);
 
     // Persist stats and silver
     updateRunStats(
@@ -1877,23 +1879,29 @@ export class GameInstance {
 
   private updateTeleporters(dt: number): void {
     const player = this.state.player;
+    const tierCfg = TIER_CONFIGS[this.config.tier];
 
-    // Spawn teleporter when time is right
-    if (this.state.teleporters.length === 0 && this.state.gameTime >= TELEPORTER_APPEAR_TIME && !this.state.boss) {
-      // Spawn teleporter at a random location away from player
-      const angle = Math.random() * Math.PI * 2;
-      const distance = 25 + Math.random() * 15;
-      const tx = Math.cos(angle) * distance;
-      const tz = Math.sin(angle) * distance;
-      const halfMap = this.config.mapSize * 0.4;
+    // Tier 1: no teleporters (boss spawns on timer)
+    if (tierCfg.teleporterCount === 0) return;
 
-      this.state.teleporters.push({
-        x: Math.max(-halfMap, Math.min(halfMap, tx)),
-        z: Math.max(-halfMap, Math.min(halfMap, tz)),
-        phase: 'available',
-        activationTimer: 0,
-        activationDuration: TELEPORTER_ACTIVATION_DURATION,
-      });
+    // Spawn teleporters when time is right
+    if (this.state.teleporters.length < tierCfg.teleporterCount && this.state.gameTime >= TELEPORTER_APPEAR_TIME && !this.state.boss) {
+      // Spawn teleporter(s) at random locations away from player
+      while (this.state.teleporters.length < tierCfg.teleporterCount) {
+        const angle = Math.random() * Math.PI * 2;
+        const distance = 25 + Math.random() * 15;
+        const tx = Math.cos(angle) * distance;
+        const tz = Math.sin(angle) * distance;
+        const halfMap = this.config.mapSize * 0.4;
+
+        this.state.teleporters.push({
+          x: Math.max(-halfMap, Math.min(halfMap, tx)),
+          z: Math.max(-halfMap, Math.min(halfMap, tz)),
+          phase: 'available',
+          activationTimer: 0,
+          activationDuration: TELEPORTER_ACTIVATION_DURATION,
+        });
+      }
     }
 
     // Update existing teleporters
@@ -2051,6 +2059,9 @@ export class GameInstance {
     if (shopXpBonus > 0) {
       xpValue = Math.floor(xpValue * (1 + shopXpBonus));
     }
+    // Tier XP multiplier
+    const tierCfg = TIER_CONFIGS[this.config.tier];
+    xpValue = Math.floor(xpValue * tierCfg.xpMultiplier);
     this.state.player.xp += xpValue;
   }
 
@@ -2206,6 +2217,7 @@ export class GameInstance {
 
     const spawnPos = this.getSpawnPosition();
     const timeScale = 1 + this.state.gameTime / 600;
+    const tierCfg = TIER_CONFIGS[this.config.tier];
 
     const enemy: EnemyState = {
       id: this.nextEnemyId++,
@@ -2213,10 +2225,10 @@ export class GameInstance {
       x: spawnPos.x,
       y: 0,
       z: spawnPos.z,
-      hp: Math.round(cfg.hp * timeScale * 3), // 3x HP
-      maxHp: Math.round(cfg.hp * timeScale * 3),
-      speed: cfg.speed,
-      damage: cfg.damage * 2, // 2x damage
+      hp: Math.round(cfg.hp * timeScale * 3 * tierCfg.enemyHpMultiplier),
+      maxHp: Math.round(cfg.hp * timeScale * 3 * tierCfg.enemyHpMultiplier),
+      speed: cfg.speed * tierCfg.enemySpeedMultiplier,
+      damage: Math.round(cfg.damage * 2 * tierCfg.enemyDamageMultiplier),
       behavior: cfg.behavior as EnemyBehavior,
       isElite: true,
       isMiniBoss: true,
@@ -2276,6 +2288,7 @@ export class GameInstance {
 
     const spawnPos = this.getSpawnPosition();
     const timeScale = 1 + this.state.gameTime / 600;
+    const tierCfg = TIER_CONFIGS[this.config.tier];
 
     // Enhanced HP scaling: after 3 minutes, +10% per minute
     let hpScale = timeScale;
@@ -2284,9 +2297,9 @@ export class GameInstance {
       hpScale *= (1 + extraMinutes * 0.1);
     }
 
-    let hp = Math.round(cfg.hp * hpScale);
-    let speed = cfg.speed;
-    let damage = cfg.damage;
+    let hp = Math.round(cfg.hp * hpScale * tierCfg.enemyHpMultiplier);
+    let speed = cfg.speed * tierCfg.enemySpeedMultiplier;
+    let damage = Math.round(cfg.damage * tierCfg.enemyDamageMultiplier);
     let isElite = cfg.isElite;
 
     // Elite enemies: 50% chance of random buff (fast, tanky, or damage)
@@ -2353,16 +2366,24 @@ export class GameInstance {
     if (this.state.boss) return;
     if (this.state.phase === 'victory' || this.state.phase === 'defeat') return;
 
-    // Boss spawns when: teleporter is activated OR time exceeds BOSS_SPAWN_TIME
-    const teleporterActivated = this.state.teleporters.some(t => t.phase === 'activated');
-    if (!teleporterActivated && this.state.gameTime < BOSS_SPAWN_TIME) return;
+    const tierCfg = TIER_CONFIGS[this.config.tier];
+
+    if (tierCfg.teleporterCount === 0) {
+      // Tier 1: boss spawns automatically on timer
+      if (this.state.gameTime < BOSS_SPAWN_TIME) return;
+    } else {
+      // Tier 2+: boss ONLY spawns via teleporter activation (all must be activated)
+      const allActivated = this.state.teleporters.length >= tierCfg.teleporterCount &&
+        this.state.teleporters.every(t => t.phase === 'activated');
+      if (!allActivated) return;
+    }
 
     this.state.boss = {
       x: 0,
       y: 0,
       z: -this.config.mapSize * 0.3,
-      hp: BOSS_HP,
-      maxHp: BOSS_HP,
+      hp: Math.round(BOSS_HP * tierCfg.bossHpMultiplier),
+      maxHp: Math.round(BOSS_HP * tierCfg.bossHpMultiplier),
       phase: 1,
       currentAttack: 'idle',
       attackTimer: BOSS_INTRO_DURATION,
