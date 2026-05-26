@@ -127,10 +127,15 @@ npx tsc --noEmit      # 类型检查
 
 | 文档 | 内容 |
 |------|------|
+| `CONTRIBUTING.md` | **贡献指南（Fork → PR 流程）** |
 | `LEVEL_DESIGN.md` | 关卡数据、碰撞格式、可用模型清单 |
 | `level-editor/WORKFLOW.md` | 关卡制作完整工作流 |
 | `level-editor/README.md` | 快速操作指南 |
 | `KUBEE.md` | 项目模板开发指南 |
+
+## 参与贡献
+
+欢迎贡献！请阅读 [CONTRIBUTING.md](./CONTRIBUTING.md) 了解 Fork → PR 的完整流程。
 
 ## License
 
