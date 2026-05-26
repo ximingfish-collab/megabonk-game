@@ -1381,7 +1381,9 @@ export class GameScene {
   // ===========================================================================
 
   triggerCameraShake(intensity: number, frequency: number, decay: number): void {
-    this.shakeIntensity += intensity; // additive stacking
+    this.shakeIntensity += intensity;
+    // Cap maximum shake intensity to prevent extreme jitter
+    this.shakeIntensity = Math.min(this.shakeIntensity, 0.35);
     this.shakeFrequency = frequency;
     this.shakeDecay = decay;
   }
@@ -1427,23 +1429,21 @@ export class GameScene {
     // Process damage events for camera effects
     for (const evt of state.damageEvents) {
       if (evt.isPlayerDamage) {
-        // Player took damage: heavy shake
-        this.triggerCameraShake(0.4, 8, 2);
-        this.triggerHitStop(0.05);
+        // Player took damage: medium shake
+        this.triggerCameraShake(0.2, 10, 5);
+        this.triggerHitStop(0.04);
       } else if (evt.isCrit) {
-        // Critical hit: medium shake + brief hit stop
-        this.triggerCameraShake(0.15, 15, 4);
-        this.triggerHitStop(0.03);
-      } else {
-        // Normal hit: light shake
-        this.triggerCameraShake(0.05, 30, 6);
+        // Critical hit: light shake + brief hit stop
+        this.triggerCameraShake(0.08, 18, 8);
+        this.triggerHitStop(0.02);
       }
+      // Normal hits: no camera shake (too frequent, causes jitter)
     }
 
     // Boss attack shake
     if (state.boss && state.boss.currentAttack !== 'idle' && state.boss.attackTimer > 0 && state.boss.attackTimer < 0.05) {
-      this.triggerCameraShake(0.4, 8, 2);
-      this.triggerHitStop(0.05);
+      this.triggerCameraShake(0.25, 10, 5);
+      this.triggerHitStop(0.04);
     }
 
     // Dynamic zoom: brief zoom-in when weapon evolves (detected via level-up with evolved weapon)
@@ -2461,10 +2461,11 @@ export class GameScene {
     if (this.shakeIntensity > 0.001) {
       this.shakeTime += 1 / 60;
       const shakeX = Math.sin(this.shakeTime * this.shakeFrequency) * this.shakeIntensity;
-      const shakeY = Math.sin(this.shakeTime * this.shakeFrequency * 1.3 + 1.7) * this.shakeIntensity * 0.7;
+      const shakeY = Math.sin(this.shakeTime * this.shakeFrequency * 1.3 + 1.7) * this.shakeIntensity * 0.5;
       this.camera.position.x += shakeX;
       this.camera.position.y += shakeY;
-      this.shakeIntensity *= Math.pow(0.5, this.shakeDecay / 60);
+      // Faster exponential decay — shake dissipates quickly
+      this.shakeIntensity *= Math.pow(0.3, this.shakeDecay / 60);
       if (this.shakeIntensity < 0.001) this.shakeIntensity = 0;
     }
   }
@@ -2720,7 +2721,7 @@ export class GameScene {
   private handlePhaseChange(state: GameState): void {
     if (state.phase === 'level_up' && state.upgradeOptions && !this.upgradePanel) {
       this.showUpgradePanel(state.upgradeOptions);
-      this.triggerCameraShake(0.15, 15, 4); // Level up shake
+      this.triggerCameraShake(0.06, 20, 10); // Level up: subtle pulse
     } else if (state.phase !== 'level_up' && this.upgradePanel) {
       this.hideUpgradePanel();
     }
