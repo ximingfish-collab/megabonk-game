@@ -871,23 +871,37 @@ export class GameScene {
     const state = this.session.getRenderState();
     const charColor = CHARACTER_COLORS[state.character] ?? 0xf5d680;
 
-    if (loadedModels.player) {
-      console.log('[Player] Using loaded GLTF model');
-      this.playerMesh = loadedModels.player.clone() as unknown as THREE.Mesh;
-      this.playerMesh.name = 'Player';
-      // Model is very small (~0.12 units), scale up to ~1.8 units tall
-      this.playerMesh.scale.set(15, 15, 15);
-      this.playerMesh.position.y = 0;
+    // Always start with fallback — will be replaced once model loads
+    const bodyGeo = new THREE.CapsuleGeometry(0.5, 1.0, 8, 16);
+    const bodyMat = new THREE.MeshLambertMaterial({ color: charColor });
+    this.playerMesh = new THREE.Mesh(bodyGeo, bodyMat);
+    this.playerMesh.name = 'Player';
+    this.playerMesh.position.y = 1.0;
+    this.scene.add(this.playerMesh);
+
+    // Attempt to load and replace with GLTF model
+    const loader = new GLTFLoader();
+    loader.load('/models/player_cyberpunk.gltf', (gltf) => {
+      const model = gltf.scene;
+      model.name = 'Player';
+      // Calculate proper scale based on actual bounding box
+      const box = new THREE.Box3().setFromObject(model);
+      const size = box.getSize(new THREE.Vector3());
+      const targetHeight = 1.8;
+      const autoScale = targetHeight / Math.max(size.y, 0.01);
+      model.scale.set(autoScale, autoScale, autoScale);
+      // Center on ground
+      const newBox = new THREE.Box3().setFromObject(model);
+      model.position.y = -newBox.min.y;
+
+      // Replace the fallback mesh
+      this.scene.remove(this.playerMesh);
+      this.playerMesh = model as unknown as THREE.Mesh;
       this.scene.add(this.playerMesh);
-    } else {
-      console.warn('[Player] Model not loaded — using fallback capsule');
-      const bodyGeo = new THREE.CapsuleGeometry(0.5, 1.0, 4, 8);
-      const bodyMat = new THREE.MeshLambertMaterial({ color: charColor });
-      this.playerMesh = new THREE.Mesh(bodyGeo, bodyMat);
-      this.playerMesh.name = 'Player';
-      this.playerMesh.position.y = 1.0;
-      this.scene.add(this.playerMesh);
-    }
+      console.log(`[Player] GLTF loaded! size=${size.y.toFixed(3)}, scale=${autoScale.toFixed(1)}`);
+    }, undefined, (err) => {
+      console.warn('[Player] GLTF failed, keeping fallback:', err);
+    });
 
     // Ground circle indicator
     const ringGeo = new THREE.RingGeometry(0.6, 0.75, 16);
@@ -1239,10 +1253,19 @@ export class GameScene {
     const p = state.player;
     const time = performance.now() * 0.001;
 
-    // === Position ===
-    const modelY = loadedModels.player ? 0 : 1.0;
+    // === Position (y=0 for loaded model, y=1.0 for fallback capsule) ===
+    const isGltfModel = this.playerMesh.name === 'Player' && this.playerMesh.children.length > 0;
+    const modelY = isGltfModel ? 0 : 1.0;
     this.playerMesh.position.set(p.x, p.y + modelY, p.z);
-    this.playerMesh.rotation.y = p.rotation;
+
+    // === Rotation: smooth interpolation, only when moving ===
+    if (p.currentSpeed > 0.3) {
+      // Smoothly rotate toward target (prevent sudden spinning)
+      let angleDiff = p.rotation - this.playerMesh.rotation.y;
+      while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+      while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+      this.playerMesh.rotation.y += angleDiff * 0.15;
+    }
     this.playerMesh.visible = p.alive;
 
     // === Death Animation ===
