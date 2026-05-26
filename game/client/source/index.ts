@@ -443,6 +443,9 @@ export class GameScene {
   }
 
   private setupGround(): void {
+    // =========================================================================
+    // 1. BASE GROUND with color variation
+    // =========================================================================
     const baseGeo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE);
     baseGeo.rotateX(-Math.PI / 2);
     const baseMat = new THREE.MeshLambertMaterial({ color: 0x4d8c3a });
@@ -450,62 +453,136 @@ export class GameScene {
     this.groundMesh.name = 'Ground_Base';
     this.scene.add(this.groundMesh);
 
-    const platforms: [number, number, number, number, number][] = [
-      [-35, -30, 24, 20, 3],
-      [35, -30, 24, 20, 3],
-      [-35, 30, 24, 20, 3],
-      [35, 30, 24, 20, 3],
-      [0, -40, 20, 16, 5],
-      [0, 40, 20, 16, 5],
-      [-25, 0, 16, 24, 2],
-      [25, 0, 16, 24, 2],
-      [-15, -20, 10, 10, 1.5],
-      [15, -20, 10, 10, 1.5],
-      [-15, 20, 10, 10, 1.5],
-      [15, 20, 10, 10, 1.5],
-      [-40, 0, 12, 12, 4],
-      [40, 0, 12, 12, 4],
-      [0, 0, 10, 10, 2.5],
-      [-20, -15, 6, 16, 1],
-      [20, -15, 6, 16, 1],
-      [-20, 15, 6, 16, 1],
-      [20, 15, 6, 16, 1],
+    // Ground variation patches - overlapping planes at ground level
+    const groundPatches: { x: number; z: number; w: number; d: number; color: number }[] = [
+      // Lighter grass patches
+      { x: -20, z: -25, w: 18, d: 14, color: 0x5dba4c },
+      { x: 30, z: 15, w: 22, d: 16, color: 0x5dba4c },
+      { x: -10, z: 35, w: 16, d: 12, color: 0x55b044 },
+      { x: 40, z: -35, w: 14, d: 18, color: 0x5dba4c },
+      { x: -40, z: 10, w: 16, d: 14, color: 0x55b044 },
+      { x: 15, z: -40, w: 20, d: 12, color: 0x5dba4c },
+      { x: -30, z: -40, w: 12, d: 10, color: 0x55b044 },
+      { x: 25, z: 40, w: 14, d: 16, color: 0x5dba4c },
+      // Dirt path strips
+      { x: 0, z: 0, w: 4, d: 80, color: 0x8b7355 },
+      { x: 0, z: 0, w: 80, d: 4, color: 0x8b7355 },
+      { x: -30, z: -30, w: 3, d: 30, color: 0x7a6648 },
+      { x: 30, z: 30, w: 3, d: 30, color: 0x7a6648 },
+      { x: -25, z: 25, w: 25, d: 3, color: 0x7a6648 },
+      { x: 25, z: -25, w: 25, d: 3, color: 0x7a6648 },
+      // Dark moss/shadow patches
+      { x: -35, z: -15, w: 8, d: 8, color: 0x3d7a30 },
+      { x: 38, z: 5, w: 10, d: 6, color: 0x3d7a30 },
+      { x: -5, z: -45, w: 12, d: 8, color: 0x3d7a30 },
+      { x: 10, z: 48, w: 8, d: 10, color: 0x3d7a30 },
+      { x: -45, z: 40, w: 10, d: 8, color: 0x3d7a30 },
+      { x: 45, z: -40, w: 8, d: 10, color: 0x3d7a30 },
     ];
 
-    const heightColors = [0x5dba4c, 0x6bc45a, 0x7acc68, 0x88d478, 0x99dd88];
+    for (let i = 0; i < groundPatches.length; i++) {
+      const patch = groundPatches[i];
+      const patchGeo = new THREE.PlaneGeometry(patch.w, patch.d);
+      patchGeo.rotateX(-Math.PI / 2);
+      const patchMat = new THREE.MeshLambertMaterial({ color: patch.color });
+      const patchMesh = new THREE.Mesh(patchGeo, patchMat);
+      patchMesh.name = `Ground_Patch_${i}`;
+      patchMesh.position.set(patch.x, 0.01 + Math.random() * 0.005, patch.z);
+      patchMesh.rotation.y = Math.random() * 0.3 - 0.15;
+      this.scene.add(patchMesh);
+    }
+
+    // =========================================================================
+    // 2. PLATFORMS with grass top + dirt sides
+    // =========================================================================
+    const platforms: [number, number, number, number, number][] = [
+      // Outer ring tall platforms
+      [-38, -35, 18, 16, 4],
+      [38, -35, 18, 16, 4],
+      [-38, 35, 18, 16, 4],
+      [38, 35, 18, 16, 4],
+      [0, -45, 16, 12, 5],
+      [0, 45, 16, 12, 5],
+      [-45, 0, 12, 18, 5],
+      [45, 0, 12, 18, 5],
+      // Middle ring medium platforms
+      [-25, -18, 12, 10, 2.5],
+      [25, -18, 12, 10, 2.5],
+      [-25, 18, 12, 10, 2.5],
+      [25, 18, 12, 10, 2.5],
+      [-18, 0, 10, 14, 2],
+      [18, 0, 10, 14, 2],
+      // Inner ring small platforms
+      [-10, -12, 8, 6, 1.5],
+      [10, -12, 8, 6, 1.5],
+      [-10, 12, 8, 6, 1.5],
+      [10, 12, 8, 6, 1.5],
+      // Center elevated area
+      [0, 0, 8, 8, 2],
+    ];
 
     for (const [cx, cz, w, d, h] of platforms) {
-      const topGeo = new THREE.BoxGeometry(w, h, d);
-      const colorIdx = Math.min(Math.floor(h / 1.5), heightColors.length - 1);
-      const topMat = new THREE.MeshLambertMaterial({ color: heightColors[colorIdx] });
-      const platform = new THREE.Mesh(topGeo, topMat);
-      platform.name = `Platform_${cx}_${cz}`;
-      platform.position.set(cx, h / 2, cz);
-      this.scene.add(platform);
+      // Dirt/earth sides
+      const sideGeo = new THREE.BoxGeometry(w, h - 0.2, d);
+      const sideMat = new THREE.MeshLambertMaterial({ color: 0x6b4f33 });
+      const side = new THREE.Mesh(sideGeo, sideMat);
+      side.name = `Platform_Side_${cx}_${cz}`;
+      side.position.set(cx, (h - 0.2) / 2, cz);
+      this.scene.add(side);
+
+      // Grass top surface
+      const topGeo = new THREE.PlaneGeometry(w + 0.4, d + 0.4);
+      topGeo.rotateX(-Math.PI / 2);
+      const topMat = new THREE.MeshLambertMaterial({ color: 0x5dba4c });
+      const top = new THREE.Mesh(topGeo, topMat);
+      top.name = `Platform_Top_${cx}_${cz}`;
+      top.position.set(cx, h, cz);
+      this.scene.add(top);
+
+      // Stone edge details on some platforms
+      if (h >= 3) {
+        const edgeGeo = new THREE.BoxGeometry(w + 0.6, 0.5, 0.5);
+        const edgeMat = new THREE.MeshLambertMaterial({ color: 0x6b6b6b });
+        // Front edge
+        const edgeFront = new THREE.Mesh(edgeGeo, edgeMat);
+        edgeFront.name = `Platform_Edge_${cx}_${cz}_f`;
+        edgeFront.position.set(cx, h - 0.25, cz + d / 2 + 0.1);
+        this.scene.add(edgeFront);
+        // Back edge
+        const edgeBack = new THREE.Mesh(edgeGeo, edgeMat);
+        edgeBack.name = `Platform_Edge_${cx}_${cz}_b`;
+        edgeBack.position.set(cx, h - 0.25, cz - d / 2 - 0.1);
+        this.scene.add(edgeBack);
+      }
     }
 
     // Ramp connectors
     const ramps: { x: number; z: number; rotY: number; length: number; height: number }[] = [
-      { x: -25, z: -20, rotY: 0, length: 6, height: 3 },
-      { x: 25, z: -20, rotY: 0, length: 6, height: 3 },
-      { x: -25, z: 20, rotY: Math.PI, length: 6, height: 3 },
-      { x: 25, z: 20, rotY: Math.PI, length: 6, height: 3 },
-      { x: 0, z: -25, rotY: 0, length: 5, height: 5 },
-      { x: 0, z: 25, rotY: Math.PI, length: 5, height: 5 },
+      { x: -25, z: -12, rotY: 0, length: 6, height: 2.5 },
+      { x: 25, z: -12, rotY: 0, length: 6, height: 2.5 },
+      { x: -25, z: 12, rotY: Math.PI, length: 6, height: 2.5 },
+      { x: 25, z: 12, rotY: Math.PI, length: 6, height: 2.5 },
+      { x: 0, z: -30, rotY: 0, length: 6, height: 5 },
+      { x: 0, z: 30, rotY: Math.PI, length: 6, height: 5 },
+      { x: -30, z: 0, rotY: Math.PI / 2, length: 6, height: 5 },
+      { x: 30, z: 0, rotY: -Math.PI / 2, length: 6, height: 5 },
     ];
 
-    for (const ramp of ramps) {
-      const rampGeo = new THREE.BoxGeometry(4, 0.3, ramp.length);
+    for (let ri = 0; ri < ramps.length; ri++) {
+      const ramp = ramps[ri];
+      const rampGeo = new THREE.BoxGeometry(4, 0.4, ramp.length);
       const rampMat = new THREE.MeshLambertMaterial({ color: 0x8b7355 });
       const rampMesh = new THREE.Mesh(rampGeo, rampMat);
-      rampMesh.name = 'Ramp';
+      rampMesh.name = `Ramp_${ri}`;
       rampMesh.position.set(ramp.x, ramp.height / 2, ramp.z);
       rampMesh.rotation.x = Math.atan2(ramp.height, ramp.length);
       rampMesh.rotation.y = ramp.rotY;
       this.scene.add(rampMesh);
     }
 
-    // Hidden grid lines (required by type)
+    // =========================================================================
+    // 3. Hidden grid lines (required by type)
+    // =========================================================================
     const gridGeo = new THREE.BufferGeometry();
     gridGeo.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3));
     const gridMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0 });
@@ -514,72 +591,492 @@ export class GameScene {
     this.gridLines.visible = false;
     this.scene.add(this.gridLines);
 
-    // Arena boundary walls
-    const half = GROUND_SIZE / 2;
-    const boundaryGeo = new THREE.BoxGeometry(GROUND_SIZE + 2, 2, 1);
-    const boundaryMat = new THREE.MeshLambertMaterial({ color: 0x8b6914 });
-    const walls = [
-      { pos: [0, 1, -half - 0.5], rot: 0 },
-      { pos: [0, 1, half + 0.5], rot: 0 },
-      { pos: [-half - 0.5, 1, 0], rot: Math.PI / 2 },
-      { pos: [half + 0.5, 1, 0], rot: Math.PI / 2 },
-    ];
-    for (const w of walls) {
-      const wall = new THREE.Mesh(boundaryGeo, boundaryMat);
-      wall.name = 'Boundary_Wall';
-      wall.position.set(w.pos[0] as number, w.pos[1] as number, w.pos[2] as number);
-      wall.rotation.y = w.rot;
-      this.scene.add(wall);
-    }
-
+    // =========================================================================
+    // 4. Build the dense environment
+    // =========================================================================
     this.addEnvironmentProps();
   }
 
   private addEnvironmentProps(): void {
-    const propPositions: { x: number; z: number; type: 'tombstone' | 'tree' }[] = [];
-    for (let i = 0; i < 20; i++) {
-      let x: number, z: number;
-      do {
-        x = (Math.random() - 0.5) * (GROUND_SIZE - 10);
-        z = (Math.random() - 0.5) * (GROUND_SIZE - 10);
-      } while (Math.abs(x) < 8 && Math.abs(z) < 8);
-      propPositions.push({ x, z, type: Math.random() > 0.5 ? 'tombstone' : 'tree' });
+    const half = GROUND_SIZE / 2;
+    const seededRandom = this.createSeededRandom(42);
+
+    // =========================================================================
+    // A. TREE-LINE BOUNDARY (dense trees around edges instead of walls)
+    // =========================================================================
+    const boundaryTreePositions: { x: number; z: number }[] = [];
+    const boundarySpacing = 4;
+    for (let i = -half; i <= half; i += boundarySpacing) {
+      // North and south edges (2 rows deep)
+      boundaryTreePositions.push({ x: i + seededRandom() * 2, z: -half + 1 + seededRandom() * 3 });
+      boundaryTreePositions.push({ x: i + seededRandom() * 2, z: -half + 5 + seededRandom() * 2 });
+      boundaryTreePositions.push({ x: i + seededRandom() * 2, z: half - 1 - seededRandom() * 3 });
+      boundaryTreePositions.push({ x: i + seededRandom() * 2, z: half - 5 - seededRandom() * 2 });
+      // East and west edges (2 rows deep)
+      boundaryTreePositions.push({ x: -half + 1 + seededRandom() * 3, z: i + seededRandom() * 2 });
+      boundaryTreePositions.push({ x: -half + 5 + seededRandom() * 2, z: i + seededRandom() * 2 });
+      boundaryTreePositions.push({ x: half - 1 - seededRandom() * 3, z: i + seededRandom() * 2 });
+      boundaryTreePositions.push({ x: half - 5 - seededRandom() * 2, z: i + seededRandom() * 2 });
     }
 
-    for (const prop of propPositions) {
-      const model = prop.type === 'tombstone' ? loadedModels.tombstone : loadedModels.tree;
-      if (model) {
-        const clone = model.clone();
-        clone.name = `Prop_${prop.type}`;
-        clone.position.set(prop.x, 0, prop.z);
-        clone.rotation.y = Math.random() * Math.PI * 2;
-        const s = 0.8 + Math.random() * 0.4;
+    // Boundary trees — tall, dense, chunky
+    for (let bi = 0; bi < boundaryTreePositions.length; bi++) {
+      const pos = boundaryTreePositions[bi];
+      const treeHeight = 5 + seededRandom() * 3;
+      const trunkRadius = 0.3 + seededRandom() * 0.2;
+      this.createProceduralTree(pos.x, pos.z, treeHeight, trunkRadius, `BoundaryTree_${bi}`, seededRandom);
+    }
+
+    // =========================================================================
+    // B. INTERIOR TREES (30-40 scattered in clusters)
+    // =========================================================================
+    const treeClusters: { cx: number; cz: number; count: number }[] = [
+      // Middle ring clusters
+      { cx: -32, cz: -20, count: 4 },
+      { cx: 32, cz: -20, count: 4 },
+      { cx: -32, cz: 20, count: 4 },
+      { cx: 32, cz: 20, count: 4 },
+      { cx: -20, cz: -35, count: 3 },
+      { cx: 20, cz: -35, count: 3 },
+      { cx: -20, cz: 35, count: 3 },
+      { cx: 20, cz: 35, count: 3 },
+      // Scattered singles/pairs in inner areas
+      { cx: -12, cz: -28, count: 2 },
+      { cx: 12, cz: 28, count: 2 },
+      { cx: -28, cz: 8, count: 3 },
+      { cx: 28, cz: -8, count: 3 },
+      { cx: -40, cz: -40, count: 2 },
+      { cx: 40, cz: 40, count: 2 },
+    ];
+
+    let treeIdx = 0;
+    for (const cluster of treeClusters) {
+      for (let j = 0; j < cluster.count; j++) {
+        const tx = cluster.cx + (seededRandom() - 0.5) * 8;
+        const tz = cluster.cz + (seededRandom() - 0.5) * 8;
+        // Don't place trees in center combat area
+        if (Math.abs(tx) < 12 && Math.abs(tz) < 12) continue;
+        const treeHeight = 3 + seededRandom() * 2.5;
+        const trunkRadius = 0.2 + seededRandom() * 0.15;
+
+        if (loadedModels.tree) {
+          const clone = loadedModels.tree.clone();
+          clone.name = `Tree_${treeIdx}`;
+          clone.position.set(tx, 0, tz);
+          clone.rotation.y = seededRandom() * Math.PI * 2;
+          const s = 0.9 + seededRandom() * 0.6;
+          clone.scale.set(s, s, s);
+          this.scene.add(clone);
+        } else {
+          this.createProceduralTree(tx, tz, treeHeight, trunkRadius, `Tree_${treeIdx}`, seededRandom);
+        }
+        treeIdx++;
+      }
+    }
+
+    // =========================================================================
+    // C. ROCK FORMATIONS using InstancedMesh (20 rocks)
+    // =========================================================================
+    const rockCount = 20;
+    const rockGeo = new THREE.IcosahedronGeometry(1, 0);
+    const rockMat = new THREE.MeshLambertMaterial({ color: 0x6b6b6b });
+    const rockInstanced = new THREE.InstancedMesh(rockGeo, rockMat, rockCount);
+    rockInstanced.name = 'Rocks_Instanced';
+    rockInstanced.frustumCulled = false;
+
+    const rockPositions: { x: number; z: number; scale: number; color: number }[] = [
+      // Scattered throughout, avoiding center
+      { x: -18, z: -25, scale: 1.8, color: 0x6b6b6b },
+      { x: 22, z: -30, scale: 1.5, color: 0x7a7a6a },
+      { x: -30, z: 15, scale: 2.0, color: 0x5a5a5a },
+      { x: 35, z: 10, scale: 1.2, color: 0x6b6b6b },
+      { x: -15, z: 30, scale: 1.6, color: 0x7a7a6a },
+      { x: 20, z: 35, scale: 1.0, color: 0x5a5a5a },
+      { x: -40, z: -25, scale: 1.4, color: 0x6b6b6b },
+      { x: 40, z: -20, scale: 1.8, color: 0x7a7a6a },
+      { x: -10, z: -40, scale: 0.8, color: 0x5a5a5a },
+      { x: 10, z: 42, scale: 1.0, color: 0x6b6b6b },
+      // Clusters near platforms
+      { x: -26, z: -20, scale: 0.6, color: 0x7a7a6a },
+      { x: -24, z: -21, scale: 0.5, color: 0x5a5a5a },
+      { x: 26, z: 20, scale: 0.7, color: 0x6b6b6b },
+      { x: 27, z: 19, scale: 0.5, color: 0x7a7a6a },
+      { x: -35, z: 38, scale: 1.3, color: 0x5a5a5a },
+      { x: 38, z: -38, scale: 1.5, color: 0x6b6b6b },
+      // Near paths
+      { x: 3, z: -20, scale: 0.6, color: 0x7a7a6a },
+      { x: -3, z: 22, scale: 0.7, color: 0x5a5a5a },
+      { x: -20, z: 3, scale: 0.5, color: 0x6b6b6b },
+      { x: 18, z: -2, scale: 0.6, color: 0x7a7a6a },
+    ];
+
+    const dummy = new THREE.Object3D();
+    const tempColor = new THREE.Color();
+    for (let ri = 0; ri < rockCount; ri++) {
+      const rock = rockPositions[ri];
+      const sy = rock.scale * (0.6 + seededRandom() * 0.4);
+      dummy.position.set(rock.x, rock.scale * 0.4, rock.z);
+      dummy.scale.set(rock.scale, sy, rock.scale * (0.8 + seededRandom() * 0.4));
+      dummy.rotation.set(seededRandom() * 0.5, seededRandom() * Math.PI, seededRandom() * 0.3);
+      dummy.updateMatrix();
+      rockInstanced.setMatrixAt(ri, dummy.matrix);
+      tempColor.setHex(rock.color);
+      rockInstanced.setColorAt(ri, tempColor);
+    }
+    rockInstanced.instanceMatrix.needsUpdate = true;
+    if (rockInstanced.instanceColor) rockInstanced.instanceColor.needsUpdate = true;
+    this.scene.add(rockInstanced);
+
+    // =========================================================================
+    // D. SMALL BUSHES using InstancedMesh (40 bushes)
+    // =========================================================================
+    const bushCount = 40;
+    const bushGeo = new THREE.SphereGeometry(1, 6, 4);
+    const bushMat = new THREE.MeshLambertMaterial({ color: 0x3a7a2a });
+    const bushInstanced = new THREE.InstancedMesh(bushGeo, bushMat, bushCount);
+    bushInstanced.name = 'Bushes_Instanced';
+    bushInstanced.frustumCulled = false;
+
+    for (let bi = 0; bi < bushCount; bi++) {
+      let bx: number, bz: number;
+      do {
+        bx = (seededRandom() - 0.5) * (GROUND_SIZE - 16);
+        bz = (seededRandom() - 0.5) * (GROUND_SIZE - 16);
+      } while (Math.abs(bx) < 10 && Math.abs(bz) < 10);
+
+      const bScale = 0.4 + seededRandom() * 0.5;
+      dummy.position.set(bx, bScale * 0.35, bz);
+      dummy.scale.set(bScale * 1.2, bScale * 0.7, bScale * 1.1);
+      dummy.rotation.set(0, seededRandom() * Math.PI, 0);
+      dummy.updateMatrix();
+      bushInstanced.setMatrixAt(bi, dummy.matrix);
+
+      // Vary bush colors slightly
+      const bushColors = [0x3a7a2a, 0x2d6b22, 0x448832, 0x357028];
+      tempColor.setHex(bushColors[bi % bushColors.length]);
+      bushInstanced.setColorAt(bi, tempColor);
+    }
+    bushInstanced.instanceMatrix.needsUpdate = true;
+    if (bushInstanced.instanceColor) bushInstanced.instanceColor.needsUpdate = true;
+    this.scene.add(bushInstanced);
+
+    // =========================================================================
+    // E. MUSHROOMS using InstancedMesh (15 mushrooms)
+    // =========================================================================
+    const mushroomCount = 15;
+    const mushroomGeo = new THREE.SphereGeometry(0.3, 6, 4);
+    const mushroomMat = new THREE.MeshLambertMaterial({ color: 0xcc4444 });
+    const mushroomInstanced = new THREE.InstancedMesh(mushroomGeo, mushroomMat, mushroomCount);
+    mushroomInstanced.name = 'Mushrooms_Instanced';
+    mushroomInstanced.frustumCulled = false;
+
+    for (let mi = 0; mi < mushroomCount; mi++) {
+      const mx = (seededRandom() - 0.5) * (GROUND_SIZE - 20);
+      const mz = (seededRandom() - 0.5) * (GROUND_SIZE - 20);
+      dummy.position.set(mx, 0.2, mz);
+      dummy.scale.set(0.5 + seededRandom() * 0.4, 0.8 + seededRandom() * 0.6, 0.5 + seededRandom() * 0.4);
+      dummy.rotation.set(0, seededRandom() * Math.PI, 0);
+      dummy.updateMatrix();
+      mushroomInstanced.setMatrixAt(mi, dummy.matrix);
+
+      const mushColors = [0xcc4444, 0xdd8844, 0xeecc88, 0xaa3333];
+      tempColor.setHex(mushColors[mi % mushColors.length]);
+      mushroomInstanced.setColorAt(mi, tempColor);
+    }
+    mushroomInstanced.instanceMatrix.needsUpdate = true;
+    if (mushroomInstanced.instanceColor) mushroomInstanced.instanceColor.needsUpdate = true;
+    this.scene.add(mushroomInstanced);
+
+    // Add mushroom stems (cones under caps)
+    const stemGeo = new THREE.CylinderGeometry(0.08, 0.12, 0.3, 5);
+    const stemMat = new THREE.MeshLambertMaterial({ color: 0xeeeecc });
+    const stemInstanced = new THREE.InstancedMesh(stemGeo, stemMat, mushroomCount);
+    stemInstanced.name = 'MushroomStems_Instanced';
+    stemInstanced.frustumCulled = false;
+    // Reuse same positions, offset slightly below the cap
+    seededRandom(); // advance seed state
+    const stemSeed = this.createSeededRandom(142);
+    for (let mi = 0; mi < mushroomCount; mi++) {
+      const mx = (stemSeed() - 0.5) * (GROUND_SIZE - 20);
+      const mz = (stemSeed() - 0.5) * (GROUND_SIZE - 20);
+      dummy.position.set(mx, 0.08, mz);
+      dummy.scale.set(1, 1, 1);
+      dummy.rotation.set(0, 0, 0);
+      dummy.updateMatrix();
+      stemInstanced.setMatrixAt(mi, dummy.matrix);
+    }
+    stemInstanced.instanceMatrix.needsUpdate = true;
+    this.scene.add(stemInstanced);
+
+    // =========================================================================
+    // F. FENCE SEGMENTS along paths (12 fence pieces)
+    // =========================================================================
+    const fencePositions: { x: number; z: number; rotY: number }[] = [
+      { x: -8, z: -2, rotY: 0 },
+      { x: -8, z: 2, rotY: 0 },
+      { x: 8, z: -2, rotY: 0 },
+      { x: 8, z: 2, rotY: 0 },
+      { x: -2, z: -8, rotY: Math.PI / 2 },
+      { x: 2, z: -8, rotY: Math.PI / 2 },
+      { x: -2, z: 8, rotY: Math.PI / 2 },
+      { x: 2, z: 8, rotY: Math.PI / 2 },
+      { x: -15, z: -2, rotY: 0 },
+      { x: 15, z: 2, rotY: 0 },
+      { x: -2, z: -15, rotY: Math.PI / 2 },
+      { x: 2, z: 15, rotY: Math.PI / 2 },
+    ];
+
+    for (let fi = 0; fi < fencePositions.length; fi++) {
+      const fence = fencePositions[fi];
+      // Fence post
+      const postGeo = new THREE.BoxGeometry(0.15, 1.2, 0.15);
+      const postMat = new THREE.MeshLambertMaterial({ color: 0x8b6914 });
+      const post1 = new THREE.Mesh(postGeo, postMat);
+      post1.name = `Fence_Post_${fi}_a`;
+      post1.position.set(fence.x - Math.cos(fence.rotY) * 1, 0.6, fence.z - Math.sin(fence.rotY) * 1);
+      this.scene.add(post1);
+      const post2 = new THREE.Mesh(postGeo, postMat);
+      post2.name = `Fence_Post_${fi}_b`;
+      post2.position.set(fence.x + Math.cos(fence.rotY) * 1, 0.6, fence.z + Math.sin(fence.rotY) * 1);
+      this.scene.add(post2);
+      // Cross beam
+      const beamGeo = new THREE.BoxGeometry(2.2, 0.1, 0.1);
+      const beam = new THREE.Mesh(beamGeo, postMat);
+      beam.name = `Fence_Beam_${fi}`;
+      beam.position.set(fence.x, 0.8, fence.z);
+      beam.rotation.y = fence.rotY;
+      this.scene.add(beam);
+      // Lower beam
+      const beam2 = new THREE.Mesh(beamGeo, postMat);
+      beam2.name = `Fence_Beam2_${fi}`;
+      beam2.position.set(fence.x, 0.4, fence.z);
+      beam2.rotation.y = fence.rotY;
+      this.scene.add(beam2);
+    }
+
+    // =========================================================================
+    // G. BARREL/CRATE CLUSTERS (8 clusters)
+    // =========================================================================
+    const cratePositions: { x: number; z: number }[] = [
+      { x: -22, z: -10 },
+      { x: 22, z: 10 },
+      { x: -10, z: -22 },
+      { x: 10, z: 22 },
+      { x: -35, z: -5 },
+      { x: 35, z: 5 },
+      { x: -5, z: 35 },
+      { x: 5, z: -35 },
+    ];
+
+    for (let ci = 0; ci < cratePositions.length; ci++) {
+      const cpos = cratePositions[ci];
+      // Main barrel (cylinder)
+      const barrelGeo = new THREE.CylinderGeometry(0.5, 0.5, 1.0, 8);
+      const barrelMat = new THREE.MeshLambertMaterial({ color: 0x8b6914 });
+      const barrel = new THREE.Mesh(barrelGeo, barrelMat);
+      barrel.name = `Barrel_${ci}`;
+      barrel.position.set(cpos.x, 0.5, cpos.z);
+      this.scene.add(barrel);
+
+      // Crate beside barrel
+      const crateGeo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+      const crateMat = new THREE.MeshLambertMaterial({ color: 0x9b7924 });
+      const crate = new THREE.Mesh(crateGeo, crateMat);
+      crate.name = `Crate_${ci}`;
+      crate.position.set(cpos.x + 0.9, 0.4, cpos.z + 0.3);
+      crate.rotation.y = seededRandom() * 0.5;
+      this.scene.add(crate);
+
+      // Small crate on top sometimes
+      if (ci % 3 === 0) {
+        const smallCrateGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+        const smallCrate = new THREE.Mesh(smallCrateGeo, crateMat);
+        smallCrate.name = `SmallCrate_${ci}`;
+        smallCrate.position.set(cpos.x + 0.9, 1.05, cpos.z + 0.3);
+        smallCrate.rotation.y = seededRandom() * 1.0;
+        this.scene.add(smallCrate);
+      }
+    }
+
+    // =========================================================================
+    // H. LANTERN POSTS (10 lanterns with emissive glow)
+    // =========================================================================
+    const lanternPositions: { x: number; z: number }[] = [
+      { x: -6, z: 0 },
+      { x: 6, z: 0 },
+      { x: 0, z: -6 },
+      { x: 0, z: 6 },
+      { x: -20, z: -20 },
+      { x: 20, z: -20 },
+      { x: -20, z: 20 },
+      { x: 20, z: 20 },
+      { x: -35, z: 0 },
+      { x: 35, z: 0 },
+    ];
+
+    for (let li = 0; li < lanternPositions.length; li++) {
+      const lpos = lanternPositions[li];
+      // Post (tall cylinder)
+      const postGeo = new THREE.CylinderGeometry(0.08, 0.1, 2.5, 6);
+      const postMat = new THREE.MeshLambertMaterial({ color: 0x4a4a4a });
+      const post = new THREE.Mesh(postGeo, postMat);
+      post.name = `LanternPost_${li}`;
+      post.position.set(lpos.x, 1.25, lpos.z);
+      this.scene.add(post);
+
+      // Lantern globe (emissive sphere on top)
+      const globeGeo = new THREE.SphereGeometry(0.2, 6, 4);
+      const globeMat = new THREE.MeshLambertMaterial({
+        color: 0xffcc44,
+        emissive: 0xffaa00,
+        emissiveIntensity: 0.9,
+      });
+      const globe = new THREE.Mesh(globeGeo, globeMat);
+      globe.name = `LanternGlobe_${li}`;
+      globe.position.set(lpos.x, 2.6, lpos.z);
+      this.scene.add(globe);
+
+      // Small cap on top
+      const capGeo = new THREE.ConeGeometry(0.15, 0.2, 6);
+      const capMat = new THREE.MeshLambertMaterial({ color: 0x3a3a3a });
+      const cap = new THREE.Mesh(capGeo, capMat);
+      cap.name = `LanternCap_${li}`;
+      cap.position.set(lpos.x, 2.85, lpos.z);
+      this.scene.add(cap);
+    }
+
+    // =========================================================================
+    // I. LOGS scattered on ground (8 logs)
+    // =========================================================================
+    const logPositions: { x: number; z: number; rotY: number }[] = [
+      { x: -28, z: -12, rotY: 0.3 },
+      { x: 28, z: 14, rotY: 1.2 },
+      { x: -14, z: -35, rotY: 0.8 },
+      { x: 14, z: 38, rotY: 2.1 },
+      { x: -38, z: 25, rotY: 1.5 },
+      { x: 38, z: -28, rotY: 0.6 },
+      { x: -5, z: -18, rotY: 1.8 },
+      { x: 8, z: 16, rotY: 2.4 },
+    ];
+
+    for (let lgi = 0; lgi < logPositions.length; lgi++) {
+      const log = logPositions[lgi];
+      const logGeo = new THREE.CylinderGeometry(0.25, 0.3, 2.5, 6);
+      const logMat = new THREE.MeshLambertMaterial({ color: 0x5c3a1e });
+      const logMesh = new THREE.Mesh(logGeo, logMat);
+      logMesh.name = `Log_${lgi}`;
+      logMesh.position.set(log.x, 0.25, log.z);
+      logMesh.rotation.z = Math.PI / 2;
+      logMesh.rotation.y = log.rotY;
+      this.scene.add(logMesh);
+    }
+
+    // =========================================================================
+    // J. TOMBSTONES / GRAVE MARKERS near outer zones (8 tombstones)
+    // =========================================================================
+    const tombPositions: { x: number; z: number }[] = [
+      { x: -42, z: -15 },
+      { x: -44, z: -18 },
+      { x: 42, z: 15 },
+      { x: 44, z: 18 },
+      { x: -15, z: -42 },
+      { x: -18, z: -44 },
+      { x: 15, z: 42 },
+      { x: 18, z: 44 },
+    ];
+
+    for (let ti = 0; ti < tombPositions.length; ti++) {
+      const tpos = tombPositions[ti];
+      if (loadedModels.tombstone) {
+        const clone = loadedModels.tombstone.clone();
+        clone.name = `Tombstone_${ti}`;
+        clone.position.set(tpos.x, 0, tpos.z);
+        clone.rotation.y = seededRandom() * Math.PI * 2;
+        const s = 0.8 + seededRandom() * 0.3;
         clone.scale.set(s, s, s);
         this.scene.add(clone);
       } else {
-        if (prop.type === 'tree') {
-          const trunkGeo = new THREE.CylinderGeometry(0.2, 0.3, 2, 5);
-          const trunkMat = new THREE.MeshLambertMaterial({ color: 0x6b3a1f });
-          const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-          trunk.name = 'Prop_tree_fallback';
-          trunk.position.set(prop.x, 1, prop.z);
-          this.scene.add(trunk);
-          const foliageGeo = new THREE.ConeGeometry(1.2, 2.5, 5);
-          const foliageMat = new THREE.MeshLambertMaterial({ color: 0x2d8b3d });
-          const foliage = new THREE.Mesh(foliageGeo, foliageMat);
-          foliage.position.set(prop.x, 3, prop.z);
-          foliage.name = 'Prop_tree_foliage';
-          this.scene.add(foliage);
-        } else {
-          const stoneGeo = new THREE.BoxGeometry(0.6, 1.0, 0.2);
-          const stoneMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
-          const stone = new THREE.Mesh(stoneGeo, stoneMat);
-          stone.name = 'Prop_tombstone_fallback';
-          stone.position.set(prop.x, 0.5, prop.z);
-          this.scene.add(stone);
-        }
+        const stoneGeo = new THREE.BoxGeometry(0.6, 1.0, 0.2);
+        const stoneMat = new THREE.MeshLambertMaterial({ color: 0x777777 });
+        const stone = new THREE.Mesh(stoneGeo, stoneMat);
+        stone.name = `Tombstone_${ti}`;
+        stone.position.set(tpos.x, 0.5, tpos.z);
+        stone.rotation.y = seededRandom() * 0.4 - 0.2;
+        this.scene.add(stone);
       }
     }
+
+    // =========================================================================
+    // K. GRASS TUFTS using InstancedMesh (60 tufts for lush ground feel)
+    // =========================================================================
+    const grassTuftCount = 60;
+    const grassGeo = new THREE.ConeGeometry(0.15, 0.5, 4);
+    const grassMat = new THREE.MeshLambertMaterial({ color: 0x4d9a3a });
+    const grassInstanced = new THREE.InstancedMesh(grassGeo, grassMat, grassTuftCount);
+    grassInstanced.name = 'GrassTufts_Instanced';
+    grassInstanced.frustumCulled = false;
+
+    for (let gi = 0; gi < grassTuftCount; gi++) {
+      const gx = (seededRandom() - 0.5) * (GROUND_SIZE - 12);
+      const gz = (seededRandom() - 0.5) * (GROUND_SIZE - 12);
+      dummy.position.set(gx, 0.2, gz);
+      const gs = 0.6 + seededRandom() * 0.8;
+      dummy.scale.set(gs, gs + seededRandom() * 0.5, gs);
+      dummy.rotation.set(0, seededRandom() * Math.PI, 0);
+      dummy.updateMatrix();
+      grassInstanced.setMatrixAt(gi, dummy.matrix);
+
+      const grassColors = [0x4d9a3a, 0x5dba4c, 0x3a7a2a, 0x55a840];
+      tempColor.setHex(grassColors[gi % grassColors.length]);
+      grassInstanced.setColorAt(gi, tempColor);
+    }
+    grassInstanced.instanceMatrix.needsUpdate = true;
+    if (grassInstanced.instanceColor) grassInstanced.instanceColor.needsUpdate = true;
+    this.scene.add(grassInstanced);
+  }
+
+  private createProceduralTree(
+    x: number,
+    z: number,
+    height: number,
+    trunkRadius: number,
+    name: string,
+    rng: () => number,
+  ): void {
+    // Trunk — brown cylinder
+    const trunkGeo = new THREE.CylinderGeometry(trunkRadius * 0.7, trunkRadius, height * 0.5, 6);
+    const trunkMat = new THREE.MeshLambertMaterial({ color: 0x5c3a1e });
+    const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+    trunk.name = `${name}_trunk`;
+    trunk.position.set(x, height * 0.25, z);
+    this.scene.add(trunk);
+
+    // Canopy — layered cones for chunky low-poly look
+    const canopyColors = [0x2d8b3d, 0x358b3d, 0x268a35, 0x2d9b3d, 0x1f7a2d];
+    const canopyColor = canopyColors[Math.floor(rng() * canopyColors.length)];
+
+    // Bottom layer (widest)
+    const canopy1Geo = new THREE.ConeGeometry(height * 0.45, height * 0.4, 6);
+    const canopyMat = new THREE.MeshLambertMaterial({ color: canopyColor });
+    const canopy1 = new THREE.Mesh(canopy1Geo, canopyMat);
+    canopy1.name = `${name}_canopy1`;
+    canopy1.position.set(x, height * 0.55, z);
+    this.scene.add(canopy1);
+
+    // Top layer (narrower)
+    const canopy2Geo = new THREE.ConeGeometry(height * 0.3, height * 0.35, 6);
+    const canopy2 = new THREE.Mesh(canopy2Geo, canopyMat);
+    canopy2.name = `${name}_canopy2`;
+    canopy2.position.set(x, height * 0.8, z);
+    this.scene.add(canopy2);
+  }
+
+  private createSeededRandom(seed: number): () => number {
+    let s = seed;
+    return () => {
+      s = (s * 1664525 + 1013904223) & 0xffffffff;
+      return (s >>> 0) / 4294967296;
+    };
   }
 
   private setupPlayer(): void {
