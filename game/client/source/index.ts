@@ -1856,23 +1856,24 @@ export class GameScene {
   private updateCamera(state: GameState): void {
     const p = state.player;
 
-    let angleDiff = p.rotation - this.cameraAngle;
-    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-    this.cameraAngle += angleDiff * 0.02;
+    // FIXED ANGLE camera — like MegaBonk / Vampire Survivors / Diablo.
+    // Camera NEVER rotates. It maintains a constant angle relative to the world.
+    // Only follows player position smoothly.
+    const camOffsetX = 0;     // No left/right offset
+    const camOffsetZ = -10;   // Behind player (toward screen)
+    const camHeight = 8;      // Height above player
 
-    const behindDist = 11;
-    const camHeight = 5.5;
-
-    const targetX = p.x - Math.sin(this.cameraAngle) * behindDist;
-    const targetZ = p.z - Math.cos(this.cameraAngle) * behindDist;
+    const targetX = p.x + camOffsetX;
+    const targetZ = p.z + camOffsetZ;
     const targetY = p.y + camHeight;
 
-    this.camera.position.x += (targetX - this.camera.position.x) * 0.06;
-    this.camera.position.y += (targetY - this.camera.position.y) * 0.06;
-    this.camera.position.z += (targetZ - this.camera.position.z) * 0.06;
+    // Smooth position follow
+    this.camera.position.x += (targetX - this.camera.position.x) * 0.08;
+    this.camera.position.y += (targetY - this.camera.position.y) * 0.08;
+    this.camera.position.z += (targetZ - this.camera.position.z) * 0.08;
 
-    this.camera.lookAt(p.x, p.y + 1.5, p.z);
+    // Always look at player position (fixed angle — never changes)
+    this.camera.lookAt(p.x, p.y + 1.0, p.z);
   }
 
   // ===========================================================================
