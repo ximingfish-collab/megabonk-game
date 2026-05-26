@@ -387,6 +387,7 @@ export class GameScene {
   private groundMesh!: THREE.Mesh;
   private gridLines!: THREE.LineSegments;
   private bossMesh: THREE.Mesh | null = null;
+  private playerSpotLight!: THREE.SpotLight;
 
   // Weapon orbs
   private weaponOrbMesh!: THREE.InstancedMesh;
@@ -489,7 +490,7 @@ export class GameScene {
     this.scene = new THREE.Scene();
     this.scene.name = 'MainScene';
     this.scene.background = new THREE.Color(0x1a2a3a);
-    this.scene.fog = new THREE.Fog(0x1a2a3a, 60, 120);
+    this.scene.fog = new THREE.Fog(0x1a2a3a, 50, 100);
 
     // Camera
     this.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 300);
@@ -580,20 +581,28 @@ export class GameScene {
   // ===========================================================================
 
   private setupLighting(): void {
-    // Bright lighting so models and their materials are clearly visible
-    const ambient = new THREE.AmbientLight(0xffffff, 0.8);
+    // Clear ambient with cool blue-white tint for readability
+    const ambient = new THREE.AmbientLight(0xddeeff, 0.6);
     ambient.name = 'AmbientLight';
     this.scene.add(ambient);
 
-    const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+    // Warm directional light from above-right — gives depth via warm/cool contrast
+    const dir = new THREE.DirectionalLight(0xffeedd, 1.2);
     dir.name = 'DirectionalLight';
-    dir.position.set(8, 15, 5);
+    dir.position.set(10, 20, 8);
     this.scene.add(dir);
 
-    // Cool fill from below for some atmosphere
-    const fill = new THREE.HemisphereLight(0xaaccff, 0x334455, 0.5);
+    // Hemisphere light: blue sky + dark teal ground for color layering
+    const fill = new THREE.HemisphereLight(0x88bbff, 0x224444, 0.5);
     fill.name = 'HemisphereLight';
     this.scene.add(fill);
+
+    // Soft spotlight following the player — highlights player in the scene
+    this.playerSpotLight = new THREE.SpotLight(0xffffff, 0.3, 20, Math.PI / 6, 0.5, 1);
+    this.playerSpotLight.name = 'PlayerSpotLight';
+    this.playerSpotLight.position.set(0, 12, 0);
+    this.scene.add(this.playerSpotLight);
+    this.scene.add(this.playerSpotLight.target);
   }
 
   private setupGround(): void {
@@ -1264,20 +1273,12 @@ export class GameScene {
     if (Math.abs(mx) < 0.15) mx = 0;
     if (Math.abs(my) < 0.15) my = 0;
 
-    // TPS camera-relative movement:
-    // Transform input direction by camera angle so W = forward from camera view
-    let worldMoveX = mx;
-    let worldMoveZ = my;
-    if (mx !== 0 || my !== 0) {
-      const cosA = Math.cos(this.cameraAngle);
-      const sinA = Math.sin(this.cameraAngle);
-      worldMoveX = mx * cosA + my * sinA;
-      worldMoveZ = -mx * sinA + my * cosA;
-    }
-
+    // Fixed camera angle: WASD is world-space movement directly.
+    // W=forward(+Z), S=backward(-Z), A=left(-X), D=right(+X)
+    // No camera-relative rotation needed since camera angle is fixed.
     const input: InputState = {
-      moveX: worldMoveX,
-      moveY: worldMoveZ,
+      moveX: mx,
+      moveY: my,
       dash: false,
       skill1: raw.action3 ?? false,
       skill2: false,
@@ -1392,6 +1393,10 @@ export class GameScene {
     // === Ring follows player ===
     this.playerRing.position.set(p.x, p.y + 0.02, p.z);
     this.playerRing.visible = p.alive;
+
+    // === Spotlight follows player ===
+    this.playerSpotLight.position.set(p.x, p.y + 12, p.z);
+    this.playerSpotLight.target.position.set(p.x, p.y, p.z);
 
     // Ring pulse when many pickups attracted
     const ringMat = this.playerRing.material as THREE.MeshBasicMaterial;
@@ -1898,175 +1903,58 @@ export class GameScene {
 
   private updateCamera(state: GameState): void {
     const p = state.player;
-    const dt = this.lastTime > 0 ? Math.min((performance.now() - this.lastTime + 16) / 1000, 0.05) : 1 / 60;
 
-    // =========================================================================
-    // 1. State-based Dampening (状态机阻尼)
-    // =========================================================================
-    const targetDamping = p.currentSpeed > 0.5 ? 0.04 : 0.12;
-    this.dampingSpeed += (targetDamping - this.dampingSpeed) * 0.05;
+    // =======================================================================
+    // MegaBonk camera: FIXED ANGLE third-person.
+    // Camera NEVER rotates. Fixed direction. Only follows player position.
+    // Player is always in lower-center of screen.
+    // Like the MegaBonk screenshot: camera behind+above at ~35° down angle.
+    // =======================================================================
 
-    // =========================================================================
-    // 2. Camera Angle — follows player rotation smoothly (TPS behind)
-    // =========================================================================
-    const targetAngle = p.rotation;
-    let angleDiff = targetAngle - this.cameraAngle;
-    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-    // Only rotate camera when player is actually moving
-    if (p.currentSpeed > 0.5) {
-      this.cameraAngle += angleDiff * this.dampingSpeed;
-    }
+    // Fixed camera offset (never changes direction)
+    const camBehind = 7;   // units behind player (toward -Z world direction)
+    const camHeight = 5;   // units above player
+    const camRight = 0;    // no horizontal offset
 
-    // =========================================================================
-    // 3. Ghost Target for Enemy Lock (防眩晕平滑)
-    // =========================================================================
-    // Find nearest enemy to player
-    let nearestEnemyX = p.x;
-    let nearestEnemyZ = p.z;
-    let nearestDist = Infinity;
-    let hasNearbyEnemy = false;
+    // Camera target position (fixed angle, only player position moves it)
+    const targetX = p.x + camRight;
+    const targetY = p.y + camHeight;
+    const targetZ = p.z - camBehind;
 
-    for (const enemy of state.enemies) {
-      if (enemy.hp <= 0) continue;
-      const edx = enemy.x - p.x;
-      const edz = enemy.z - p.z;
-      const dist = edx * edx + edz * edz;
-      if (dist < nearestDist) {
-        nearestDist = dist;
-        nearestEnemyX = enemy.x;
-        nearestEnemyZ = enemy.z;
-        hasNearbyEnemy = true;
-      }
-    }
+    // Smooth follow — state-based dampening
+    const speed = p.currentSpeed > 0.5 ? 0.05 : 0.1;
+    this.camera.position.x += (targetX - this.camera.position.x) * speed;
+    this.camera.position.y += (targetY - this.camera.position.y) * speed;
+    this.camera.position.z += (targetZ - this.camera.position.z) * speed;
 
-    // Boss overrides as nearest target if alive
-    if (state.boss && state.boss.hp > 0) {
-      nearestEnemyX = state.boss.x;
-      nearestEnemyZ = state.boss.z;
-      hasNearbyEnemy = true;
-    }
+    // Look-at: slightly ahead of player in world +Z direction (fixed)
+    // Player appears in lower-center of screen
+    const lookY = p.y + 1.5;
+    this.camera.lookAt(p.x, lookY, p.z + 2);
 
-    // Smooth ghost point tracks nearest enemy (lerp 0.05)
-    if (hasNearbyEnemy) {
-      this.ghostTargetX += (nearestEnemyX - this.ghostTargetX) * 0.05;
-      this.ghostTargetZ += (nearestEnemyZ - this.ghostTargetZ) * 0.05;
-    } else {
-      // No enemy: ghost slides back to player
-      this.ghostTargetX += (p.x - this.ghostTargetX) * 0.05;
-      this.ghostTargetZ += (p.z - this.ghostTargetZ) * 0.05;
-    }
-
-    // =========================================================================
-    // 4. Dynamic Center Offset & Lead (预判偏移)
-    // =========================================================================
-    const W_FOCUS = 0.25;
-    const MAX_OFFSET = 5;
-
-    // Focus offset toward ghost enemy position
-    let focusOffsetX = (this.ghostTargetX - p.x) * W_FOCUS;
-    let focusOffsetZ = (this.ghostTargetZ - p.z) * W_FOCUS;
-    // Clamp offset magnitude
-    const focusMag = Math.sqrt(focusOffsetX * focusOffsetX + focusOffsetZ * focusOffsetZ);
-    if (focusMag > MAX_OFFSET) {
-      const scale = MAX_OFFSET / focusMag;
-      focusOffsetX *= scale;
-      focusOffsetZ *= scale;
-    }
-
-    // Movement lead: 2 units ahead in movement direction
-    // Calculate player velocity from position delta
-    this.playerVelX += (p.x - this.playerLastX - this.playerVelX) * 0.15;
-    this.playerVelZ += (p.z - this.playerLastZ - this.playerVelZ) * 0.15;
-    this.playerLastX = p.x;
-    this.playerLastZ = p.z;
-
-    const LEAD_DISTANCE = 2;
-    let leadX = 0;
-    let leadZ = 0;
-    if (p.currentSpeed > 0.5) {
-      const velMag = Math.sqrt(this.playerVelX * this.playerVelX + this.playerVelZ * this.playerVelZ);
-      if (velMag > 0.01) {
-        leadX = (this.playerVelX / velMag) * LEAD_DISTANCE;
-        leadZ = (this.playerVelZ / velMag) * LEAD_DISTANCE;
-      }
-    }
-
-    // Final look-at target: player + focus offset + movement lead
-    const lookAtX = p.x + focusOffsetX + leadX;
-    const lookAtY = p.y + 1.5;
-    const lookAtZ = p.z + focusOffsetZ + leadZ;
-
-    // =========================================================================
-    // 5. Camera Position (TPS behind player)
-    // =========================================================================
-    const BEHIND_DIST = 8;
-    const CAM_HEIGHT = 4;
-
-    const camX = p.x - Math.sin(this.cameraAngle) * BEHIND_DIST;
-    const camZ = p.z - Math.cos(this.cameraAngle) * BEHIND_DIST;
-    const camY = p.y + CAM_HEIGHT;
-
-    // Smooth position follow using dampingSpeed
-    this.camera.position.x += (camX - this.camera.position.x) * this.dampingSpeed;
-    this.camera.position.y += (camY - this.camera.position.y) * this.dampingSpeed;
-    this.camera.position.z += (camZ - this.camera.position.z) * this.dampingSpeed;
-
-    // =========================================================================
-    // 6. Dynamic Zoom (动态缩放)
-    // =========================================================================
-    const BASE_FOV = 60;
+    // === Dynamic FOV based on enemy density ===
     const enemyCount = state.enemies.length;
-
-    if (state.boss && state.boss.hp > 0) {
-      // Boss on screen: wide zoom
-      this.targetFOV = 75;
-    } else if (enemyCount > 30) {
-      // High density: zoom out
+    if (state.boss) {
       this.targetFOV = 70;
+    } else if (enemyCount > 30) {
+      this.targetFOV = 68;
     } else {
-      this.targetFOV = BASE_FOV;
+      this.targetFOV = 60;
     }
-
-    // Smooth FOV transitions
-    this.currentFOV += (this.targetFOV - this.currentFOV) * 0.03;
+    this.currentFOV += (this.targetFOV - this.currentFOV) * 0.02;
     this.camera.fov = this.currentFOV;
     this.camera.updateProjectionMatrix();
 
-    // =========================================================================
-    // 7. Layered Screen Shake (层次化屏震)
-    // =========================================================================
-    this.shakeTime += dt;
-
+    // === Screen shake (layered, additive) ===
     if (this.shakeIntensity > 0.001) {
-      // Perlin-like noise using sin with offset (not pure random)
-      const freq = this.shakeFrequency;
-      const t1 = this.shakeTime * freq;
-      this.shakeOffsetX = Math.sin(t1 * 6.283) * this.shakeIntensity
-        + Math.sin(t1 * 3.7 + 1.3) * this.shakeIntensity * 0.5;
-      this.shakeOffsetY = Math.sin(t1 * 5.1 + 2.7) * this.shakeIntensity * 0.7
-        + Math.sin(t1 * 4.3 + 0.8) * this.shakeIntensity * 0.3;
-
-      // Exponential decay
-      this.shakeIntensity *= Math.exp(-this.shakeDecay * dt);
-      if (this.shakeIntensity < 0.001) {
-        this.shakeIntensity = 0;
-        this.shakeOffsetX = 0;
-        this.shakeOffsetY = 0;
-      }
-    } else {
-      this.shakeOffsetX = 0;
-      this.shakeOffsetY = 0;
+      this.shakeTime += 1 / 60;
+      const shakeX = Math.sin(this.shakeTime * this.shakeFrequency) * this.shakeIntensity;
+      const shakeY = Math.sin(this.shakeTime * this.shakeFrequency * 1.3 + 1.7) * this.shakeIntensity * 0.7;
+      this.camera.position.x += shakeX;
+      this.camera.position.y += shakeY;
+      this.shakeIntensity *= Math.pow(0.5, this.shakeDecay / 60);
+      if (this.shakeIntensity < 0.001) this.shakeIntensity = 0;
     }
-
-    // Apply shake offset to camera position
-    this.camera.position.x += this.shakeOffsetX;
-    this.camera.position.y += this.shakeOffsetY;
-
-    // =========================================================================
-    // 8. Final Look-At
-    // =========================================================================
-    this.camera.lookAt(lookAtX, lookAtY, lookAtZ);
   }
 
   // ===========================================================================
