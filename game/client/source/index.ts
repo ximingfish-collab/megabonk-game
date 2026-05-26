@@ -1226,15 +1226,26 @@ export class GameScene {
 
   private handleInput(): void {
     const raw = this.platformInput.getInput();
-    // Apply deadzone to prevent drift/spinning
+    // Apply deadzone
     let mx = raw.moveX ?? 0;
     let my = raw.moveY ?? 0;
     if (Math.abs(mx) < 0.15) mx = 0;
     if (Math.abs(my) < 0.15) my = 0;
 
+    // TPS camera-relative movement:
+    // Transform input direction by camera angle so W = forward from camera view
+    let worldMoveX = mx;
+    let worldMoveZ = my;
+    if (mx !== 0 || my !== 0) {
+      const cosA = Math.cos(this.cameraAngle);
+      const sinA = Math.sin(this.cameraAngle);
+      worldMoveX = mx * cosA + my * sinA;
+      worldMoveZ = -mx * sinA + my * cosA;
+    }
+
     const input: InputState = {
-      moveX: mx,
-      moveY: my,
+      moveX: worldMoveX,
+      moveY: worldMoveZ,
       dash: false,
       skill1: raw.action3 ?? false,
       skill2: false,
@@ -1856,24 +1867,38 @@ export class GameScene {
   private updateCamera(state: GameState): void {
     const p = state.player;
 
-    // FIXED ANGLE camera — like MegaBonk / Vampire Survivors / Diablo.
-    // Camera NEVER rotates. It maintains a constant angle relative to the world.
-    // Only follows player position smoothly.
-    const camOffsetX = 0;     // No left/right offset
-    const camOffsetZ = -10;   // Behind player (toward screen)
-    const camHeight = 8;      // Height above player
+    // Standard third-person camera (TPS):
+    // Camera stays BEHIND the player based on player facing direction.
+    // Rotates WITH the player, but with smooth damping.
+    // W always moves "forward" from camera's perspective.
 
-    const targetX = p.x + camOffsetX;
-    const targetZ = p.z + camOffsetZ;
-    const targetY = p.y + camHeight;
+    // Smoothly follow player rotation (damped — not instant)
+    let targetAngle = p.rotation;
+    let diff = targetAngle - this.cameraAngle;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    // Only rotate camera when player is actually moving
+    if (p.currentSpeed > 0.5) {
+      this.cameraAngle += diff * 0.04; // Slow smooth follow
+    }
+
+    // Camera offset: behind player, above shoulder
+    const behindDist = 8;
+    const camHeight = 4;
+    const lookAheadY = 1.5; // Look at upper body, not feet
+
+    // Position behind player based on camera angle
+    const camX = p.x - Math.sin(this.cameraAngle) * behindDist;
+    const camZ = p.z - Math.cos(this.cameraAngle) * behindDist;
+    const camY = p.y + camHeight;
 
     // Smooth position follow
-    this.camera.position.x += (targetX - this.camera.position.x) * 0.08;
-    this.camera.position.y += (targetY - this.camera.position.y) * 0.08;
-    this.camera.position.z += (targetZ - this.camera.position.z) * 0.08;
+    this.camera.position.x += (camX - this.camera.position.x) * 0.06;
+    this.camera.position.y += (camY - this.camera.position.y) * 0.06;
+    this.camera.position.z += (camZ - this.camera.position.z) * 0.06;
 
-    // Always look at player position (fixed angle — never changes)
-    this.camera.lookAt(p.x, p.y + 1.0, p.z);
+    // Look at player upper body
+    this.camera.lookAt(p.x, p.y + lookAheadY, p.z);
   }
 
   // ===========================================================================
