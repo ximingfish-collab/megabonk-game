@@ -977,6 +977,14 @@ export class GameScene {
     const state = this.session.getRenderState();
     const charColor = CHARACTER_COLORS[state.character] ?? 0xf5d680;
 
+    // Character → model mapping
+    const CHARACTER_MODELS: Record<string, string> = {
+      megachad: '/models/player_george.gltf',
+      roberto: '/models/player_stan.gltf',
+      skateboard_skeleton: '/models/player_leela.gltf',
+    };
+    const modelPath = CHARACTER_MODELS[state.character] ?? CHARACTER_MODELS['megachad'];
+
     // Always start with fallback — will be replaced once model loads
     const bodyGeo = new THREE.CapsuleGeometry(0.5, 1.0, 8, 16);
     const bodyMat = new THREE.MeshLambertMaterial({ color: charColor });
@@ -987,7 +995,7 @@ export class GameScene {
 
     // Attempt to load and replace with GLTF model
     const loader = new GLTFLoader();
-    loader.load('/models/player_george.gltf', (gltf) => {
+    loader.load(modelPath, (gltf) => {
       const model = gltf.scene;
       model.name = 'Player';
       // Calculate proper scale based on actual bounding box
