@@ -306,6 +306,9 @@ const loadedModels: LoadedModels = {
   door: null,
 };
 
+// Animation clips storage per model key
+const loadedAnimClips: Map<string, THREE.AnimationClip[]> = new Map();
+
 async function loadModels(): Promise<void> {
   const modelPaths: [keyof LoadedModels, string][] = [
     ['player', '/models/player_cyberpunk.gltf'],
@@ -351,7 +354,13 @@ async function loadModels(): Promise<void> {
         }
       });
       loadedModels[key] = model;
-      console.log(`[Assets] Loaded: ${key} (${path})`);
+      // Store animation clips for skeletal animation
+      if (gltf.animations && gltf.animations.length > 0) {
+        loadedAnimClips.set(key, gltf.animations);
+        console.log(`[Assets] Loaded: ${key} (${path}) — ${gltf.animations.length} animations`);
+      } else {
+        console.log(`[Assets] Loaded: ${key} (${path})`);
+      }
     } catch (err) {
       console.warn(`[Assets] Failed to load ${key} (${path}):`, err);
       loadedModels[key] = null;
@@ -400,6 +409,11 @@ export class GameScene {
   private lastPhase: GamePhase = 'playing';
   private screenFlashEl: HTMLDivElement | null = null;
 
+  // Player skeletal animation
+  private playerMixer: THREE.AnimationMixer | null = null;
+  private playerAnimations: Map<string, THREE.AnimationAction> = new Map();
+  private currentPlayerAnim: string = '';
+
   // Teleporter meshes
   private teleporterMeshes: THREE.Mesh[] = [];
   private teleporterGlowMeshes: THREE.Mesh[] = [];
@@ -409,6 +423,9 @@ export class GameScene {
   private enemyMeshes: Map<string, THREE.InstancedMesh> = new Map(); // legacy, kept for type compat
   private enemyObjects: Map<number, THREE.Object3D> = new Map(); // id → cloned model
   private enemyPool: Map<string, THREE.Object3D[]> = new Map(); // type → available pool
+  private enemyMixers: Map<number, THREE.AnimationMixer> = new Map(); // id → animation mixer
+  private enemyAnimStates: Map<number, string> = new Map(); // id → current anim name
+  private enemyAnimActions: Map<number, Map<string, THREE.AnimationAction>> = new Map(); // id → actions map
   private projectileMesh!: THREE.InstancedMesh;
   private pickupMesh!: THREE.InstancedMesh;
 
@@ -918,7 +935,17 @@ export class GameScene {
       this.scene.remove(this.playerMesh);
       this.playerMesh = model as unknown as THREE.Mesh;
       this.scene.add(this.playerMesh);
-      console.log(`[Player] GLTF loaded! size=${size.y.toFixed(3)}, scale=${autoScale.toFixed(1)}`);
+
+      // Setup animation mixer
+      this.playerMixer = new THREE.AnimationMixer(model);
+      for (const clip of gltf.animations) {
+        const action = this.playerMixer.clipAction(clip);
+        this.playerAnimations.set(clip.name, action);
+      }
+      // Play idle by default
+      this.playPlayerAnim('Idle_Neutral');
+
+      console.log(`[Player] GLTF loaded! size=${size.y.toFixed(3)}, scale=${autoScale.toFixed(1)}, anims=${gltf.animations.length}`);
     }, undefined, (err) => {
       console.warn('[Player] GLTF failed, keeping fallback:', err);
     });
@@ -943,6 +970,31 @@ export class GameScene {
     this.playerAuraMesh.name = 'PlayerAura';
     this.playerAuraMesh.visible = false;
     this.scene.add(this.playerAuraMesh);
+  }
+
+  private playPlayerAnim(name: string): void {
+    if (this.currentPlayerAnim === name) return;
+    const prevAction = this.playerAnimations.get(this.currentPlayerAnim);
+    const newAction = this.playerAnimations.get(name);
+    if (prevAction) prevAction.fadeOut(0.2);
+    if (newAction) {
+      newAction.reset().fadeIn(0.2).play();
+    }
+    this.currentPlayerAnim = name;
+  }
+
+  private playEnemyAnim(enemyId: number, name: string): void {
+    const currentAnim = this.enemyAnimStates.get(enemyId);
+    if (currentAnim === name) return;
+    const actionsMap = this.enemyAnimActions.get(enemyId);
+    if (!actionsMap) return;
+    const prevAction = actionsMap.get(currentAnim ?? '');
+    const newAction = actionsMap.get(name);
+    if (prevAction) prevAction.fadeOut(0.2);
+    if (newAction) {
+      newAction.reset().fadeIn(0.2).play();
+    }
+    this.enemyAnimStates.set(enemyId, name);
   }
 
   private setupWeaponOrbs(): void {
@@ -1300,6 +1352,11 @@ export class GameScene {
     const p = state.player;
     const time = performance.now() * 0.001;
 
+    // === Update animation mixer each frame ===
+    if (this.playerMixer) {
+      this.playerMixer.update(1 / 60);
+    }
+
     // === Position (y=0 for loaded model, y=1.0 for fallback capsule) ===
     const isGltfModel = this.playerMesh.name === 'Player' && this.playerMesh.children.length > 0;
     const modelY = isGltfModel ? 0 : 1.0;
@@ -1321,59 +1378,40 @@ export class GameScene {
       this.deathAnimTimer = 0.5;
       this.spawnDeathBurst(p.x, p.y, p.z);
       this.triggerScreenFlash('#ff0000', 0.3);
+      this.playPlayerAnim('Death');
     }
     this.wasAlive = p.alive;
 
     if (this.deathAnimTimer > 0) {
       const dt = 1 / 60;
       this.deathAnimTimer -= dt;
-      const t2 = Math.max(0, this.deathAnimTimer / 0.5);
-      this.playerMesh.scale.set(t2, t2, t2);
-      this.playerMesh.visible = true; // keep visible during shrink
+      this.playerMesh.visible = true; // keep visible during death anim
       if (this.deathAnimTimer <= 0) {
         this.playerMesh.visible = false;
       }
     } else if (p.alive) {
-      // === Animation States ===
-      const isMoving = Math.abs(p.currentSpeed) > 0.5;
-
-      // Moving bob (sine wave up/down while moving)
-      if (isMoving && p.isGrounded && !p.isSliding) {
-        const bobAmount = Math.sin(time * 12) * 0.08;
-        this.playerMesh.position.y += bobAmount;
-        // Slight tilt in move direction
-        this.playerMesh.rotation.z = Math.sin(time * 6) * 0.03;
+      // === Choose skeletal animation based on state ===
+      if (p.isSliding) {
+        this.playPlayerAnim('Roll');
+      } else if (p.isJumping || !p.isGrounded) {
+        this.playPlayerAnim('Roll'); // Use Roll as jump substitute (no dedicated Jump clip)
+      } else if (p.currentSpeed > 0.5) {
+        this.playPlayerAnim('Run');
       } else {
-        this.playerMesh.rotation.z = 0;
-      }
-
-      // Jump stretch (stretch vertically when going up)
-      if (p.isJumping && p.velocityY > 0) {
-        this.playerMesh.scale.set(0.85, 1.2, 0.85);
-      }
-      // Fall squash (squash when falling fast)
-      else if (!p.isGrounded && p.velocityY < -3) {
-        this.playerMesh.scale.set(1.1, 0.8, 1.1);
-      }
-      // Slide squash (low and wide)
-      else if (p.isSliding) {
-        this.playerMesh.scale.set(1.2, 0.6, 1.2);
-        this.spawnSlideDust(p.x, p.y, p.z);
-      }
-      // Landing squash (brief squash on land — bunnyHopTimer indicates recent land)
-      else if (p.isGrounded && p.bunnyHopTimer > 0.1) {
-        const landT = p.bunnyHopTimer / 0.15;
-        this.playerMesh.scale.set(1 + landT * 0.15, 1 - landT * 0.2, 1 + landT * 0.15);
-      }
-      // Normal
-      else {
-        this.playerMesh.scale.set(1, 1, 1);
+        this.playPlayerAnim('Idle_Neutral');
       }
 
       // === Invincibility flash ===
       if (p.invincibleTimer > 0) {
         this.playerMesh.visible = Math.sin(time * 20) > 0;
       }
+
+      // Keep scale at 1 (skeletal animation handles deformation)
+      this.playerMesh.scale.set(
+        this.playerMesh.scale.x > 0 ? Math.abs(this.playerMesh.scale.x) : 1,
+        this.playerMesh.scale.y > 0 ? Math.abs(this.playerMesh.scale.y) : 1,
+        this.playerMesh.scale.z > 0 ? Math.abs(this.playerMesh.scale.z) : 1,
+      );
     }
 
     // === Level Up Animation ===
@@ -1387,10 +1425,6 @@ export class GameScene {
     if (this.levelUpAnimTimer > 0 && p.alive && this.deathAnimTimer <= 0) {
       const dt = 1 / 60;
       this.levelUpAnimTimer -= dt;
-      const progress = 1 - (this.levelUpAnimTimer / 0.3);
-      // Pulse 1.0 → 1.3 → 1.0
-      const pulseScale = 1 + 0.3 * Math.sin(progress * Math.PI);
-      this.playerMesh.scale.set(pulseScale, pulseScale, pulseScale);
     }
 
     // === Ring follows player ===
@@ -1534,10 +1568,18 @@ export class GameScene {
       aliveIds.add(enemy.id);
     }
 
-    // Remove objects for dead enemies → return to pool
+    // Remove objects for dead enemies → return to pool, clean up mixers
     for (const [id, obj] of this.enemyObjects) {
       if (!aliveIds.has(id)) {
         obj.visible = false;
+        // Clean up animation mixer
+        const mixer = this.enemyMixers.get(id);
+        if (mixer) {
+          mixer.stopAllAction();
+          this.enemyMixers.delete(id);
+        }
+        this.enemyAnimStates.delete(id);
+        this.enemyAnimActions.delete(id);
         // Return to pool
         const type = obj.userData['enemyType'] as string;
         const pool = this.enemyPool.get(type) ?? [];
@@ -1579,12 +1621,47 @@ export class GameScene {
         const pool = this.enemyPool.get(enemy.type);
         if (pool && pool.length > 0) {
           obj = pool.pop()!;
+          // Reset animation state for recycled object — create new mixer
+          const modelKey = enemyModelMap[enemy.type];
+          const clips = modelKey ? loadedAnimClips.get(modelKey) : undefined;
+          if (clips && clips.length > 0) {
+            const mixer = new THREE.AnimationMixer(obj);
+            this.enemyMixers.set(enemy.id, mixer);
+            const actionsMap = new Map<string, THREE.AnimationAction>();
+            for (const clip of clips) {
+              actionsMap.set(clip.name, mixer.clipAction(clip));
+            }
+            this.enemyAnimActions.set(enemy.id, actionsMap);
+            // Play idle by default
+            const idleClip = clips.find(c => c.name === 'Idle') ?? clips.find(c => c.name === 'Walk');
+            if (idleClip) {
+              mixer.clipAction(idleClip).play();
+              this.enemyAnimStates.set(enemy.id, idleClip.name);
+            }
+          }
         } else {
           // Clone from loaded model
           const modelKey = enemyModelMap[enemy.type];
           const model = modelKey ? loadedModels[modelKey] : null;
           if (model) {
             obj = model.clone();
+            // Setup animation mixer for cloned model
+            const clips = modelKey ? loadedAnimClips.get(modelKey) : undefined;
+            if (clips && clips.length > 0) {
+              const mixer = new THREE.AnimationMixer(obj);
+              this.enemyMixers.set(enemy.id, mixer);
+              const actionsMap = new Map<string, THREE.AnimationAction>();
+              for (const clip of clips) {
+                actionsMap.set(clip.name, mixer.clipAction(clip));
+              }
+              this.enemyAnimActions.set(enemy.id, actionsMap);
+              // Play idle by default
+              const idleClip = clips.find(c => c.name === 'Idle') ?? clips.find(c => c.name === 'Walk');
+              if (idleClip) {
+                mixer.clipAction(idleClip).play();
+                this.enemyAnimStates.set(enemy.id, idleClip.name);
+              }
+            }
           } else {
             // Fallback: colored box
             const geo = new THREE.BoxGeometry(0.9, 1.2, 0.9);
@@ -1606,9 +1683,34 @@ export class GameScene {
       obj.scale.set(s, s, s);
       obj.visible = true;
 
-      // Hit flash — make invisible briefly for flash effect
+      // Choose enemy animation based on state
       if (enemy.hitFlashTimer > 0) {
+        this.playEnemyAnim(enemy.id, 'Attack');
         obj.visible = Math.sin(performance.now() * 0.03) > 0;
+      } else if (enemy.chargeState === 'charging') {
+        this.playEnemyAnim(enemy.id, 'Run');
+        obj.visible = true;
+      } else if (enemy.chargeState === 'windup') {
+        this.playEnemyAnim(enemy.id, 'Idle');
+      } else if (enemy.attackCooldown > enemy.attackCooldownMax * 0.8) {
+        // Just attacked (cooldown just reset)
+        this.playEnemyAnim(enemy.id, 'Attack');
+      } else if (enemy.speed > 0.3) {
+        // Moving enemy — prefer Run, fallback to Walk
+        const actionsMap = this.enemyAnimActions.get(enemy.id);
+        if (actionsMap?.has('Run')) {
+          this.playEnemyAnim(enemy.id, 'Run');
+        } else {
+          this.playEnemyAnim(enemy.id, 'Walk');
+        }
+      } else {
+        this.playEnemyAnim(enemy.id, 'Idle');
+      }
+
+      // Update enemy mixer
+      const mixer = this.enemyMixers.get(enemy.id);
+      if (mixer) {
+        mixer.update(1 / 60);
       }
     }
 
