@@ -511,45 +511,70 @@ export class GameInstance {
     }
   }
 
-  /** Get terrain height at position — Cyberpunk arena: platforms at various heights */
+  /** Get terrain height at position — Neon Crucible arena layout */
   private getTerrainHeight(x: number, z: number): number {
     const platforms: [number, number, number, number, number][] = [
-      // Central ground floor (5x5 grid of tiles, ~40x40 area)
-      [0, 0, 20, 20, 0],
-      // Extended floor wings
-      [-24, 0, 8, 8, 0],
-      [24, 0, 8, 8, 0],
-      [0, -24, 8, 8, 0],
-      [0, 24, 8, 8, 0],
-      [-24, -8, 8, 4, 0],
-      [24, -8, 8, 4, 0],
-      [-24, 8, 8, 4, 0],
-      [24, 8, 8, 4, 0],
-      [-8, -24, 4, 8, 0],
-      [8, -24, 4, 8, 0],
-      [-8, 24, 4, 8, 0],
-      [8, 24, 4, 8, 0],
-      // Elevated corner platforms (y=3)
-      [-30, -30, 8, 8, 3],
-      [30, -30, 8, 8, 3],
-      [-30, 30, 8, 8, 3],
-      [30, 30, 8, 8, 3],
-      // Mid-level platforms (y=2)
-      [-18, -15, 5, 5, 2],
-      [18, -15, 5, 5, 2],
-      [-18, 15, 5, 5, 2],
-      [18, 15, 5, 5, 2],
-      [0, -30, 5, 5, 2],
-      [0, 30, 5, 5, 2],
-      [-30, 0, 5, 5, 2],
-      [30, 0, 5, 5, 2],
-      // High platforms (y=5-6)
-      [-40, 0, 4, 4, 6],
-      [40, 0, 4, 4, 6],
-      [0, -40, 4, 4, 5],
-      [0, 40, 4, 4, 5],
-      [-38, -38, 4, 4, 5],
-      [38, 38, 4, 4, 5],
+      // ═══════════════════════════════════════════════════════════════
+      // GROUND FLOOR (y=0) — The Pit + Corridors
+      // ═══════════════════════════════════════════════════════════════
+
+      // Central Arena — 30×30 open square
+      [0, 0, 15, 15, 0],
+
+      // North Corridor (extends to z = -55)
+      [0, -30, 6, 15, 0],
+      // South Corridor (extends to z = +55)
+      [0, 30, 6, 15, 0],
+      // East Corridor (extends to x = +55)
+      [30, 0, 15, 6, 0],
+      // West Corridor (extends to x = -55)
+      [-30, 0, 15, 6, 0],
+
+      // Diagonal fill patches (smooth corners between arms)
+      [15, -15, 5, 5, 0],
+      [-15, -15, 5, 5, 0],
+      [15, 15, 5, 5, 0],
+      [-15, 15, 5, 5, 0],
+
+      // Corridor end pads (wider landing zones at edges)
+      [0, -50, 8, 5, 0],
+      [0, 50, 8, 5, 0],
+      [50, 0, 5, 8, 0],
+      [-50, 0, 5, 8, 0],
+
+      // ═══════════════════════════════════════════════════════════════
+      // MID-LEVEL RING (y=2) — The Catwalk
+      // ═══════════════════════════════════════════════════════════════
+
+      // Cardinal stations (on corridor edges)
+      [0, -25, 5, 4, 2],     // N station
+      [0, 25, 5, 4, 2],      // S station
+      [25, 0, 4, 5, 2],      // E station
+      [-25, 0, 4, 5, 2],     // W station
+
+      // Diagonal junctions (between corridors)
+      [20, -20, 5, 5, 2],    // NE junction
+      [-20, -20, 5, 5, 2],   // NW junction
+      [20, 20, 5, 5, 2],     // SE junction
+      [-20, 20, 5, 5, 2],    // SW junction
+
+      // ═══════════════════════════════════════════════════════════════
+      // WATCHTOWERS (y=4) — Cardinal Overlooks
+      // ═══════════════════════════════════════════════════════════════
+
+      [0, -40, 5, 5, 4],     // N tower
+      [0, 40, 5, 5, 4],      // S tower
+      [40, 0, 5, 5, 4],      // E tower
+      [-40, 0, 5, 5, 4],     // W tower
+
+      // ═══════════════════════════════════════════════════════════════
+      // NESTS (y=6) — Diagonal Pinnacles
+      // ═══════════════════════════════════════════════════════════════
+
+      [38, -38, 3, 3, 6],    // NE nest
+      [-38, -38, 3, 3, 6],   // NW nest
+      [38, 38, 3, 3, 6],     // SE nest
+      [-38, 38, 3, 3, 6],    // SW nest
     ];
 
     let height = 0;

@@ -682,237 +682,274 @@ export class GameScene {
   }
 
   private buildArena(): void {
-    // =========================================================================
-    // A. GROUND FLOOR — 5x5 grid of platform_4x4 tiles (center ~40x40 area)
-    // Each platform_4x4 is ~4 units wide, scaled up by 2x = ~8 units
-    // =========================================================================
+    const HALF = GROUND_SIZE / 2; // 60
+
+    // ═══════════════════════════════════════════════════════════════════
+    // A. GROUND FLOOR — Central Arena (The Pit)
+    // 4×4 platform tiles, scale 2.0 = 8×8 per tile
+    // ═══════════════════════════════════════════════════════════════════
+
     const floorScale = 2.0;
-    const tileSpacing = 8; // 4 * floorScale
-    for (let gx = -2; gx <= 2; gx++) {
-      for (let gz = -2; gz <= 2; gz++) {
-        this.placeModel('platform_4x4', gx * tileSpacing, 0, gz * tileSpacing, 0, floorScale);
+    const tileSize = 8; // 4 * 2.0 scale
+
+    // Central 4×4 grid (covers ±16 area)
+    for (let gx = -2; gx <= 1; gx++) {
+      for (let gz = -2; gz <= 1; gz++) {
+        this.placeModel('platform_4x4', gx * tileSize + 4, 0, gz * tileSize + 4, 0, floorScale);
       }
     }
 
-    // Extended floor wings (platform_4x2) along N/S/E/W
-    const wingPositions: [number, number, number][] = [
-      [-24, 0, 0], [24, 0, 0],
-      [0, 0, -24], [0, 0, 24],
-      [-24, 0, -8], [24, 0, -8],
-      [-24, 0, 8], [24, 0, 8],
-      [-8, 0, -24], [8, 0, -24],
-      [-8, 0, 24], [8, 0, 24],
-    ];
-    for (const [wx, wy, wz] of wingPositions) {
-      this.placeModel('platform_4x2', wx, wy, wz, 0, floorScale);
+    // ═══════════════════════════════════════════════════════════════════
+    // B. CORRIDORS — Four arms extending from center
+    // Using platform_4x2 (8×4 at scale 2.0) along each arm
+    // ═══════════════════════════════════════════════════════════════════
+
+    // North corridor (z = -16 to -55)
+    for (let nz = -20; nz >= -52; nz -= 8) {
+      this.placeModel('platform_4x2', -4, 0, nz, 0, floorScale);
+      this.placeModel('platform_4x2', 4, 0, nz, 0, floorScale);
     }
 
-    // =========================================================================
-    // B. ELEVATED PLATFORMS at corners (y=3) — medium platforms
-    // =========================================================================
-    const elevatedCorners: [number, number, number, number][] = [
-      [-30, 3, -30, 0],
-      [30, 3, -30, Math.PI / 2],
-      [-30, 3, 30, -Math.PI / 2],
-      [30, 3, 30, Math.PI],
-    ];
-    for (const [ex, ey, ez, er] of elevatedCorners) {
-      this.placeModel('platform_4x2', ex, ey, ez, er, 2.5);
-      // Supports underneath
-      this.placeModel('support', ex - 3, 0, ez - 3, 0, 2.0);
-      this.placeModel('support', ex + 3, 0, ez + 3, 0, 2.0);
-      this.placeModel('support', ex - 3, 0, ez + 3, 0, 2.0);
-      this.placeModel('support', ex + 3, 0, ez - 3, 0, 2.0);
-      // Rails on edges
-      this.placeModel('rail_long', ex, ey + 0.1, ez - 4, 0, 2.0);
-      this.placeModel('rail_long', ex, ey + 0.1, ez + 4, Math.PI, 2.0);
+    // South corridor (z = +16 to +55)
+    for (let sz = 20; sz <= 52; sz += 8) {
+      this.placeModel('platform_4x2', -4, 0, sz, 0, floorScale);
+      this.placeModel('platform_4x2', 4, 0, sz, 0, floorScale);
     }
 
-    // Mid-level platforms (y=2) — between corners and center
-    const midPlatforms: [number, number, number, number][] = [
-      [-18, 2, -15, 0],
-      [18, 2, -15, 0],
-      [-18, 2, 15, 0],
-      [18, 2, 15, 0],
-      [0, 2, -30, Math.PI / 2],
-      [0, 2, 30, Math.PI / 2],
-      [-30, 2, 0, 0],
-      [30, 2, 0, 0],
-    ];
-    for (const [mx, my, mz, mr] of midPlatforms) {
-      this.placeModel('platform_2x2', mx, my, mz, mr, 2.0);
-      // Single support
-      this.placeModel('support', mx, 0, mz, 0, 1.5);
+    // East corridor (x = +16 to +55)
+    for (let ex = 20; ex <= 52; ex += 8) {
+      this.placeModel('platform_4x2', ex, 0, -4, Math.PI / 2, floorScale);
+      this.placeModel('platform_4x2', ex, 0, 4, Math.PI / 2, floorScale);
     }
 
-    // =========================================================================
-    // C. HIGH PLATFORMS (y=5-6) — sniper/XP farming spots
-    // =========================================================================
-    const highPlatforms: [number, number, number, number][] = [
-      [-40, 6, 0, 0],
-      [40, 6, 0, Math.PI],
-      [0, 5, -40, Math.PI / 2],
-      [0, 5, 40, -Math.PI / 2],
-      [-38, 5, -38, Math.PI / 4],
-      [38, 5, 38, -Math.PI / 4],
-    ];
-    for (const [hx, hy, hz, hr] of highPlatforms) {
-      this.placeModel('platform_1x1', hx, hy, hz, hr, 2.5);
-      // Tall supports
-      this.placeModel('support_long', hx, 0, hz, 0, 2.0);
-      // Antenna on top
-      this.placeModel('pipe_1', hx, hy + 0.5, hz, 0, 1.5);
+    // West corridor (x = -16 to -55)
+    for (let wx = -20; wx >= -52; wx -= 8) {
+      this.placeModel('platform_4x2', wx, 0, -4, Math.PI / 2, floorScale);
+      this.placeModel('platform_4x2', wx, 0, 4, Math.PI / 2, floorScale);
     }
 
-    // =========================================================================
-    // D. ARENA BOUNDARY — ring of fence_platform around 120x120 edge
-    // =========================================================================
-    const half = GROUND_SIZE / 2;
-    const fenceSpacing = 6;
-    // North and south edges
-    for (let fx = -half; fx <= half; fx += fenceSpacing) {
-      this.placeModel('fence_platform', fx, 0, -half, 0, 2.0);
-      this.placeModel('fence_platform', fx, 0, half, Math.PI, 2.0);
-    }
-    // East and west edges
-    for (let fz = -half; fz <= half; fz += fenceSpacing) {
-      this.placeModel('fence_platform', -half, 0, fz, Math.PI / 2, 2.0);
-      this.placeModel('fence_platform', half, 0, fz, -Math.PI / 2, 2.0);
-    }
-    // Tall supports at corners marking the boundary
-    this.placeModel('support_long', -half, 0, -half, 0, 3.0);
-    this.placeModel('support_long', half, 0, -half, 0, 3.0);
-    this.placeModel('support_long', -half, 0, half, 0, 3.0);
-    this.placeModel('support_long', half, 0, half, 0, 3.0);
-
-    // =========================================================================
-    // E. STREET LIGHTS — every ~15 units along ground edges
-    // =========================================================================
-    const lightPositions: [number, number, number, number][] = [
-      [-20, 0, -16, 0],
-      [20, 0, -16, Math.PI],
-      [-20, 0, 16, 0],
-      [20, 0, 16, Math.PI],
-      [-16, 0, -20, Math.PI / 2],
-      [16, 0, -20, -Math.PI / 2],
-      [-16, 0, 20, Math.PI / 2],
-      [16, 0, 20, -Math.PI / 2],
-      [0, 0, -16, 0],
-      [0, 0, 16, Math.PI],
-      [-32, 0, 0, Math.PI / 2],
-      [32, 0, 0, -Math.PI / 2],
-      [-40, 0, -20, 0],
-      [40, 0, -20, Math.PI],
-      [-40, 0, 20, 0],
-      [40, 0, 20, Math.PI],
-      [-20, 0, -40, 0],
-      [20, 0, -40, Math.PI],
-      [-20, 0, 40, 0],
-      [20, 0, 40, Math.PI],
+    // Diagonal fill patches (platform_2x2 at scale 2.0)
+    const diagonalFills: [number, number][] = [
+      [14, -14], [-14, -14], [14, 14], [-14, 14],
+      [18, -10], [-18, -10], [18, 10], [-18, 10],
+      [10, -18], [-10, -18], [10, 18], [-10, 18],
     ];
-    for (const [lx, ly, lz, lr] of lightPositions) {
+    for (const [dx, dz] of diagonalFills) {
+      this.placeModel('platform_2x2', dx, 0, dz, 0, floorScale);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // C. MID-LEVEL RING (y=2) — The Catwalk
+    // Elevated platforms forming a ring around center
+    // ═══════════════════════════════════════════════════════════════════
+
+    // N station
+    this.placeModel('platform_4x2', 0, 2, -25, 0, 2.5);
+    this.placeModel('support', -4, 0, -25, 0, 1.8);
+    this.placeModel('support', 4, 0, -25, 0, 1.8);
+
+    // S station
+    this.placeModel('platform_4x2', 0, 2, 25, 0, 2.5);
+    this.placeModel('support', -4, 0, 25, 0, 1.8);
+    this.placeModel('support', 4, 0, 25, 0, 1.8);
+
+    // E station
+    this.placeModel('platform_4x2', 25, 2, 0, Math.PI / 2, 2.5);
+    this.placeModel('support', 25, 0, -4, 0, 1.8);
+    this.placeModel('support', 25, 0, 4, 0, 1.8);
+
+    // W station
+    this.placeModel('platform_4x2', -25, 2, 0, Math.PI / 2, 2.5);
+    this.placeModel('support', -25, 0, -4, 0, 1.8);
+    this.placeModel('support', -25, 0, 4, 0, 1.8);
+
+    // Diagonal junctions — platform_2x2 at y=2
+    const junctions: [number, number, number][] = [
+      [20, -20, Math.PI / 4],
+      [-20, -20, -Math.PI / 4],
+      [20, 20, -Math.PI / 4],
+      [-20, 20, Math.PI / 4],
+    ];
+    for (const [jx, jz, jr] of junctions) {
+      this.placeModel('platform_2x2', jx, 2, jz, jr, 2.5);
+      this.placeModel('support', jx, 0, jz, 0, 1.8);
+      this.placeModel('rail_long', jx + Math.sign(jx) * 4, 2.1, jz, jr + Math.PI / 2, 1.8);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // D. WATCHTOWERS (y=4) — Cardinal Overlooks
+    // ═══════════════════════════════════════════════════════════════════
+
+    const towers: [number, number, number][] = [
+      [0, -40, 0],
+      [0, 40, Math.PI],
+      [40, 0, -Math.PI / 2],
+      [-40, 0, Math.PI / 2],
+    ];
+    for (const [tx, tz, tr] of towers) {
+      this.placeModel('platform_4x4', tx, 4, tz, tr, 2.5);
+      this.placeModel('support_long', tx - 4, 0, tz - 4, 0, 2.2);
+      this.placeModel('support_long', tx + 4, 0, tz - 4, 0, 2.2);
+      this.placeModel('support_long', tx - 4, 0, tz + 4, 0, 2.2);
+      this.placeModel('support_long', tx + 4, 0, tz + 4, 0, 2.2);
+      this.placeModel('rail_long', tx, 4.1, tz - 5, 0, 2.2);
+      this.placeModel('rail_long', tx, 4.1, tz + 5, Math.PI, 2.2);
+      this.placeModel('rail_long', tx - 5, 4.1, tz, Math.PI / 2, 2.2);
+      this.placeModel('rail_long', tx + 5, 4.1, tz, -Math.PI / 2, 2.2);
+      this.placeModel('door', tx, 4, tz + (tz < 0 ? 5 : -5), tr, 1.8);
+      this.placeModel('sign_1', tx + 3, 5.5, tz, tr, 1.5);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // E. NESTS (y=6) — Diagonal Pinnacles
+    // ═══════════════════════════════════════════════════════════════════
+
+    const nests: [number, number, number][] = [
+      [38, -38, Math.PI / 4],
+      [-38, -38, -Math.PI / 4],
+      [38, 38, -Math.PI / 4],
+      [-38, 38, Math.PI / 4],
+    ];
+    for (const [nx, nz, nr] of nests) {
+      this.placeModel('platform_1x1', nx, 6, nz, nr, 3.0);
+      this.placeModel('support_long', nx, 0, nz, 0, 3.0);
+      this.placeModel('pipe_1', nx, 6.5, nz, 0, 1.5);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // F. ARENA BOUNDARY — Fences around 120×120 perimeter
+    // ═══════════════════════════════════════════════════════════════════
+
+    const fenceSpacing = 5;
+    for (let fx = -HALF; fx <= HALF; fx += fenceSpacing) {
+      this.placeModel('fence_platform', fx, 0, -HALF, 0, 2.0);
+      this.placeModel('fence_platform', fx, 0, HALF, Math.PI, 2.0);
+    }
+    for (let fz = -HALF; fz <= HALF; fz += fenceSpacing) {
+      this.placeModel('fence_platform', -HALF, 0, fz, Math.PI / 2, 2.0);
+      this.placeModel('fence_platform', HALF, 0, fz, -Math.PI / 2, 2.0);
+    }
+    this.placeModel('support_long', -HALF, 0, -HALF, 0, 3.5);
+    this.placeModel('support_long', HALF, 0, -HALF, 0, 3.5);
+    this.placeModel('support_long', -HALF, 0, HALF, 0, 3.5);
+    this.placeModel('support_long', HALF, 0, HALF, 0, 3.5);
+
+    // ═══════════════════════════════════════════════════════════════════
+    // G. STREET LIGHTING — Along corridors and at key intersections
+    // ═══════════════════════════════════════════════════════════════════
+
+    const streetLights: [number, number, number, number][] = [
+      [-12, 0, -12, Math.PI / 4],
+      [12, 0, -12, -Math.PI / 4],
+      [-12, 0, 12, -Math.PI / 4],
+      [12, 0, 12, Math.PI / 4],
+      [-7, 0, -22, 0], [7, 0, -22, Math.PI],
+      [-7, 0, -36, 0], [7, 0, -36, Math.PI],
+      [-7, 0, -50, 0], [7, 0, -50, Math.PI],
+      [-7, 0, 22, Math.PI], [7, 0, 22, 0],
+      [-7, 0, 36, Math.PI], [7, 0, 36, 0],
+      [-7, 0, 50, Math.PI], [7, 0, 50, 0],
+      [22, 0, -7, -Math.PI / 2], [22, 0, 7, Math.PI / 2],
+      [36, 0, -7, -Math.PI / 2], [36, 0, 7, Math.PI / 2],
+      [50, 0, -7, -Math.PI / 2], [50, 0, 7, Math.PI / 2],
+      [-22, 0, -7, Math.PI / 2], [-22, 0, 7, -Math.PI / 2],
+      [-36, 0, -7, Math.PI / 2], [-36, 0, 7, -Math.PI / 2],
+      [-50, 0, -7, Math.PI / 2], [-50, 0, 7, -Math.PI / 2],
+    ];
+    for (const [lx, ly, lz, lr] of streetLights) {
       this.placeModel('light_street', lx, ly, lz, lr, 1.8);
     }
 
-    // =========================================================================
-    // F. NEON SIGNS — on elevated platforms
-    // =========================================================================
-    const signPlacements: [keyof LoadedModels, number, number, number, number, number][] = [
-      ['sign_1', -30, 4, -32, 0, 2.0],
-      ['sign_2', 30, 4, -32, Math.PI, 2.0],
-      ['sign_1', -30, 4, 32, 0, 2.0],
-      ['sign_2', 30, 4, 32, Math.PI, 2.0],
-      ['sign_1', -18, 3, -17, Math.PI / 4, 1.5],
-      ['sign_2', 18, 3, -17, -Math.PI / 4, 1.5],
-      ['sign_1', -18, 3, 17, -Math.PI / 4, 1.5],
-      ['sign_2', 18, 3, 17, Math.PI / 4, 1.5],
-      ['sign_1', -42, 7, 0, Math.PI / 2, 1.8],
-      ['sign_2', 42, 7, 0, -Math.PI / 2, 1.8],
+    // ═══════════════════════════════════════════════════════════════════
+    // H. SIGNS & NEON — On towers and at corridor entrances
+    // ═══════════════════════════════════════════════════════════════════
+
+    const signs: [keyof LoadedModels, number, number, number, number, number][] = [
+      ['sign_2', -8, 3, -16, 0, 2.0],
+      ['sign_2', 8, 3, -16, Math.PI, 2.0],
+      ['sign_1', -8, 3, 16, Math.PI, 2.0],
+      ['sign_1', 8, 3, 16, 0, 2.0],
+      ['sign_2', -16, 3, -8, Math.PI / 2, 2.0],
+      ['sign_1', -16, 3, 8, Math.PI / 2, 2.0],
+      ['sign_2', 16, 3, -8, -Math.PI / 2, 2.0],
+      ['sign_1', 16, 3, 8, -Math.PI / 2, 2.0],
+      ['sign_1', 2, 6, -42, 0, 1.8],
+      ['sign_2', -2, 6, 42, Math.PI, 1.8],
+      ['sign_1', 42, 6, 2, -Math.PI / 2, 1.8],
+      ['sign_2', -42, 6, -2, Math.PI / 2, 1.8],
     ];
-    for (const [sk, sx, sy, sz, sr, ss] of signPlacements) {
+    for (const [sk, sx, sy, sz, sr, ss] of signs) {
       this.placeModel(sk, sx, sy, sz, sr, ss);
     }
 
-    // =========================================================================
-    // G. AC UNITS & PIPES — on supports/pillars
-    // =========================================================================
-    const acPositions: [number, number, number, number][] = [
-      [-33, 1.5, -28, 0],
-      [33, 1.5, -28, Math.PI],
-      [-33, 1.5, 28, 0],
-      [33, 1.5, 28, Math.PI],
-      [-41, 3, -2, Math.PI / 2],
-      [41, 3, 2, -Math.PI / 2],
-      [-28, 1, -33, Math.PI / 4],
-      [28, 1, 33, -Math.PI / 4],
-      [-15, 1, -18, 0],
-      [15, 1, 18, Math.PI],
-      [0, 3, -42, 0],
-      [0, 3, 42, Math.PI],
+    // ═══════════════════════════════════════════════════════════════════
+    // I. AC UNITS & PIPES — Environmental detail / soft cover
+    // ═══════════════════════════════════════════════════════════════════
+
+    // Central arena cover positions
+    const coverPositions: [number, number, number, number][] = [
+      [6, 0, -6, 0], [-6, 0, -6, Math.PI / 2],
+      [6, 0, 6, Math.PI], [-6, 0, 6, -Math.PI / 2],
+      [0, 0, -10, 0], [0, 0, 10, Math.PI],
+      [10, 0, 0, -Math.PI / 2], [-10, 0, 0, Math.PI / 2],
     ];
-    for (const [ax, ay, az, ar] of acPositions) {
-      this.placeModel('ac_unit', ax, ay, az, ar, 1.5);
+    for (const [cx, cy, cz, cr] of coverPositions) {
+      this.placeModel('ac_unit', cx, cy, cz, cr, 1.8);
     }
 
-    // Pipes along supports
+    // Pipes along corridor walls
     const pipePositions: [number, number, number, number][] = [
-      [-30, 0.5, -26, 0],
-      [30, 0.5, -26, 0],
-      [-30, 0.5, 26, Math.PI],
-      [30, 0.5, 26, Math.PI],
-      [-26, 0.5, -30, Math.PI / 2],
-      [26, 0.5, -30, Math.PI / 2],
-      [-26, 0.5, 30, -Math.PI / 2],
-      [26, 0.5, 30, -Math.PI / 2],
-      [-40, 2, -1, Math.PI / 2],
-      [40, 2, 1, -Math.PI / 2],
+      [-7, 0.5, -28, 0], [7, 0.5, -28, Math.PI],
+      [-7, 0.5, -42, 0], [7, 0.5, -42, Math.PI],
+      [-7, 0.5, 28, Math.PI], [7, 0.5, 28, 0],
+      [-7, 0.5, 42, Math.PI], [7, 0.5, 42, 0],
+      [28, 0.5, -7, -Math.PI / 2], [28, 0.5, 7, Math.PI / 2],
+      [42, 0.5, -7, -Math.PI / 2], [42, 0.5, 7, Math.PI / 2],
+      [-28, 0.5, -7, Math.PI / 2], [-28, 0.5, 7, -Math.PI / 2],
+      [-42, 0.5, -7, Math.PI / 2], [-42, 0.5, 7, -Math.PI / 2],
     ];
     for (const [px, py, pz, pr] of pipePositions) {
       this.placeModel('pipe_1', px, py, pz, pr, 1.8);
     }
 
-    // =========================================================================
-    // H. DOORS — on some elevated platforms (cosmetic)
-    // =========================================================================
-    const doorPositions: [number, number, number, number][] = [
-      [-30, 3, -27, 0],
-      [30, 3, -27, Math.PI],
-      [-30, 3, 27, Math.PI],
-      [30, 3, 27, 0],
-    ];
-    for (const [dx, dy, dz, dr] of doorPositions) {
-      this.placeModel('door', dx, dy, dz, dr, 1.8);
+    // AC units on watchtower supports
+    for (const [tx, tz] of [[0, -40], [0, 40], [40, 0], [-40, 0]] as [number, number][]) {
+      this.placeModel('ac_unit', tx + 5, 2, tz, Math.PI / 2, 1.5);
+      this.placeModel('ac_unit', tx - 5, 2, tz, -Math.PI / 2, 1.5);
     }
 
-    // =========================================================================
-    // I. ADDITIONAL PROPS — scattered for visual density
-    // =========================================================================
-    // Rail guards along mid-platforms
-    const railPositions: [number, number, number, number][] = [
-      [-18, 2.1, -13, 0],
-      [18, 2.1, -13, Math.PI],
-      [-18, 2.1, 13, Math.PI],
-      [18, 2.1, 13, 0],
-      [-28, 2.1, 0, Math.PI / 2],
-      [28, 2.1, 0, -Math.PI / 2],
-      [0, 2.1, -28, 0],
-      [0, 2.1, 28, Math.PI],
+    // ═══════════════════════════════════════════════════════════════════
+    // J. RAIL GUARDS — Safety rails on elevated platforms
+    // ═══════════════════════════════════════════════════════════════════
+
+    const ringRails: [number, number, number, number][] = [
+      [0, 2.1, -29, 0],
+      [0, 2.1, 29, Math.PI],
+      [29, 2.1, 0, -Math.PI / 2],
+      [-29, 2.1, 0, Math.PI / 2],
     ];
-    for (const [rx, ry, rz, rr] of railPositions) {
-      this.placeModel('rail_long', rx, ry, rz, rr, 1.8);
+    for (const [rx, ry, rz, rr] of ringRails) {
+      this.placeModel('rail_long', rx, ry, rz, rr, 2.0);
     }
 
-    // Extra floor glow panels (emissive quads for cyberpunk feel)
-    const glowPositions: [number, number][] = [
-      [-8, -8], [8, -8], [-8, 8], [8, 8],
-      [0, 0], [-16, 0], [16, 0], [0, -16], [0, 16],
+    // ═══════════════════════════════════════════════════════════════════
+    // K. NEON FLOOR PANELS — Emissive quads for cyberpunk atmosphere
+    // ═══════════════════════════════════════════════════════════════════
+
+    const glowPositions: [number, number, number][] = [
+      [0, 0, 0x00ffcc], [-8, 0, 0xff00ff], [8, 0, 0x00ffcc],
+      [0, -8, 0xff00ff], [0, 8, 0x00ffcc],
+      [0, -30, 0x00ffcc], [0, 30, 0xff00ff],
+      [30, 0, 0x00ffcc], [-30, 0, 0xff00ff],
+      [20, -20, 0x00ffcc], [-20, -20, 0xff00ff],
+      [20, 20, 0xff00ff], [-20, 20, 0x00ffcc],
     ];
     for (let gi = 0; gi < glowPositions.length; gi++) {
-      const [gx, gz] = glowPositions[gi];
-      const glowGeo = new THREE.PlaneGeometry(2, 2);
+      const [gx, gz, gColor] = glowPositions[gi];
+      const glowGeo = new THREE.PlaneGeometry(2.5, 2.5);
       glowGeo.rotateX(-Math.PI / 2);
       const glowMat = new THREE.MeshBasicMaterial({
-        color: gi % 2 === 0 ? 0x00ffcc : 0xff00ff,
+        color: gColor,
         transparent: true,
         opacity: 0.15,
       });
@@ -1172,7 +1209,7 @@ export class GameScene {
           vLife = aLife;
           vColor = aColor;
           vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = aSize * (200.0 / -mvPosition.z);
+          gl_PointSize = aSize * (400.0 / -mvPosition.z);
           gl_Position = projectionMatrix * mvPosition;
         }
       `,
@@ -2062,17 +2099,16 @@ export class GameScene {
 
   private emitHitSparks(x: number, y: number, z: number, weaponType: string): void {
     const color = GameScene.WEAPON_VFX_COLORS[weaponType] ?? [1.0, 0.9, 0.5];
-    const count = 5 + Math.floor(Math.random() * 6);
+    const count = 10 + Math.floor(Math.random() * 8);
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const elevation = Math.random() * Math.PI * 0.5;
-      const speed = 2 + Math.random() * 3;
+      const elevation = Math.random() * Math.PI * 0.6;
+      const speed = 4 + Math.random() * 6;
       const vx = Math.cos(angle) * Math.cos(elevation) * speed;
-      const vy = Math.sin(elevation) * speed + 1;
+      const vy = Math.sin(elevation) * speed + 2;
       const vz = Math.sin(angle) * Math.cos(elevation) * speed;
-      const size = 0.3 + Math.random() * 0.4;
-      const life = 0.2 + Math.random() * 0.3;
-      // Slight color variation
+      const size = 1.0 + Math.random() * 1.5;
+      const life = 0.4 + Math.random() * 0.4;
       const cr = Math.min(1.0, color[0] + (Math.random() - 0.5) * 0.2);
       const cg = Math.min(1.0, color[1] + (Math.random() - 0.5) * 0.2);
       const cb = Math.min(1.0, color[2] + (Math.random() - 0.5) * 0.2);
@@ -2081,15 +2117,15 @@ export class GameScene {
   }
 
   private emitDeathBurst(x: number, y: number, z: number, _enemyType: string): void {
-    const count = 15 + Math.floor(Math.random() * 6);
+    const count = 25 + Math.floor(Math.random() * 10);
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
       const elevation = (Math.random() - 0.3) * Math.PI;
-      const speed = 3 + Math.random() * 4;
+      const speed = 5 + Math.random() * 7;
       const vx = Math.cos(angle) * Math.cos(elevation) * speed;
-      const vy = Math.abs(Math.sin(elevation)) * speed + 2;
+      const vy = Math.abs(Math.sin(elevation)) * speed + 3;
       const vz = Math.sin(angle) * Math.cos(elevation) * speed;
-      const size = 0.5 + Math.random() * 0.6;
+      const size = 1.5 + Math.random() * 2.0;
       const life = 0.4 + Math.random() * 0.5;
       // Red/orange death particles
       const r = 0.8 + Math.random() * 0.2;
