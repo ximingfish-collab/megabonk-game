@@ -300,14 +300,16 @@ async function loadModels(): Promise<void> {
       const gltf = await gltfLoader.loadAsync(path);
       const model = gltf.scene;
       model.name = `Model_${key}`;
+      // Keep original materials from the GLTF (preserves textures, vertex colors, etc.)
+      // Only disable expensive features for mobile performance
       model.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
           const mesh = child as THREE.Mesh;
-          const oldMat = mesh.material as THREE.MeshStandardMaterial;
-          if (oldMat.map) {
-            mesh.material = new THREE.MeshLambertMaterial({ map: oldMat.map });
-          } else {
-            mesh.material = new THREE.MeshLambertMaterial({ color: oldMat.color ?? 0xcccccc });
+          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          for (const m of mats) {
+            // Disable shadows for performance but keep visual quality
+            mesh.castShadow = false;
+            mesh.receiveShadow = false;
           }
         }
       });
@@ -1260,22 +1262,29 @@ export class GameScene {
 
     for (const type of enemyTypes) {
       const color = ENEMY_COLORS[type] ?? 0x888888;
-      const mat = new THREE.MeshLambertMaterial({ color });
+
+      // Try to extract geometry AND material from loaded model
+      let geo: THREE.BufferGeometry = fallbackGeo;
+      let mat: THREE.Material = new THREE.MeshLambertMaterial({ color });
       if (type === 'ghost') {
-        mat.transparent = true;
-        mat.opacity = 0.65;
+        (mat as THREE.MeshLambertMaterial).transparent = true;
+        (mat as THREE.MeshLambertMaterial).opacity = 0.65;
       }
 
-      // Try to extract geometry from loaded model
-      let geo: THREE.BufferGeometry = fallbackGeo;
       const modelKey = enemyModelMap[type];
       const model = modelKey ? loadedModels[modelKey] : null;
       if (model) {
-        // Find first mesh in the model and use its geometry
+        let foundMesh = false;
         model.traverse((child) => {
-          if ((child as THREE.Mesh).isMesh && geo === fallbackGeo) {
+          if ((child as THREE.Mesh).isMesh && !foundMesh) {
+            foundMesh = true;
             const meshChild = child as THREE.Mesh;
             geo = meshChild.geometry.clone();
+            // Use the model's original material (preserves textures/colors)
+            if (meshChild.material) {
+              const originalMat = Array.isArray(meshChild.material) ? meshChild.material[0] : meshChild.material;
+              mat = originalMat.clone();
+            }
             // Normalize geometry scale
             geo.computeBoundingBox();
             const box = geo.boundingBox!;
@@ -1283,7 +1292,6 @@ export class GameScene {
             const maxDim = Math.max(size.x, size.y, size.z);
             const targetScale = (enemyScales[type] ?? 1.0) / maxDim;
             geo.scale(targetScale, targetScale, targetScale);
-            // Center geometry
             geo.center();
           }
         });
