@@ -2424,42 +2424,44 @@ export class GameScene {
     // MegaBonk camera: FIXED ANGLE third-person.
     // Camera NEVER rotates. Fixed direction. Only follows player position.
     // Player is always in lower-center of screen.
-    // Like the MegaBonk screenshot: camera behind+above at ~35° down angle.
     // =======================================================================
 
     // Fixed camera offset (never changes direction)
     const camBehind = 7;   // units behind player (toward -Z world direction)
     const camHeight = 5;   // units above player
-    const camRight = 0;    // no horizontal offset
 
     // Camera target position (fixed angle, only player position moves it)
-    const targetX = p.x + camRight;
+    const targetX = p.x;
     const targetY = p.y + camHeight;
     const targetZ = p.z - camBehind;
 
-    // Smooth follow — state-based dampening
-    const speed = p.currentSpeed > 0.5 ? 0.05 : 0.1;
-    this.camera.position.x += (targetX - this.camera.position.x) * speed;
-    this.camera.position.y += (targetY - this.camera.position.y) * speed;
-    this.camera.position.z += (targetZ - this.camera.position.z) * speed;
+    // Smooth follow — constant speed, no state switching
+    const followSpeed = 0.06;
+    this.camera.position.x += (targetX - this.camera.position.x) * followSpeed;
+    this.camera.position.y += (targetY - this.camera.position.y) * followSpeed;
+    this.camera.position.z += (targetZ - this.camera.position.z) * followSpeed;
 
-    // Look-at: slightly ahead of player in world +Z direction (fixed)
-    // Player appears in lower-center of screen
-    const lookY = p.y + 1.5;
-    this.camera.lookAt(p.x, lookY, p.z + 2);
+    // Look-at: also smoothed to avoid jitter when player position changes abruptly
+    this.ghostTargetX += (p.x - this.ghostTargetX) * followSpeed;
+    this.ghostTargetZ += (p.z - this.ghostTargetZ) * followSpeed;
+    this.camera.lookAt(this.ghostTargetX, p.y + 1.5, this.ghostTargetZ + 2);
 
-    // === Dynamic FOV based on enemy density ===
+    // === Dynamic FOV based on enemy density (very gentle, no frequent updates) ===
     const enemyCount = state.enemies.length;
     if (state.boss) {
-      this.targetFOV = 70;
-    } else if (enemyCount > 30) {
       this.targetFOV = 68;
+    } else if (enemyCount > 50) {
+      this.targetFOV = 65;
     } else {
       this.targetFOV = 60;
     }
-    this.currentFOV += (this.targetFOV - this.currentFOV) * 0.02;
-    this.camera.fov = this.currentFOV;
-    this.camera.updateProjectionMatrix();
+    // Only update projection when FOV actually differs noticeably
+    const fovDiff = this.targetFOV - this.currentFOV;
+    if (Math.abs(fovDiff) > 0.01) {
+      this.currentFOV += fovDiff * 0.01;
+      this.camera.fov = this.currentFOV;
+      this.camera.updateProjectionMatrix();
+    }
 
     // === Screen shake (layered, additive) ===
     if (this.shakeIntensity > 0.001) {
@@ -2468,7 +2470,6 @@ export class GameScene {
       const shakeY = Math.sin(this.shakeTime * this.shakeFrequency * 1.3 + 1.7) * this.shakeIntensity * 0.4;
       this.camera.position.x += shakeX;
       this.camera.position.y += shakeY;
-      // Very fast decay — shake gone within ~0.2s
       this.shakeIntensity *= Math.pow(0.15, this.shakeDecay / 60);
       if (this.shakeIntensity < 0.001) this.shakeIntensity = 0;
     }
