@@ -410,7 +410,10 @@ export class GameScene {
   private teleporterGlowMeshes: THREE.Mesh[] = [];
 
   // InstancedMeshes
-  private enemyMeshes: Map<string, THREE.InstancedMesh> = new Map();
+  // Enemy rendering — individual cloned models (preserves full materials)
+  private enemyMeshes: Map<string, THREE.InstancedMesh> = new Map(); // legacy, kept for type compat
+  private enemyObjects: Map<number, THREE.Object3D> = new Map(); // id → cloned model
+  private enemyPool: Map<string, THREE.Object3D[]> = new Map(); // type → available pool
   private projectileMesh!: THREE.InstancedMesh;
   private pickupMesh!: THREE.InstancedMesh;
 
@@ -477,8 +480,8 @@ export class GameScene {
     // Scene
     this.scene = new THREE.Scene();
     this.scene.name = 'MainScene';
-    this.scene.background = new THREE.Color(0x0a0a1a);
-    this.scene.fog = new THREE.Fog(0x0a0a1a, 50, 100);
+    this.scene.background = new THREE.Color(0x1a2a3a);
+    this.scene.fog = new THREE.Fog(0x1a2a3a, 60, 120);
 
     // Camera
     this.camera = new THREE.PerspectiveCamera(65, 1, 0.1, 300);
@@ -569,16 +572,18 @@ export class GameScene {
   // ===========================================================================
 
   private setupLighting(): void {
-    const ambient = new THREE.AmbientLight(0x8888cc, 0.4);
+    // Bright lighting so models and their materials are clearly visible
+    const ambient = new THREE.AmbientLight(0xffffff, 0.8);
     ambient.name = 'AmbientLight';
     this.scene.add(ambient);
 
-    const dir = new THREE.DirectionalLight(0xaaccff, 0.6);
+    const dir = new THREE.DirectionalLight(0xffffff, 1.0);
     dir.name = 'DirectionalLight';
     dir.position.set(8, 15, 5);
     this.scene.add(dir);
 
-    const fill = new THREE.HemisphereLight(0x4444aa, 0x111122, 0.3);
+    // Cool fill from below for some atmosphere
+    const fill = new THREE.HemisphereLight(0xaaccff, 0x334455, 0.5);
     fill.name = 'HemisphereLight';
     this.scene.add(fill);
   }
@@ -1444,46 +1449,94 @@ export class GameScene {
   }
 
   private renderEnemies(enemies: EnemyState[]): void {
-    const groups: Map<string, EnemyState[]> = new Map();
+    // Track which enemy IDs are alive this frame
+    const aliveIds = new Set<number>();
     for (const enemy of enemies) {
-      const list = groups.get(enemy.type) ?? [];
-      list.push(enemy);
-      groups.set(enemy.type, list);
+      aliveIds.add(enemy.id);
     }
 
-    for (const [type, mesh] of this.enemyMeshes) {
-      const list = groups.get(type);
-      if (!list || list.length === 0) {
-        mesh.count = 0;
-        mesh.instanceMatrix.needsUpdate = true;
-        continue;
+    // Remove objects for dead enemies → return to pool
+    for (const [id, obj] of this.enemyObjects) {
+      if (!aliveIds.has(id)) {
+        obj.visible = false;
+        // Return to pool
+        const type = obj.userData['enemyType'] as string;
+        const pool = this.enemyPool.get(type) ?? [];
+        pool.push(obj);
+        this.enemyPool.set(type, pool);
+        this.enemyObjects.delete(id);
       }
+    }
 
-      let count = 0;
-      for (const enemy of list) {
-        const scale = enemy.isMiniBoss ? 1.5 : (enemy.isElite ? 1.3 : 1.0);
-        this._dummy.position.set(enemy.x, enemy.y + 0.5 * scale, enemy.z);
-        this._dummy.scale.set(scale, scale, scale);
-        this._dummy.rotation.set(0, 0, 0);
-        this._dummy.updateMatrix();
-        mesh.setMatrixAt(count, this._dummy.matrix);
+    // Map enemy types to model keys
+    const enemyModelMap: Record<string, keyof LoadedModels> = {
+      skeleton_soldier: 'skeleton',
+      zombie: 'zombie',
+      skeleton_archer: 'zombie',
+      ghost: 'ghost',
+      bat: 'enemy_flying',
+      skeleton_knight: 'enemy_large',
+      necromancer: 'skeleton',
+      gargoyle: 'enemy_flying',
+    };
 
-        if (enemy.hitFlashTimer > 0) {
-          this._tempColor.setHex(0xff4444);
-        } else if (enemy.isMiniBoss) {
-          this._tempColor.setHex(0xff8800); // Orange for mini-boss
-        } else if (enemy.isElite) {
-          this._tempColor.setHex(0xff2222);
+    const enemyScales: Record<string, number> = {
+      skeleton_soldier: 0.6,
+      ghost: 0.5,
+      bat: 0.4,
+      zombie: 0.65,
+      skeleton_archer: 0.6,
+      skeleton_knight: 0.8,
+      necromancer: 0.65,
+      gargoyle: 0.7,
+    };
+
+    // Update or create objects for each alive enemy
+    for (const enemy of enemies) {
+      let obj = this.enemyObjects.get(enemy.id);
+
+      if (!obj) {
+        // Try get from pool or create new
+        const pool = this.enemyPool.get(enemy.type);
+        if (pool && pool.length > 0) {
+          obj = pool.pop()!;
         } else {
-          this._tempColor.setHex(ENEMY_COLORS[type] ?? 0x888888);
+          // Clone from loaded model
+          const modelKey = enemyModelMap[enemy.type];
+          const model = modelKey ? loadedModels[modelKey] : null;
+          if (model) {
+            obj = model.clone();
+          } else {
+            // Fallback: colored box
+            const geo = new THREE.BoxGeometry(0.9, 1.2, 0.9);
+            const mat = new THREE.MeshLambertMaterial({ color: ENEMY_COLORS[enemy.type] ?? 0x888888 });
+            obj = new THREE.Mesh(geo, mat);
+          }
+          obj.name = `Enemy_${enemy.type}_${enemy.id}`;
+          obj.userData['enemyType'] = enemy.type;
+          this.scene.add(obj);
         }
-        mesh.setColorAt(count, this._tempColor);
-
-        count++;
+        this.enemyObjects.set(enemy.id, obj);
       }
-      mesh.count = count;
+
+      // Update transform
+      const baseScale = enemyScales[enemy.type] ?? 0.6;
+      const sizeMultiplier = enemy.isMiniBoss ? 1.5 : (enemy.isElite ? 1.2 : 1.0);
+      const s = baseScale * sizeMultiplier;
+      obj.position.set(enemy.x, enemy.y, enemy.z);
+      obj.scale.set(s, s, s);
+      obj.visible = true;
+
+      // Hit flash — make invisible briefly for flash effect
+      if (enemy.hitFlashTimer > 0) {
+        obj.visible = Math.sin(performance.now() * 0.03) > 0;
+      }
+    }
+
+    // Hide InstancedMesh (legacy — keep count at 0)
+    for (const [, mesh] of this.enemyMeshes) {
+      mesh.count = 0;
       mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     }
   }
 
