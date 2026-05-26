@@ -256,6 +256,11 @@ interface LoadedModels {
   boss: THREE.Group | null;
   tombstone: THREE.Group | null;
   tree: THREE.Group | null;
+  enemy_flying: THREE.Group | null;
+  enemy_large: THREE.Group | null;
+  teleporter: THREE.Group | null;
+  platform: THREE.Group | null;
+  pickup: THREE.Group | null;
 }
 
 const gltfLoader = new GLTFLoader();
@@ -267,15 +272,25 @@ const loadedModels: LoadedModels = {
   boss: null,
   tombstone: null,
   tree: null,
+  enemy_flying: null,
+  enemy_large: null,
+  teleporter: null,
+  platform: null,
+  pickup: null,
 };
 
 async function loadModels(): Promise<void> {
   const modelPaths: [keyof LoadedModels, string][] = [
-    ['player', '/models/player.glb'],
-    ['skeleton', '/models/skeleton.glb'],
-    ['zombie', '/models/zombie.glb'],
-    ['ghost', '/models/ghost.glb'],
-    ['boss', '/models/boss.glb'],
+    ['player', '/models/player_cyberpunk.gltf'],
+    ['skeleton', '/models/enemy_2legs.gltf'],
+    ['zombie', '/models/enemy_2legs_gun.gltf'],
+    ['ghost', '/models/enemy_flying.gltf'],
+    ['enemy_flying', '/models/enemy_flying_gun.gltf'],
+    ['enemy_large', '/models/enemy_large.gltf'],
+    ['boss', '/models/enemy_large_gun.gltf'],
+    ['teleporter', '/models/turret_teleporter.gltf'],
+    ['platform', '/models/platform_4x1.gltf'],
+    ['pickup', '/models/collectible_gear.gltf'],
     ['tombstone', '/models/tombstone.glb'],
     ['tree', '/models/tree.glb'],
   ];
