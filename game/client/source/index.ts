@@ -231,10 +231,6 @@ function convertToToonMaterials(root: THREE.Object3D): void {
         transparent: oldMat.transparent ?? false,
         opacity: oldMat.opacity ?? 1,
       });
-      // Copy normal map if available
-      if ('normalMap' in oldMat && oldMat.normalMap) {
-        toon.normalMap = oldMat.normalMap;
-      }
       toon.name = oldMat.name || 'ToonMat';
       return toon;
     });
