@@ -1063,8 +1063,25 @@ export class GameScene {
     loader.load(modelPath, (gltf) => {
       const model = gltf.scene;
       model.name = 'Player';
-      // Convert to toon materials
-      convertToToonMaterials(model);
+      // Convert to simplified toon — keep map but strip normalMap for cleaner look
+      model.traverse((child) => {
+        if (!(child as THREE.Mesh).isMesh) return;
+        const mesh = child as THREE.Mesh;
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        const toonMats = materials.map((mat) => {
+          const oldMat = mat as THREE.MeshStandardMaterial;
+          const toon = new THREE.MeshToonMaterial({
+            color: oldMat.color ?? new THREE.Color(0xffffff),
+            map: oldMat.map ?? null,
+            gradientMap: toonGradientMap,
+            side: oldMat.side ?? THREE.FrontSide,
+            // No normalMap — removes surface detail, makes it flat/clean
+          });
+          toon.name = 'PlayerToon';
+          return toon;
+        });
+        mesh.material = toonMats.length === 1 ? toonMats[0] : toonMats;
+      });
       // Calculate proper scale based on actual bounding box
       const box = new THREE.Box3().setFromObject(model);
       const size = box.getSize(new THREE.Vector3());
