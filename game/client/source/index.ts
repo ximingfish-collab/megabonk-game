@@ -1212,11 +1212,11 @@ export class GameScene {
 
     // Scale per enemy type — zombie size variety (small/medium/large)
     const enemyScales: Record<string, number> = {
-      skeleton_soldier: 0.9,    // Basic zombie — standard
+      skeleton_soldier: 0.675,   // Basic zombie — standard (small)
       zombie: 1.1,              // Chubby — big tank
       skeleton_archer: 0.8,     // Arm zombie — lean
       skeleton_knight: 1.3,     // Chubby — elite, extra large
-      necromancer: 0.9,         // Basic — caster
+      necromancer: 0.675,       // Basic — caster (small)
       gargoyle: 0.85,           // Arm zombie — lunging
     };
 
@@ -1868,11 +1868,11 @@ export class GameScene {
     };
 
     const enemyScales: Record<string, number> = {
-      skeleton_soldier: 1.2,   // Basic zombie — similar to player height
+      skeleton_soldier: 0.9,   // Basic zombie — smaller
       zombie: 1.4,             // Chubby — bigger tank
       skeleton_archer: 1.1,    // Arm — lean
       skeleton_knight: 1.8,    // Chubby — elite, large
-      necromancer: 1.2,        // Basic — caster
+      necromancer: 0.9,        // Basic — caster (smaller)
       gargoyle: 1.1,           // Arm — lunging
     };
 
