@@ -301,7 +301,6 @@ interface LoadedModels {
   zombie_basic: THREE.Group | null;
   zombie_chubby: THREE.Group | null;
   zombie_arm: THREE.Group | null;
-  zombie_ribcage: THREE.Group | null;
   boss: THREE.Group | null;
   tombstone: THREE.Group | null;
   tree: THREE.Group | null;
@@ -331,7 +330,6 @@ const loadedModels: LoadedModels = {
   zombie_basic: null,
   zombie_chubby: null,
   zombie_arm: null,
-  zombie_ribcage: null,
   boss: null,
   tombstone: null,
   tree: null,
@@ -364,7 +362,6 @@ async function loadModels(): Promise<void> {
     ['zombie_basic', '/models/zombie_basic.gltf'],
     ['zombie_chubby', '/models/zombie_chubby.gltf'],
     ['zombie_arm', '/models/zombie_arm.gltf'],
-    ['zombie_ribcage', '/models/zombie_ribcage.gltf'],
     ['boss', '/models/enemy_large_gun.gltf'],
     ['teleporter', '/models/turret_teleporter.gltf'],
     ['platform', '/models/platform_4x1.gltf'],
@@ -1210,8 +1207,8 @@ export class GameScene {
       skeleton_soldier: 'zombie_basic',     // 普通步兵 → Basic僵尸
       zombie: 'zombie_chubby',              // 僵尸(高HP) → 胖僵尸
       skeleton_archer: 'zombie_arm',        // 弓手(远程) → 断臂僵尸
-      ghost: 'zombie_ribcage',              // 幽灵 → 骨架僵尸(小型)
-      bat: 'zombie_ribcage',                // 蝙蝠(群体) → 骨架僵尸(小型)
+      ghost: 'zombie_arm',                  // 幽灵 → 断臂僵尸(小型)
+      bat: 'zombie_arm',                    // 蝙蝠(群体) → 断臂僵尸(小型)
       skeleton_knight: 'zombie_chubby',     // 骑士(精英冲刺) → 胖僵尸(大型)
       necromancer: 'zombie_basic',          // 法师(召唤) → Basic僵尸
       gargoyle: 'zombie_arm',              // 石像鬼(飞行俯冲) → 断臂僵尸
@@ -1220,8 +1217,8 @@ export class GameScene {
     // Scale per enemy type — zombie size variety (small/medium/large)
     const enemyScales: Record<string, number> = {
       skeleton_soldier: 0.9,    // Basic zombie — standard
-      ghost: 0.6,               // Ribcage — small/swarm
-      bat: 0.5,                 // Ribcage — tiny/swarm
+      ghost: 0.6,               // Arm — small/swarm
+      bat: 0.5,                 // Arm — tiny/swarm
       zombie: 1.1,              // Chubby — big tank
       skeleton_archer: 0.8,     // Arm zombie — lean
       skeleton_knight: 1.3,     // Chubby — elite, extra large
@@ -1875,8 +1872,8 @@ export class GameScene {
       skeleton_soldier: 'zombie_basic',
       zombie: 'zombie_chubby',
       skeleton_archer: 'zombie_arm',
-      ghost: 'zombie_ribcage',
-      bat: 'zombie_ribcage',
+      ghost: 'zombie_arm',
+      bat: 'zombie_arm',
       skeleton_knight: 'zombie_chubby',
       necromancer: 'zombie_basic',
       gargoyle: 'zombie_arm',
@@ -1884,8 +1881,8 @@ export class GameScene {
 
     const enemyScales: Record<string, number> = {
       skeleton_soldier: 1.2,   // Basic zombie — similar to player height
-      ghost: 0.9,              // Ribcage — small
-      bat: 0.7,                // Ribcage — tiny swarm
+      ghost: 0.9,              // Arm — small
+      bat: 0.7,                // Arm — tiny swarm
       zombie: 1.4,             // Chubby — bigger tank
       skeleton_archer: 1.1,    // Arm — lean
       skeleton_knight: 1.8,    // Chubby — elite, large
@@ -2488,11 +2485,25 @@ export class GameScene {
       }
     }
 
-    // Melee weapon slash arc (sword/katana) — emit arc particles when weapon cooldown just reset
+    // Melee weapon slash arc (sword/katana) — emit arc particles toward nearest enemy
     for (const weapon of player.weapons) {
       if ((weapon.type === 'sword' || weapon.type === 'katana') && weapon.cooldownTimer > 0 && weapon.cooldownTimer < 0.1 && player.alive) {
-        // Spawn 6 particles in an arc in front of player
-        const baseAngle = player.rotation;
+        // Find nearest enemy for slash direction
+        let slashAngle = player.rotation;
+        let nearestDist = Infinity;
+        for (const enemy of state.enemies) {
+          if (enemy.hp <= 0) continue;
+          const edx = enemy.x - player.x;
+          const edz = enemy.z - player.z;
+          const eDist = edx * edx + edz * edz;
+          if (eDist < nearestDist) {
+            nearestDist = eDist;
+            slashAngle = Math.atan2(edx, edz);
+          }
+        }
+
+        // Spawn 6 particles in an arc toward the target
+        const baseAngle = slashAngle;
         for (let i = 0; i < 6; i++) {
           const arcAngle = baseAngle + (i - 2.5) * 0.25;
           const dist = 1.5 + Math.random() * 0.5;

@@ -18,7 +18,11 @@
       "Read(//Volumes/**)",
       "Bash(\"/Volumes/Blender/Blender.app/Contents/MacOS/Blender\" --version)",
       "Bash(\"/Volumes/Blender/Blender.app/Contents/MacOS/Blender\" --background --python /Users/liusheng/Documents/megabonk-game/level-editor/build_asset_library.py)",
-      "Bash(open *)"
+      "Bash(open *)",
+      "Bash(git status *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)"
     ]
   }
 }

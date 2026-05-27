@@ -1173,8 +1173,14 @@ export class GameInstance {
     const arcAngle = Math.PI * 0.6;
     const swipeCount = stats.projectileCount;
 
+    // Auto-target: find nearest enemy and swing toward it
+    const target = this.findNearestEnemy(player.x, player.z, stats.range * 1.5);
+    const aimAngle = target
+      ? Math.atan2(target.x - player.x, target.z - player.z)
+      : player.rotation;
+
     for (let s = 0; s < swipeCount; s++) {
-      const baseAngle = player.rotation + (s - (swipeCount - 1) / 2) * 0.3;
+      const baseAngle = aimAngle + (s - (swipeCount - 1) / 2) * 0.3;
       for (const enemy of this.state.enemies) {
         if (enemy.hp <= 0) continue;
         const dist = distanceBetween(player.x, player.z, enemy.x, enemy.z);
