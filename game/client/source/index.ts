@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 // @ts-ignore
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
+// @ts-ignore
+import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import {
   GameInstance,
   TICK_INTERVAL_MS,
@@ -195,6 +197,53 @@ const CHARACTER_COLORS: Record<string, number> = {
 const GROUND_SIZE = 120;
 const DAMAGE_NUM_POOL_SIZE = 30;
 
+// =============================================================================
+// Toon/Cel-Shading Utilities
+// =============================================================================
+
+/** 3-step gradient map for MeshToonMaterial (shadow / mid / highlight) */
+function createToonGradientMap(): THREE.DataTexture {
+  const colors = new Uint8Array([40, 150, 255]); // 3 discrete light steps
+  const gradMap = new THREE.DataTexture(colors, 3, 1, THREE.RedFormat);
+  gradMap.minFilter = THREE.NearestFilter;
+  gradMap.magFilter = THREE.NearestFilter;
+  gradMap.needsUpdate = true;
+  return gradMap;
+}
+
+const toonGradientMap = createToonGradientMap();
+
+/**
+ * Convert all mesh materials in a scene to MeshToonMaterial (cel-shading).
+ * Preserves color/map/normalMap from original materials.
+ */
+function convertToToonMaterials(root: THREE.Object3D): void {
+  root.traverse((child) => {
+    if (!(child as THREE.Mesh).isMesh) return;
+    const mesh = child as THREE.Mesh;
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    const toonMats = materials.map((mat) => {
+      if (mat instanceof THREE.MeshToonMaterial) return mat; // already toon
+      const oldMat = mat as THREE.MeshStandardMaterial | THREE.MeshPhongMaterial | THREE.MeshLambertMaterial;
+      const toon = new THREE.MeshToonMaterial({
+        color: oldMat.color ?? new THREE.Color(0xffffff),
+        map: oldMat.map ?? null,
+        gradientMap: toonGradientMap,
+        side: oldMat.side ?? THREE.FrontSide,
+        transparent: oldMat.transparent ?? false,
+        opacity: oldMat.opacity ?? 1,
+      });
+      // Copy normal map if available
+      if ('normalMap' in oldMat && oldMat.normalMap) {
+        toon.normalMap = oldMat.normalMap;
+      }
+      toon.name = oldMat.name || 'ToonMat';
+      return toon;
+    });
+    mesh.material = toonMats.length === 1 ? toonMats[0] : toonMats;
+  });
+}
+
 const WEAPON_ICONS: Record<string, string> = {
   sword: '⚔️',
   bone_bouncer: '🦴',
@@ -347,12 +396,13 @@ async function loadModels(): Promise<void> {
       const gltf = await gltfLoader.loadAsync(path);
       const model = gltf.scene;
       model.name = `Model_${key}`;
-      // Keep original materials — just disable shadows for performance
+      // Convert all materials to cel-shading toon style
+      convertToToonMaterials(model);
       model.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
           const mesh = child as THREE.Mesh;
-          mesh.castShadow = false;
-          mesh.receiveShadow = false;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
         }
       });
       loadedModels[key] = model;
@@ -379,6 +429,7 @@ async function loadModels(): Promise<void> {
 export class GameScene {
   private readonly container: HTMLElement;
   private readonly renderer: THREE.WebGLRenderer;
+  private readonly outlineEffect: any; // OutlineEffect
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.PerspectiveCamera;
   private readonly platformInput: PlatformInput;
@@ -525,14 +576,25 @@ export class GameScene {
       antialias: false,
       powerPreference: 'high-performance',
     });
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.0;
     this.renderer.domElement.style.display = 'block';
     this.container.appendChild(this.renderer.domElement);
+
+    // Outline Effect (cel-shading edge lines)
+    this.outlineEffect = new OutlineEffect(this.renderer, {
+      defaultThickness: 0.003,
+      defaultColor: [0, 0, 0],
+      defaultAlpha: 0.9,
+    });
 
     // Scene
     this.scene = new THREE.Scene();
     this.scene.name = 'MainScene';
-    this.scene.background = new THREE.Color(0x6a7a8a);
-    this.scene.fog = new THREE.Fog(0x6a7a8a, 100, 200);
+    this.scene.background = new THREE.Color('#C8D8E8');
+    this.scene.fog = new THREE.Fog('#C8D8E8', 30, 100);
 
     // Camera
     this.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 300);
@@ -624,32 +686,40 @@ export class GameScene {
   // ===========================================================================
 
   private setupLighting(): void {
-    // Strong ambient — scene is uniformly bright and readable
-    const ambient = new THREE.AmbientLight(0xffffff, 1.2);
+    // Soft ambient for dark areas — natural earth tone palette
+    const ambient = new THREE.AmbientLight('#404060', 0.4);
     ambient.name = 'AmbientLight';
     this.scene.add(ambient);
 
-    // Warm directional sunlight from above-right
-    const dir = new THREE.DirectionalLight(0xfff0dd, 1.5);
+    // Warm directional sunlight with shadows
+    const dir = new THREE.DirectionalLight('#FFF5E0', 1.5);
     dir.name = 'DirectionalLight';
-    dir.position.set(10, 25, 8);
+    dir.position.set(5, 10, 5);
+    dir.castShadow = true;
+    dir.shadow.mapSize.set(2048, 2048);
+    dir.shadow.bias = -0.001;
+    dir.shadow.camera.near = 0.5;
+    dir.shadow.camera.far = 80;
+    dir.shadow.camera.left = -60;
+    dir.shadow.camera.right = 60;
+    dir.shadow.camera.top = 60;
+    dir.shadow.camera.bottom = -60;
     this.scene.add(dir);
 
-    // Secondary fill light from the opposite side — no dark faces
-    const fill2 = new THREE.DirectionalLight(0xddeeff, 0.8);
-    fill2.name = 'FillLight';
-    fill2.position.set(-10, 15, -8);
-    this.scene.add(fill2);
+    // Sky/ground hemisphere bounce light
+    const hemi = new THREE.HemisphereLight('#87CEEB', '#8B7355', 0.8);
+    hemi.name = 'HemisphereLight';
+    this.scene.add(hemi);
 
-    // Hemisphere light: bright sky + medium ground
-    const fill = new THREE.HemisphereLight(0xccddff, 0x667788, 0.7);
-    fill.name = 'HemisphereLight';
-    this.scene.add(fill);
+    // Secondary hemisphere for extra sky/ground bounce
+    const hemi2 = new THREE.HemisphereLight('#87CEEB', '#8B7355', 0.3);
+    hemi2.name = 'HemisphereLight_Bounce';
+    this.scene.add(hemi2);
 
-    // Spotlight following the player — extra brightness on player
-    this.playerSpotLight = new THREE.SpotLight(0xffffff, 0.6, 30, Math.PI / 4, 0.4, 1);
+    // Player spotlight (softer, warm tint)
+    this.playerSpotLight = new THREE.SpotLight('#FFF5E0', 0.3, 25, Math.PI / 5, 0.6, 1);
     this.playerSpotLight.name = 'PlayerSpotLight';
-    this.playerSpotLight.position.set(0, 14, 0);
+    this.playerSpotLight.position.set(0, 12, 0);
     this.scene.add(this.playerSpotLight);
     this.scene.add(this.playerSpotLight.target);
   }
@@ -660,9 +730,10 @@ export class GameScene {
     // =========================================================================
     const baseGeo = new THREE.PlaneGeometry(400, 400);
     baseGeo.rotateX(-Math.PI / 2);
-    const baseMat = new THREE.MeshLambertMaterial({ color: 0x3a3a4a });
+    const baseMat = new THREE.MeshToonMaterial({ color: '#8B7355', gradientMap: toonGradientMap });
     this.groundMesh = new THREE.Mesh(baseGeo, baseMat);
     this.groundMesh.name = 'Ground_Base';
+    this.groundMesh.receiveShadow = true;
     this.groundMesh.position.y = -0.5;
     this.scene.add(this.groundMesh);
 
@@ -987,7 +1058,7 @@ export class GameScene {
 
     // Always start with fallback — will be replaced once model loads
     const bodyGeo = new THREE.CapsuleGeometry(0.5, 1.0, 8, 16);
-    const bodyMat = new THREE.MeshLambertMaterial({ color: charColor });
+    const bodyMat = new THREE.MeshToonMaterial({ color: charColor, gradientMap: toonGradientMap });
     this.playerMesh = new THREE.Mesh(bodyGeo, bodyMat);
     this.playerMesh.name = 'Player';
     this.playerMesh.position.y = 1.0;
@@ -998,6 +1069,8 @@ export class GameScene {
     loader.load(modelPath, (gltf) => {
       const model = gltf.scene;
       model.name = 'Player';
+      // Convert to toon materials
+      convertToToonMaterials(model);
       // Calculate proper scale based on actual bounding box
       const box = new THREE.Box3().setFromObject(model);
       const size = box.getSize(new THREE.Vector3());
@@ -1022,7 +1095,7 @@ export class GameScene {
       // Play idle by default
       this.playPlayerAnim('Idle');
 
-      console.log(`[Player] George loaded! size=${size.y.toFixed(3)}, scale=${autoScale.toFixed(1)}, anims: ${gltf.animations.map(a => a.name).join(', ')}`);
+      console.log(`[Player] Model loaded! size=${size.y.toFixed(3)}, scale=${autoScale.toFixed(1)}, anims: ${gltf.animations.map(a => a.name).join(', ')}`);
     }, undefined, (err) => {
       console.warn('[Player] GLTF failed, keeping fallback:', err);
     });
@@ -1122,10 +1195,10 @@ export class GameScene {
 
       // Try to extract geometry AND material from loaded model
       let geo: THREE.BufferGeometry = fallbackGeo;
-      let mat: THREE.Material = new THREE.MeshLambertMaterial({ color });
+      let mat: THREE.Material = new THREE.MeshToonMaterial({ color, gradientMap: toonGradientMap });
       if (type === 'ghost') {
-        (mat as THREE.MeshLambertMaterial).transparent = true;
-        (mat as THREE.MeshLambertMaterial).opacity = 0.65;
+        (mat as THREE.MeshToonMaterial).transparent = true;
+        (mat as THREE.MeshToonMaterial).opacity = 0.65;
       }
 
       const modelKey = enemyModelMap[type];
@@ -1165,7 +1238,7 @@ export class GameScene {
 
   private setupProjectileMesh(): void {
     const geo = new THREE.SphereGeometry(0.25, 6, 4);
-    const mat = new THREE.MeshLambertMaterial({ color: 0xffee44, emissive: 0xffaa00, emissiveIntensity: 0.8 });
+    const mat = new THREE.MeshToonMaterial({ color: 0xffee44, gradientMap: toonGradientMap });
     this.projectileMesh = new THREE.InstancedMesh(geo, mat, MAX_PROJECTILES);
     this.projectileMesh.name = 'Projectiles';
     this.projectileMesh.count = 0;
@@ -1175,7 +1248,7 @@ export class GameScene {
 
   private setupPickupMesh(): void {
     const geo = new THREE.OctahedronGeometry(0.35, 0);
-    const mat = new THREE.MeshLambertMaterial({ color: 0x00ff66, emissive: 0x008833, emissiveIntensity: 0.8 });
+    const mat = new THREE.MeshToonMaterial({ color: 0x00ff66, gradientMap: toonGradientMap });
     this.pickupMesh = new THREE.InstancedMesh(geo, mat, MAX_PICKUPS);
     this.pickupMesh.name = 'Pickups';
     this.pickupMesh.count = 0;
@@ -1415,7 +1488,7 @@ export class GameScene {
     if (this.hitStopTimer > 0) {
       this.hitStopTimer -= dt;
       // Still render the frozen frame
-      this.renderer.render(this.scene, this.camera);
+      this.outlineEffect.render(this.scene, this.camera);
       return;
     }
 
@@ -1457,7 +1530,7 @@ export class GameScene {
 
     this.updateHUD(state);
 
-    this.renderer.render(this.scene, this.camera);
+    this.outlineEffect.render(this.scene, this.camera);
   }
 
   // ===========================================================================
@@ -1817,7 +1890,7 @@ export class GameScene {
           } else {
             // Fallback: colored box
             const geo = new THREE.BoxGeometry(0.9, 1.2, 0.9);
-            const mat = new THREE.MeshLambertMaterial({ color: ENEMY_COLORS[enemy.type] ?? 0x888888 });
+            const mat = new THREE.MeshToonMaterial({ color: ENEMY_COLORS[enemy.type] ?? 0x888888, gradientMap: toonGradientMap });
             obj = new THREE.Mesh(geo, mat);
           }
           obj.name = `Enemy_${enemy.type}_${enemy.id}`;
@@ -1991,7 +2064,7 @@ export class GameScene {
       } else {
         // Fallback
         const geo = new THREE.BoxGeometry(2.4, 3.0, 2.4);
-        const mat = new THREE.MeshLambertMaterial({ color: 0x9933cc, emissive: 0x440066, emissiveIntensity: 0.4 });
+        const mat = new THREE.MeshToonMaterial({ color: 0x9933cc, gradientMap: toonGradientMap });
         this.bossMesh = new THREE.Mesh(geo, mat);
         this.bossMesh.name = 'Boss';
         this.scene.add(this.bossMesh);
@@ -2003,7 +2076,7 @@ export class GameScene {
 
     // Hit flash / enrage color (only works on fallback geometry)
     if (!loadedModels.boss) {
-      const mat = this.bossMesh.material as THREE.MeshLambertMaterial;
+      const mat = this.bossMesh.material as THREE.MeshToonMaterial;
       if (boss.hitFlashTimer > 0) {
         mat.color.setHex(0xffffff);
       } else if (boss.enraged) {
@@ -3118,7 +3191,7 @@ function showMainMenu(): void {
   camera.lookAt(0, 0, 0);
 
   const groundGeo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE);
-  const groundMat = new THREE.MeshLambertMaterial({ color: 0x1a1a2a });
+  const groundMat = new THREE.MeshToonMaterial({ color: 0x1a1a2a, gradientMap: toonGradientMap });
   const ground = new THREE.Mesh(groundGeo, groundMat);
   ground.name = 'MenuGround';
   ground.rotation.x = -Math.PI / 2;
@@ -3136,7 +3209,7 @@ function showMainMenu(): void {
   for (let i = 0; i < 20; i++) {
     const boxGeo = new THREE.BoxGeometry(0.9, 1.2, 0.9);
     const color = [0xd4a574, 0xaaddff, 0x44cc55, 0x553366, 0xc87533][i % 5];
-    const boxMat = new THREE.MeshLambertMaterial({ color });
+    const boxMat = new THREE.MeshToonMaterial({ color, gradientMap: toonGradientMap });
     const box = new THREE.Mesh(boxGeo, boxMat);
     box.name = `MenuDecor_${i}`;
     box.position.set(
