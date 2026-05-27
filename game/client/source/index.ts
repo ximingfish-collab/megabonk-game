@@ -1059,19 +1059,23 @@ export class GameScene {
     loader.load(modelPath, (gltf) => {
       const model = gltf.scene;
       model.name = 'Player';
-      // Convert to simplified toon — keep map but strip normalMap for cleaner look
+      // Convert to simplified toon — boost saturation for vibrant cartoon look
       model.traverse((child) => {
         if (!(child as THREE.Mesh).isMesh) return;
         const mesh = child as THREE.Mesh;
         const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
         const toonMats = materials.map((mat) => {
           const oldMat = mat as THREE.MeshStandardMaterial;
+          // Boost color saturation
+          const color = oldMat.color ? oldMat.color.clone() : new THREE.Color(0xffffff);
+          const hsl = { h: 0, s: 0, l: 0 };
+          color.getHSL(hsl);
+          color.setHSL(hsl.h, Math.min(hsl.s * 1.6, 1.0), hsl.l);
           const toon = new THREE.MeshToonMaterial({
-            color: oldMat.color ?? new THREE.Color(0xffffff),
+            color,
             map: oldMat.map ?? null,
             gradientMap: toonGradientMap,
             side: oldMat.side ?? THREE.FrontSide,
-            // No normalMap — removes surface detail, makes it flat/clean
           });
           toon.name = 'PlayerToon';
           return toon;
