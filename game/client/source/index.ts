@@ -459,6 +459,7 @@ export class GameScene {
   private deathAnimTimer = 0;
   private levelUpAnimTimer = 0;
   private wasAlive = true;
+  private wasGrounded = true; // Track grounded state for jump animation trigger
   private lastPhase: GamePhase = 'playing';
   private screenFlashEl: HTMLDivElement | null = null;
 
@@ -1144,10 +1145,10 @@ export class GameScene {
     newAction.reset().fadeIn(0.15).play();
     newAction.timeScale = timeScale;
 
-    // Jump: play once and freeze at the peak frame (don't loop)
+    // Jump: play once through the full takeoff→air→landing sequence
     if (name === 'Jump') {
       newAction.setLoop(THREE.LoopOnce, 1);
-      newAction.clampWhenFinished = true;
+      newAction.clampWhenFinished = false;
     } else {
       newAction.setLoop(THREE.LoopRepeat, Infinity);
       newAction.clampWhenFinished = false;
@@ -1640,7 +1641,13 @@ export class GameScene {
       if (p.isSliding) {
         this.playPlayerAnim('Run_Holding', 1.5); // Crouched run = slide visual, sped up
       } else if (p.isJumping || !p.isGrounded) {
-        this.playPlayerAnim('Jump', 1.0);
+        // Only trigger Jump animation once on takeoff — let it play through fully
+        if (this.wasGrounded) {
+          // Just left the ground: trigger Jump animation
+          // timeScale 1.3 = animation(0.87s) matches physics airtime(0.67s)
+          this.playPlayerAnim('Jump', 1.3);
+        }
+        // While in air: don't re-trigger, let animation play
       } else if (p.currentSpeed > 3.0) {
         // Run — scale animation speed with movement speed
         const runScale = Math.min(p.currentSpeed / 4.0, 1.4);
@@ -1652,6 +1659,7 @@ export class GameScene {
       } else {
         this.playPlayerAnim('Idle', 1.0);
       }
+      this.wasGrounded = p.isGrounded;
 
       // === Invincibility flash ===
       if (p.invincibleTimer > 0) {
