@@ -298,14 +298,13 @@ const TIER_COLORS: Record<number, string> = {
 
 interface LoadedModels {
   player: THREE.Group | null;
-  skeleton: THREE.Group | null;
-  zombie: THREE.Group | null;
-  ghost: THREE.Group | null;
+  zombie_basic: THREE.Group | null;
+  zombie_chubby: THREE.Group | null;
+  zombie_arm: THREE.Group | null;
+  zombie_ribcage: THREE.Group | null;
   boss: THREE.Group | null;
   tombstone: THREE.Group | null;
   tree: THREE.Group | null;
-  enemy_flying: THREE.Group | null;
-  enemy_large: THREE.Group | null;
   teleporter: THREE.Group | null;
   platform: THREE.Group | null;
   pickup: THREE.Group | null;
@@ -329,14 +328,13 @@ interface LoadedModels {
 const gltfLoader = new GLTFLoader();
 const loadedModels: LoadedModels = {
   player: null,
-  skeleton: null,
-  zombie: null,
-  ghost: null,
+  zombie_basic: null,
+  zombie_chubby: null,
+  zombie_arm: null,
+  zombie_ribcage: null,
   boss: null,
   tombstone: null,
   tree: null,
-  enemy_flying: null,
-  enemy_large: null,
   teleporter: null,
   platform: null,
   pickup: null,
@@ -363,11 +361,10 @@ const loadedAnimClips: Map<string, THREE.AnimationClip[]> = new Map();
 async function loadModels(): Promise<void> {
   const modelPaths: [keyof LoadedModels, string][] = [
     ['player', '/models/player_cyberpunk.gltf'],
-    ['skeleton', '/models/enemy_2legs.gltf'],
-    ['zombie', '/models/enemy_2legs_gun.gltf'],
-    ['ghost', '/models/enemy_flying.gltf'],
-    ['enemy_flying', '/models/enemy_flying_gun.gltf'],
-    ['enemy_large', '/models/enemy_large.gltf'],
+    ['zombie_basic', '/models/zombie_basic.gltf'],
+    ['zombie_chubby', '/models/zombie_chubby.gltf'],
+    ['zombie_arm', '/models/zombie_arm.gltf'],
+    ['zombie_ribcage', '/models/zombie_ribcage.gltf'],
     ['boss', '/models/enemy_large_gun.gltf'],
     ['teleporter', '/models/turret_teleporter.gltf'],
     ['platform', '/models/platform_4x1.gltf'],
@@ -1162,13 +1159,33 @@ export class GameScene {
     if (currentAnim === name) return;
     const actionsMap = this.enemyAnimActions.get(enemyId);
     if (!actionsMap) return;
+
+    // Fallback chain for animations not present on all zombie variants
+    let targetName = name;
+    if (!actionsMap.has(name)) {
+      const fallbacks: Record<string, string[]> = {
+        'Run_Attack': ['Run_Arms', 'Run'],
+        'Run_Arms': ['Run', 'Walk'],
+        'Punch': ['Idle_Attack', 'Run_Attack', 'Idle'],
+        'HitReact': ['Idle'],
+        'Idle_Attack': ['Punch', 'Idle'],
+      };
+      const chain = fallbacks[name];
+      if (chain) {
+        for (const fb of chain) {
+          if (actionsMap.has(fb)) { targetName = fb; break; }
+        }
+      }
+      if (!actionsMap.has(targetName)) targetName = 'Idle';
+    }
+
     const prevAction = actionsMap.get(currentAnim ?? '');
-    const newAction = actionsMap.get(name);
+    const newAction = actionsMap.get(targetName);
     if (prevAction) prevAction.fadeOut(0.2);
     if (newAction) {
       newAction.reset().fadeIn(0.2).play();
     }
-    this.enemyAnimStates.set(enemyId, name);
+    this.enemyAnimStates.set(enemyId, targetName);
   }
 
   private setupWeaponOrbs(): void {
@@ -1189,26 +1206,26 @@ export class GameScene {
 
     // Map enemy types to loaded models for geometry extraction
     const enemyModelMap: Record<string, keyof LoadedModels> = {
-      skeleton_soldier: 'skeleton',    // enemy_2legs
-      zombie: 'zombie',                // enemy_2legs_gun
-      skeleton_archer: 'zombie',       // enemy_2legs_gun (has gun)
-      ghost: 'ghost',                  // enemy_flying
-      bat: 'enemy_flying',             // enemy_flying_gun
-      skeleton_knight: 'enemy_large',  // enemy_large
-      necromancer: 'skeleton',         // enemy_2legs
-      gargoyle: 'enemy_flying',        // enemy_flying
+      skeleton_soldier: 'zombie_basic',     // 普通步兵 → Basic僵尸
+      zombie: 'zombie_chubby',              // 僵尸(高HP) → 胖僵尸
+      skeleton_archer: 'zombie_arm',        // 弓手(远程) → 断臂僵尸
+      ghost: 'zombie_ribcage',              // 幽灵 → 骨架僵尸(小型)
+      bat: 'zombie_ribcage',                // 蝙蝠(群体) → 骨架僵尸(小型)
+      skeleton_knight: 'zombie_chubby',     // 骑士(精英冲刺) → 胖僵尸(大型)
+      necromancer: 'zombie_basic',          // 法师(召唤) → Basic僵尸
+      gargoyle: 'zombie_arm',              // 石像鬼(飞行俯冲) → 断臂僵尸
     };
 
-    // Scale per enemy type (adjust to proper proportions)
+    // Scale per enemy type — zombie size variety (small/medium/large)
     const enemyScales: Record<string, number> = {
-      skeleton_soldier: 0.8,
-      ghost: 0.7,
-      bat: 0.5,
-      zombie: 0.9,
-      skeleton_archer: 0.85,
-      skeleton_knight: 1.2,
-      necromancer: 0.9,
-      gargoyle: 1.0,
+      skeleton_soldier: 0.9,    // Basic zombie — standard
+      ghost: 0.6,               // Ribcage — small/swarm
+      bat: 0.5,                 // Ribcage — tiny/swarm
+      zombie: 1.1,              // Chubby — big tank
+      skeleton_archer: 0.8,     // Arm zombie — lean
+      skeleton_knight: 1.3,     // Chubby — elite, extra large
+      necromancer: 0.9,         // Basic — caster
+      gargoyle: 0.85,           // Arm zombie — lunging
     };
 
     // Fallback box geometry if model not loaded
@@ -1854,25 +1871,25 @@ export class GameScene {
 
     // Map enemy types to model keys
     const enemyModelMap: Record<string, keyof LoadedModels> = {
-      skeleton_soldier: 'skeleton',
-      zombie: 'zombie',
-      skeleton_archer: 'zombie',
-      ghost: 'ghost',
-      bat: 'enemy_flying',
-      skeleton_knight: 'enemy_large',
-      necromancer: 'skeleton',
-      gargoyle: 'enemy_flying',
+      skeleton_soldier: 'zombie_basic',
+      zombie: 'zombie_chubby',
+      skeleton_archer: 'zombie_arm',
+      ghost: 'zombie_ribcage',
+      bat: 'zombie_ribcage',
+      skeleton_knight: 'zombie_chubby',
+      necromancer: 'zombie_basic',
+      gargoyle: 'zombie_arm',
     };
 
     const enemyScales: Record<string, number> = {
-      skeleton_soldier: 1.8,
-      ghost: 1.8,
-      bat: 1.2,
-      zombie: 2.0,
-      skeleton_archer: 1.8,
-      skeleton_knight: 3.0,
-      necromancer: 2.0,
-      gargoyle: 2.5,
+      skeleton_soldier: 1.8,   // Basic zombie — standard
+      ghost: 1.4,              // Ribcage — small
+      bat: 1.0,                // Ribcage — tiny swarm
+      zombie: 2.2,             // Chubby — big tank
+      skeleton_archer: 1.6,    // Arm — lean
+      skeleton_knight: 2.8,    // Chubby — elite, large
+      necromancer: 1.8,        // Basic — caster
+      gargoyle: 1.7,           // Arm — lunging
     };
 
     // Update or create objects for each alive enemy
@@ -1948,20 +1965,22 @@ export class GameScene {
 
       // Choose enemy animation based on state
       if (enemy.hitFlashTimer > 0) {
-        this.playEnemyAnim(enemy.id, 'Attack');
+        this.playEnemyAnim(enemy.id, 'HitReact');
         obj.visible = Math.sin(performance.now() * 0.03) > 0;
       } else if (enemy.chargeState === 'charging') {
-        this.playEnemyAnim(enemy.id, 'Run');
+        this.playEnemyAnim(enemy.id, 'Run_Attack');
         obj.visible = true;
       } else if (enemy.chargeState === 'windup') {
         this.playEnemyAnim(enemy.id, 'Idle');
       } else if (enemy.attackCooldown > enemy.attackCooldownMax * 0.8) {
         // Just attacked (cooldown just reset)
-        this.playEnemyAnim(enemy.id, 'Attack');
+        this.playEnemyAnim(enemy.id, 'Punch');
       } else if (enemy.speed > 0.3) {
-        // Moving enemy — prefer Run, fallback to Walk
+        // Moving enemy — prefer Run_Arms (zombie arms out), fallback to Run/Walk
         const actionsMap = this.enemyAnimActions.get(enemy.id);
-        if (actionsMap?.has('Run')) {
+        if (actionsMap?.has('Run_Arms')) {
+          this.playEnemyAnim(enemy.id, 'Run_Arms');
+        } else if (actionsMap?.has('Run')) {
           this.playEnemyAnim(enemy.id, 'Run');
         } else {
           this.playEnemyAnim(enemy.id, 'Walk');
@@ -1973,7 +1992,7 @@ export class GameScene {
       // Update enemy mixer
       const mixer = this.enemyMixers.get(enemy.id);
       if (mixer) {
-        mixer.update(1 / 60);
+        mixer.update(this.frameDt);
       }
     }
 
