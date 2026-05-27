@@ -1195,6 +1195,7 @@ export class GameScene {
     this.weaponOrbMesh.name = 'WeaponOrbs';
     this.weaponOrbMesh.count = 0;
     this.weaponOrbMesh.frustumCulled = false;
+    this.weaponOrbMesh.visible = false; // Hidden — weapon orbs disabled
     this.scene.add(this.weaponOrbMesh);
   }
 
@@ -1882,14 +1883,14 @@ export class GameScene {
     };
 
     const enemyScales: Record<string, number> = {
-      skeleton_soldier: 1.8,   // Basic zombie — standard
-      ghost: 1.4,              // Ribcage — small
-      bat: 1.0,                // Ribcage — tiny swarm
-      zombie: 2.2,             // Chubby — big tank
-      skeleton_archer: 1.6,    // Arm — lean
-      skeleton_knight: 2.8,    // Chubby — elite, large
-      necromancer: 1.8,        // Basic — caster
-      gargoyle: 1.7,           // Arm — lunging
+      skeleton_soldier: 1.2,   // Basic zombie — similar to player height
+      ghost: 0.9,              // Ribcage — small
+      bat: 0.7,                // Ribcage — tiny swarm
+      zombie: 1.4,             // Chubby — bigger tank
+      skeleton_archer: 1.1,    // Arm — lean
+      skeleton_knight: 1.8,    // Chubby — elite, large
+      necromancer: 1.2,        // Basic — caster
+      gargoyle: 1.1,           // Arm — lunging
     };
 
     // Update or create objects for each alive enemy
@@ -1962,6 +1963,14 @@ export class GameScene {
       obj.position.set(enemy.x, enemy.y, enemy.z);
       obj.scale.set(s, s, s);
       obj.visible = true;
+
+      // Face toward player (or movement direction)
+      const state = this.session.getRenderState();
+      const dx = state.player.x - enemy.x;
+      const dz = state.player.z - enemy.z;
+      if (dx !== 0 || dz !== 0) {
+        obj.rotation.y = Math.atan2(dx, dz);
+      }
 
       // Choose enemy animation based on state
       if (enemy.hitFlashTimer > 0) {
