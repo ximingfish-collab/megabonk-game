@@ -70,6 +70,76 @@ export type GameRuntimeEvents = {
 };
 
 // =============================================================================
+// Billboard VFX 类型
+// =============================================================================
+
+/**
+ * 已注册的 VFX 贴图 key（对应 public/textures/vfx/<key>.png）。
+ * 增加新贴图时同步更新 `VFX_TEXTURE_FILES` 和此 union。
+ */
+type VfxTextureKey =
+  | 'spark' | 'star' | 'smoke' | 'light' | 'slash'
+  | 'muzzle' | 'magic_circle' | 'portal_swirl' | 'scorch' | 'dirt' | 'flame';
+
+const VFX_TEXTURE_FILES: Record<VfxTextureKey, string> = {
+  spark: '/textures/vfx/spark.png',
+  star: '/textures/vfx/star.png',
+  smoke: '/textures/vfx/smoke.png',
+  light: '/textures/vfx/light.png',
+  slash: '/textures/vfx/slash.png',
+  muzzle: '/textures/vfx/muzzle.png',
+  magic_circle: '/textures/vfx/magic_circle.png',
+  portal_swirl: '/textures/vfx/portal_swirl.png',
+  scorch: '/textures/vfx/scorch.png',
+  dirt: '/textures/vfx/dirt.png',
+  flame: '/textures/vfx/flame.png',
+};
+
+/** Billboard 池中每个槽位的运行时状态。 */
+interface BillboardVfxItem {
+  mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  active: boolean;
+  age: number;
+  lifetime: number;
+  startScale: number;
+  endScale: number;
+  startOpacity: number;
+  /** 'fadeOut' = 起始 opacity → 0；'flash' = 0 → 起始 → 0；'constant' = 不变。 */
+  opacityCurve: 'fadeOut' | 'flash' | 'constant';
+  rotationSpeed: number;
+  /** 'camera' = 始终面向相机；'up' = 平躺地面（不旋转）。 */
+  facing: 'camera' | 'up';
+}
+
+/** spawnBillboard 选项。 */
+interface BillboardSpawnOpts {
+  texture: VfxTextureKey;
+  x: number;
+  y: number;
+  z: number;
+  /** 起始大小（m）。 */
+  scale: number;
+  /** 终止大小，默认 = scale（不缩放）。 */
+  endScale?: number;
+  /** 持续时间（s）。 */
+  lifetime: number;
+  /** 起始透明度，默认 1。 */
+  opacity?: number;
+  /** 渐隐曲线，默认 'fadeOut'。 */
+  opacityCurve?: 'fadeOut' | 'flash' | 'constant';
+  /** 染色，默认 0xffffff。 */
+  color?: number;
+  /** 初始旋转（弧度）。 */
+  rotation?: number;
+  /** 旋转速度（弧度/秒），默认 0。 */
+  rotationSpeed?: number;
+  /** 朝向：'camera' 面向相机，'up' 平躺地面（地面贴花用）。默认 'camera'。 */
+  facing?: 'camera' | 'up';
+  /** Blending 模式，默认 'additive'（光效）；'normal' 适合烧痕等不发光贴花。 */
+  blending?: 'additive' | 'normal';
+}
+
+// =============================================================================
 // LocalGameSession
 // =============================================================================
 
@@ -741,6 +811,11 @@ export class GameScene {
   // Teleporter meshes
   private teleporterMeshes: THREE.Mesh[] = [];
   private teleporterGlowMeshes: THREE.Mesh[] = [];
+  /**
+   * 祭坛 / 传送门的地面 decal（魔法圆 / 漩涡），与祭坛索引一一对应。
+   * 每帧根据 altar.phase 切换贴图（magic_circle ↔ portal_swirl）+ 旋转。
+   */
+  private altarDecals: THREE.Mesh[] = [];
 
   // Charge Shrine meshes (1 entry per shrine, persistent)
   private shrineMeshes: Map<number, THREE.Object3D> = new Map();
@@ -778,6 +853,14 @@ export class GameScene {
   private vfxMaterial!: THREE.ShaderMaterial;
   private vfxPoints!: THREE.Points;
   private vfxTexture!: THREE.Texture;
+
+  // === Billboard VFX system ===
+  // 给"单帧贴图特效"用：剑气、撞击、魔法圆、烧痕、枪口火光等。
+  // 池化 Plane Mesh，每帧渐隐 + 缩放 + 旋转 + 生命到了归还。
+  // 与上面 vfxPoints 的点云粒子互补：点云适合大量 sparkle，billboard 适合少量"漂亮"贴图。
+  private vfxTextures: Record<VfxTextureKey, THREE.Texture> = {} as Record<VfxTextureKey, THREE.Texture>;
+  private readonly MAX_BILLBOARDS = 64;
+  private billboardPool: BillboardVfxItem[] = [];
 
   // DOM overlays
   private hudContainer!: HTMLDivElement;
@@ -1624,9 +1707,9 @@ export class GameScene {
       });
     }
 
-    // Load particle texture
+    // Load particle texture（升级到 Kenney spark：比 circle 更有"火花感"）
     const textureLoader = new THREE.TextureLoader();
-    this.vfxTexture = textureLoader.load('/textures/particle_circle.png');
+    this.vfxTexture = textureLoader.load('/textures/vfx/spark.png');
 
     // Create buffer geometry with per-particle attributes
     this.vfxGeometry = new THREE.BufferGeometry();
@@ -1682,6 +1765,142 @@ export class GameScene {
     this.vfxPoints.name = 'VFXParticles';
     this.vfxPoints.frustumCulled = false;
     this.scene.add(this.vfxPoints);
+
+    // ─── Billboard VFX：预加载贴图 + 预分配 plane 池 ───
+    const billboardLoader = new THREE.TextureLoader();
+    for (const key of Object.keys(VFX_TEXTURE_FILES) as VfxTextureKey[]) {
+      const tex = billboardLoader.load(VFX_TEXTURE_FILES[key]);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      this.vfxTextures[key] = tex;
+    }
+
+    const planeGeo = new THREE.PlaneGeometry(1, 1);
+    for (let i = 0; i < this.MAX_BILLBOARDS; i++) {
+      const mat = new THREE.MeshBasicMaterial({
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(planeGeo, mat);
+      mesh.visible = false;
+      mesh.frustumCulled = false;
+      mesh.renderOrder = 5;  // 在 outline 之上、HUD 之下
+      this.scene.add(mesh);
+      this.billboardPool.push({
+        mesh,
+        active: false,
+        age: 0,
+        lifetime: 1,
+        startScale: 1,
+        endScale: 1,
+        startOpacity: 1,
+        opacityCurve: 'fadeOut',
+        rotationSpeed: 0,
+        facing: 'camera',
+      });
+    }
+  }
+
+  /**
+   * 触发一个一次性贴图特效。从 billboard 池里取一个 plane，
+   * 配置好材质 / 位置 / 朝向 / 缩放 / 透明度曲线，由 updateBillboardVfx 每帧推进。
+   *
+   * 池满时静默丢弃（不阻塞，不报错）。VFX 帧丢失对体感几乎无影响。
+   */
+  spawnBillboard(opts: BillboardSpawnOpts): void {
+    const slot = this.billboardPool.find(b => !b.active);
+    if (!slot) return;
+
+    slot.active = true;
+    slot.age = 0;
+    slot.lifetime = Math.max(0.05, opts.lifetime);
+    slot.startScale = opts.scale;
+    slot.endScale = opts.endScale ?? opts.scale;
+    slot.startOpacity = opts.opacity ?? 1;
+    slot.opacityCurve = opts.opacityCurve ?? 'fadeOut';
+    slot.rotationSpeed = opts.rotationSpeed ?? 0;
+    slot.facing = opts.facing ?? 'camera';
+
+    const mat = slot.mesh.material;
+    mat.map = this.vfxTextures[opts.texture];
+    mat.color.setHex(opts.color ?? 0xffffff);
+    mat.opacity = slot.startOpacity;
+    mat.blending = opts.blending === 'normal' ? THREE.NormalBlending : THREE.AdditiveBlending;
+    mat.needsUpdate = true;
+
+    slot.mesh.position.set(opts.x, opts.y, opts.z);
+    slot.mesh.scale.set(slot.startScale, slot.startScale, slot.startScale);
+    slot.mesh.visible = true;
+
+    if (slot.facing === 'up') {
+      // 平躺地面：plane 默认面向 +Z，绕 X 轴 -90° 让法线朝 +Y
+      slot.mesh.rotation.set(-Math.PI / 2, 0, opts.rotation ?? 0);
+    } else {
+      // 朝向相机：每帧在 update 里 lookAt(camera)；初始 rotation 仅决定贴图自旋
+      slot.mesh.rotation.set(0, 0, opts.rotation ?? 0);
+    }
+  }
+
+  /**
+   * 每帧推进所有 active billboard：
+   *   - lerp scale (start → end)
+   *   - lerp opacity 按曲线
+   *   - 自旋
+   *   - facing='camera' 时 lookAt(相机)
+   *   - lifetime 到了归还槽位
+   */
+  private updateBillboardVfx(dt: number): void {
+    const cam = this.camera;
+    const _camPos = new THREE.Vector3();
+    cam.getWorldPosition(_camPos);
+
+    for (const b of this.billboardPool) {
+      if (!b.active) continue;
+      b.age += dt;
+      if (b.age >= b.lifetime) {
+        b.active = false;
+        b.mesh.visible = false;
+        continue;
+      }
+
+      const t = b.age / b.lifetime;  // 0..1
+      const scale = b.startScale + (b.endScale - b.startScale) * t;
+      b.mesh.scale.set(scale, scale, scale);
+
+      let alpha: number;
+      switch (b.opacityCurve) {
+        case 'flash':
+          // 0 → start → 0 (sin 曲线)
+          alpha = b.startOpacity * Math.sin(t * Math.PI);
+          break;
+        case 'constant':
+          alpha = b.startOpacity;
+          break;
+        case 'fadeOut':
+        default:
+          alpha = b.startOpacity * (1 - t);
+          break;
+      }
+      b.mesh.material.opacity = Math.max(0, alpha);
+
+      if (b.rotationSpeed !== 0) {
+        if (b.facing === 'up') {
+          b.mesh.rotation.z += b.rotationSpeed * dt;
+        } else {
+          // camera-facing 时由 lookAt 接管 X/Y rotation；自旋走 Z
+          // 但 lookAt 之后我们再叠 Z rotation
+          b.mesh.rotation.z += b.rotationSpeed * dt;
+        }
+      }
+
+      if (b.facing === 'camera') {
+        // 让 plane 法线指向相机（保留 z 自旋）
+        const zRot = b.mesh.rotation.z;
+        b.mesh.lookAt(_camPos);
+        b.mesh.rotation.z = zRot;
+      }
+    }
   }
 
   // ===========================================================================
@@ -1884,6 +2103,7 @@ export class GameScene {
     this.renderChests(state.chests);
     this.renderShrines(state.shrines, state.player.x, state.player.z);
     this.updateVFX(state, dt);
+    this.updateBillboardVfx(dt);
     this.updateCamera(state);
 
     // Process damage events for camera effects
@@ -2455,6 +2675,28 @@ export class GameScene {
 
   private spawnLevelUpBurst(x: number, y: number, z: number): void {
     this.emitLevelUpBurst(x, y, z);
+    // Billboard: 仪式感 ↑ —— 头顶大星光 + 上升光柱
+    this.spawnBillboard({
+      texture: 'star',
+      x, y: y + 1.6, z,
+      scale: 1.5,
+      endScale: 4.5,
+      lifetime: 0.7,
+      opacityCurve: 'flash',
+      opacity: 1.0,
+      color: 0xffd866,
+      rotationSpeed: 4.0,
+    });
+    this.spawnBillboard({
+      texture: 'light',
+      x, y: y + 0.5, z,
+      scale: 2.0,
+      endScale: 3.5,
+      lifetime: 0.8,
+      opacityCurve: 'fadeOut',
+      opacity: 0.85,
+      color: 0xffe080,
+    });
   }
 
   private triggerScreenFlash(color: string, duration: number): void {
@@ -3031,6 +3273,23 @@ export class GameScene {
       pillar.name = 'Altar_Glow';
       this.scene.add(pillar);
       this.teleporterGlowMeshes.push(pillar);
+
+      // Ground decal: magic circle / portal swirl（按 phase 切贴图）
+      const decalGeo = new THREE.PlaneGeometry(5, 5);
+      const decalMat = new THREE.MeshBasicMaterial({
+        map: this.vfxTextures.magic_circle,
+        transparent: true,
+        opacity: 0.85,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+      });
+      const decal = new THREE.Mesh(decalGeo, decalMat);
+      decal.name = 'Altar_Decal';
+      decal.rotation.x = -Math.PI / 2;
+      decal.renderOrder = 4;
+      this.scene.add(decal);
+      this.altarDecals.push(decal);
     }
 
     for (let i = 0; i < this.teleporterMeshes.length; i++) {
@@ -3038,6 +3297,7 @@ export class GameScene {
         const tp = altars[i];
         const ring = this.teleporterMeshes[i];
         const pillar = this.teleporterGlowMeshes[i];
+        const decal = this.altarDecals[i];
 
         ring.visible = true;
         ring.position.set(tp.x, 0.1, tp.z);
@@ -3045,6 +3305,10 @@ export class GameScene {
 
         pillar.visible = true;
         pillar.position.set(tp.x, 2, tp.z);
+
+        // 地面 decal 始终可见（除 portal_used 终态）
+        decal.visible = tp.phase !== 'portal_used';
+        decal.position.set(tp.x, 0.06, tp.z);
 
         // Color based on phase.
         // 注意：ring 可能是 GLB 模型（Object3D，无 .material）也可能是 fallback 的
@@ -3054,43 +3318,60 @@ export class GameScene {
           ? ringMaterial as THREE.MeshBasicMaterial
           : null;
         const pillarMat = pillar.material as THREE.MeshBasicMaterial;
+        const decalMat = decal.material as THREE.MeshBasicMaterial;
 
         switch (tp.phase) {
           case 'summoning': {
-            // 召唤读条阶段：金黄脉冲
+            // 召唤读条阶段：金黄脉冲 + 魔法圆加速旋转
             const pulse = 0.5 + Math.sin(time * 4) * 0.3;
             ringMat?.color.setHex(0xffaa00);
             pillarMat.color.setHex(0xffcc00);
             pillarMat.opacity = pulse;
+            decalMat.map = this.vfxTextures.magic_circle;
+            decalMat.color.setHex(0xffcc44);
+            decalMat.opacity = 0.95;
+            decal.rotation.z = -time * 4;  // 加速旋转
             break;
           }
           case 'boss_active': {
-            // Boss 战进行中：红色锁定
+            // Boss 战进行中：祭坛沉默（decal 暗淡）
             ringMat?.color.setHex(0xff2200);
             pillarMat.color.setHex(0xff4400);
             pillarMat.opacity = 0.4;
+            decalMat.color.setHex(0x661100);
+            decalMat.opacity = 0.3;
+            decal.rotation.z = -time * 0.5;
             break;
           }
           case 'portal_ready':
           case 'portal_used': {
-            // 传送门：紫光稳定
+            // 传送门：换贴图 → 紫色 swirl，反向飞速旋转
             ringMat?.color.setHex(0xaa44ff);
             pillarMat.color.setHex(0xcc66ff);
             pillarMat.opacity = 0.6 + Math.sin(time * 2) * 0.2;
+            decalMat.map = this.vfxTextures.portal_swirl;
+            decalMat.color.setHex(0xcc66ff);
+            decalMat.opacity = 0.95;
+            decal.rotation.z = time * 6;
             break;
           }
           case 'ready':
           default: {
-            // 待召唤：青蓝色平稳呼吸
+            // 待召唤：青蓝色平稳呼吸 + 魔法圆缓慢旋转
             ringMat?.color.setHex(0x00ccff);
             pillarMat.color.setHex(0x00ffff);
             pillarMat.opacity = 0.3 + Math.sin(time) * 0.1;
+            decalMat.map = this.vfxTextures.magic_circle;
+            decalMat.color.setHex(0x66ddff);
+            decalMat.opacity = 0.7 + Math.sin(time * 0.8) * 0.15;
+            decal.rotation.z = -time * 1.2;
             break;
           }
         }
       } else {
         this.teleporterMeshes[i].visible = false;
         this.teleporterGlowMeshes[i].visible = false;
+        if (this.altarDecals[i]) this.altarDecals[i].visible = false;
       }
     }
   }
@@ -3156,6 +3437,19 @@ export class GameScene {
       const cb = Math.min(1.0, color[2] + (Math.random() - 0.5) * 0.2);
       this.spawnParticle(x, y, z, vx, vy, vz, size, life, cr, cg, cb);
     }
+    // Billboard: 一闪而过的撞击光晕（朝相机），跟武器染色一致
+    const colorHex = ((Math.round(color[0] * 255) << 16) | (Math.round(color[1] * 255) << 8) | Math.round(color[2] * 255)) >>> 0;
+    this.spawnBillboard({
+      texture: 'muzzle',
+      x, y, z,
+      scale: 1.6,
+      endScale: 2.4,
+      lifetime: 0.18,
+      opacityCurve: 'flash',
+      opacity: 0.9,
+      color: colorHex,
+      rotation: Math.random() * Math.PI * 2,
+    });
   }
 
   private emitDeathBurst(x: number, y: number, z: number, _enemyType: string): void {
@@ -3176,6 +3470,32 @@ export class GameScene {
       const b = Math.random() * 0.15;
       this.spawnParticle(x, y + 0.5, z, vx, vy, vz, size, life, r, g, b);
     }
+    // Billboard: 一团短命烟雾 + 地面烧痕，让死亡有"实体痕迹"
+    this.spawnBillboard({
+      texture: 'smoke',
+      x, y: y + 0.6, z,
+      scale: 1.2,
+      endScale: 2.4,
+      lifetime: 0.5,
+      opacityCurve: 'fadeOut',
+      opacity: 0.7,
+      color: 0x553322,
+      rotation: Math.random() * Math.PI * 2,
+      blending: 'normal',
+    });
+    this.spawnBillboard({
+      texture: 'scorch',
+      x, y: 0.05, z,
+      scale: 1.4,
+      endScale: 1.8,
+      lifetime: 1.5,
+      opacityCurve: 'fadeOut',
+      opacity: 0.55,
+      color: 0x000000,
+      facing: 'up',
+      rotation: Math.random() * Math.PI * 2,
+      blending: 'normal',
+    });
   }
 
   private emitPickupSparkle(x: number, y: number, z: number, pickupType: string): void {
@@ -3189,6 +3509,19 @@ export class GameScene {
       const life = 0.3 + Math.random() * 0.3;
       this.spawnParticle(x, y, z, vx, vy, vz, size, life, color[0], color[1], color[2]);
     }
+    // Billboard: 一颗小星星，金色拾取仪式感
+    const colorHex = ((Math.round(color[0] * 255) << 16) | (Math.round(color[1] * 255) << 8) | Math.round(color[2] * 255)) >>> 0;
+    this.spawnBillboard({
+      texture: 'star',
+      x, y: y + 0.3, z,
+      scale: 0.5,
+      endScale: 1.0,
+      lifetime: 0.35,
+      opacityCurve: 'flash',
+      opacity: 0.85,
+      color: colorHex,
+      rotationSpeed: 6.0,
+    });
   }
 
   private emitLevelUpBurst(x: number, y: number, z: number): void {
@@ -3672,13 +4005,14 @@ export class GameScene {
       }
     }
 
-    // Sword slash arc — fires once on each swing (edge-detect cooldown reset)
+    // Sword slash arc + bow/shotgun muzzle flash —— 边缘触发，每次开火一次
     for (const weapon of player.weapons) {
-      if (weapon.type !== 'sword') continue;
-      const prev = this.lastWeaponCooldown.get('sword') ?? Infinity;
+      const prev = this.lastWeaponCooldown.get(weapon.type) ?? Infinity;
       const curr = weapon.cooldownTimer;
       // cooldownTimer just jumped UP → weapon fired this frame
-      if (curr > prev + 0.05 && player.alive) {
+      const justFired = curr > prev + 0.05 && player.alive;
+
+      if (justFired && weapon.type === 'sword') {
         // Find nearest enemy for slash direction
         let slashAngle = player.rotation;
         let nearestDist = Infinity;
@@ -3696,6 +4030,23 @@ export class GameScene {
         // Big horizontal arc plane that flashes & fades
         this.spawnSlashArc(player.x, player.y + 0.6, player.z, slashAngle);
 
+        // Kenney slash 贴图：横躺地面 + 沿 swing 方向贴
+        this.spawnBillboard({
+          texture: 'slash',
+          x: player.x + Math.sin(slashAngle) * 1.5,
+          y: 0.15,
+          z: player.z + Math.cos(slashAngle) * 1.5,
+          scale: 3.5,
+          endScale: 4.5,
+          lifetime: 0.18,
+          opacityCurve: 'flash',
+          opacity: 0.85,
+          color: 0xeef4ff,
+          facing: 'up',
+          // slash 贴图本身朝右，需要旋转到 swing 方向（+ 90° 修正贴图朝向）
+          rotation: -slashAngle + Math.PI / 2,
+        });
+
         // 12 lightweight particles streaking along the arc for extra punch
         for (let i = 0; i < 12; i++) {
           const arcAngle = slashAngle + (i - 5.5) * 0.18;
@@ -3711,7 +4062,28 @@ export class GameScene {
           );
         }
       }
-      this.lastWeaponCooldown.set('sword', curr);
+
+      // Bow / shotgun 开火 → 玩家身前一瞬间 muzzle flash
+      if (justFired && (weapon.type === 'bow' || weapon.type === 'shotgun')) {
+        const facing = player.rotation;
+        const fwd = 0.8;
+        const color = weapon.type === 'shotgun' ? 0xffaa44 : 0xffe0a0;
+        this.spawnBillboard({
+          texture: 'muzzle',
+          x: player.x + Math.sin(facing) * fwd,
+          y: player.y + 1.2,
+          z: player.z + Math.cos(facing) * fwd,
+          scale: weapon.type === 'shotgun' ? 1.4 : 0.9,
+          endScale: weapon.type === 'shotgun' ? 2.2 : 1.5,
+          lifetime: 0.1,
+          opacityCurve: 'flash',
+          opacity: 1.0,
+          color,
+          rotation: Math.random() * Math.PI * 2,
+        });
+      }
+
+      this.lastWeaponCooldown.set(weapon.type, curr);
     }
 
     // Drive transient mesh effects (slash arcs, lightning bolts)
