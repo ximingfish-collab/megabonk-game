@@ -111,15 +111,48 @@
 
 ## 三、纹理资源
 
-存放在 `public/textures/`：
+### 1. `public/textures/`（基础粒子）
+
+> Phase 8 起：主粒子贴图从 `particle_circle.png` 切换到 `vfx/spark.png`，
+> 老 PNG 暂保留作为兼容。
 
 | 文件 | 用途 | 是否在用 |
 |---|---|---|
-| `particle_circle.png` | VFX 粒子基础贴图 | ✅ `client/source/index.ts:1569` |
+| `particle_circle.png` | 旧主粒子贴图 | 已退役，保留作 fallback |
 | `particle_flare.png` | 备选粒子（光晕） | 备选 |
 | `particle_star.png` | 备选粒子（星形） | 备选 |
 | `particle_twirl.png` | 备选粒子（旋涡） | 备选 |
 | `texture_sign.png` | 招牌贴图（部分 sign 模型外置贴图） | 跟随 GLTF |
+
+### 2. `public/textures/vfx/`（Billboard VFX 贴图）
+
+来源：[Kenney Particle Pack](https://kenney.nl/assets/particle-pack)（CC0，可商用，无需署名）。
+精选 11 张接入到 `BillboardVfx` 系统（见 `client/source/index.ts` 的
+`VFX_TEXTURE_FILES` 表 + `spawnBillboard()`）。
+
+| 文件 | 用途 | 触发点 |
+|---|---|---|
+| `spark.png` | 通用粒子（主贴图） | 所有点云粒子（替换 `particle_circle.png`） |
+| `muzzle.png` | 击中光晕 / 枪口火光 | 击中怪物、bow/shotgun 开火 |
+| `slash.png` | 剑气贴图 | 剑攻击 swing（地面贴花，朝向 swing 方向） |
+| `smoke.png` | 死亡烟雾 | 怪物死亡 |
+| `scorch.png` | 死亡烧痕（地面贴花） | 怪物死亡，持续 1.5s |
+| `star.png` | 星光 | 升级 burst、拾取 sparkle |
+| `light.png` | 光环 | 升级 burst |
+| `magic_circle.png` | 旋转魔法圆 | 祭坛 ready / summoning 阶段地面 decal |
+| `portal_swirl.png` | 紫色漩涡 | Boss 死亡后传送门（portal_ready） |
+| `dirt.png` | 尘土（预留） | 落地踢起灰尘等场景，待接入 |
+| `flame.png` | 火焰（预留） | flame_ring 武器升级特效，待接入 |
+
+新增 VFX 贴图的接入流程：
+
+```
+1. PNG 丢到 public/textures/vfx/<key>.png（透明背景）
+2. client/source/index.ts:
+   - VfxTextureKey union 加新 key
+   - VFX_TEXTURE_FILES 表加映射
+3. 在合适触发点调 this.spawnBillboard({ texture: '<key>', ... })
+```
 
 ---
 
