@@ -1256,6 +1256,10 @@ export class GameScene {
   private bossWarningRing: THREE.Mesh | null = null;
   private bossAoeFlashTimer = 0;
 
+  /** GM 调试：碰撞盒可视化层（col_/wall_/climb_/ramp_/spawn_），按需 lazy 构建。 */
+  private collisionDebugGroup: THREE.Group | null = null;
+  private collisionDebugVisible = false;
+
   // Combo HUD elements
   private comboLabel: HTMLDivElement | null = null;
   private comboFadeTimer = 0;
@@ -2412,6 +2416,102 @@ export class GameScene {
   // GM debug: 强制在指定坐标劈一道闪电（测试用）
   debugSpawnLightning(x: number, y: number, z: number): void {
     this.spawnLightningBolt(x, y, z);
+  }
+
+  /**
+   * GM debug：切换碰撞盒可视化层。
+   *
+   * 颜色编码（透明 wireframe）：
+   *   - 绿 col_  : 可站立平台（顶面 = 可走面）
+   *   - 红 wall_ : 实心遮挡（横向阻挡 + 头顶下穿）
+   *   - 蓝 climb_: 攀爬体（按 jump 抓墙）
+   *   - 黄 ramp_ : 可行走斜坡（线性插值高度）
+   *   - 品红 spawn_player/boss/altar/chest 标记球
+   *
+   * 数据源：客户端 `loadedLevel.data`（LevelLoader 解析的 LevelData）。
+   * 没加载关卡时（默认 Neon Crucible）打印提示后跳过 —— Neon Crucible 的
+   * col_ 矩形定义在 core/collision.ts 内置，客户端可以加载默认场景肉眼校对。
+   */
+  debugToggleCollisionViz(): boolean {
+    if (this.collisionDebugGroup) {
+      this.collisionDebugVisible = !this.collisionDebugVisible;
+      this.collisionDebugGroup.visible = this.collisionDebugVisible;
+      return this.collisionDebugVisible;
+    }
+    // 首次启用：lazy 构建
+    if (!loadedLevel) {
+      console.warn('[GM] 当前是内置 Neon Crucible（无 LevelData）。要可视化关卡碰撞，请用 ?level 加载白盒。');
+      return false;
+    }
+    this.collisionDebugGroup = this.buildCollisionDebugGroup(loadedLevel.data);
+    this.scene.add(this.collisionDebugGroup);
+    this.collisionDebugVisible = true;
+    return true;
+  }
+
+  private buildCollisionDebugGroup(data: LevelData): THREE.Group {
+    const group = new THREE.Group();
+    group.name = 'CollisionDebug';
+
+    const wireMat = (color: number, opacity: number) =>
+      new THREE.MeshBasicMaterial({ color, wireframe: true, transparent: true, opacity, depthWrite: false });
+
+    // col_: 绿色 wireframe 盒子（顶面在 height，底面 baseY，缺省 baseY=-1 表示厚 1）
+    for (const r of data.collisionRects) {
+      const baseY = r.baseY ?? r.height - 1;
+      const height = Math.max(r.height - baseY, 0.01);
+      const geo = new THREE.BoxGeometry(r.halfW * 2, height, r.halfD * 2);
+      const mesh = new THREE.Mesh(geo, wireMat(0x00ff00, 0.55));
+      mesh.position.set(r.cx, (baseY + r.height) / 2, r.cz);
+      group.add(mesh);
+    }
+
+    // wall_: 红色
+    for (const w of data.walls ?? []) {
+      const height = Math.max(w.topY - w.bottomY, 0.01);
+      const geo = new THREE.BoxGeometry(w.halfW * 2, height, w.halfD * 2);
+      const mesh = new THREE.Mesh(geo, wireMat(0xff3344, 0.6));
+      mesh.position.set(w.cx, (w.bottomY + w.topY) / 2, w.cz);
+      group.add(mesh);
+    }
+
+    // climb_: 蓝色
+    for (const c of data.climbVolumes ?? []) {
+      const height = Math.max(c.topY - c.bottomY, 0.01);
+      const geo = new THREE.BoxGeometry(c.halfW * 2, height, c.halfD * 2);
+      const mesh = new THREE.Mesh(geo, wireMat(0x3399ff, 0.6));
+      mesh.position.set(c.cx, (c.bottomY + c.topY) / 2, c.cz);
+      group.add(mesh);
+    }
+
+    // ramp_: 黄色（用包围盒近似——不精确画斜面，调试足够）
+    for (const r of data.ramps ?? []) {
+      const height = Math.max(r.highY - r.lowY, 0.01);
+      const geo = new THREE.BoxGeometry(r.halfW * 2, height, r.halfD * 2);
+      const mesh = new THREE.Mesh(geo, wireMat(0xffcc00, 0.55));
+      mesh.position.set(r.cx, (r.lowY + r.highY) / 2, r.cz);
+      group.add(mesh);
+    }
+
+    // spawn 点：品红色小球
+    const spawnMat = new THREE.MeshBasicMaterial({ color: 0xff33ff, depthWrite: false });
+    const markSpawn = (x: number, z: number, label: string) => {
+      const ball = new THREE.Mesh(new THREE.SphereGeometry(0.4, 12, 8), spawnMat);
+      ball.position.set(x, 0.4, z);
+      ball.name = `Spawn_${label}`;
+      group.add(ball);
+    };
+    if (data.spawnPoints?.player) markSpawn(data.spawnPoints.player.x, data.spawnPoints.player.z, 'player');
+    if (data.spawnPoints?.boss) markSpawn(data.spawnPoints.boss.x, data.spawnPoints.boss.z, 'boss');
+    for (const a of data.spawnPoints?.altars ?? []) markSpawn(a.x, a.z, 'altar');
+    for (const c of data.chestSpawns ?? []) markSpawn(c.x, c.z, 'chest');
+
+    console.log(
+      `[GM] CollisionDebug: ${data.collisionRects.length} col, ${data.walls?.length ?? 0} wall, ` +
+      `${data.climbVolumes?.length ?? 0} climb, ${data.ramps?.length ?? 0} ramp, ` +
+      `${(data.spawnPoints?.altars?.length ?? 0) + (data.chestSpawns?.length ?? 0) + (data.spawnPoints?.player ? 1 : 0) + (data.spawnPoints?.boss ? 1 : 0)} spawn`,
+    );
+    return group;
   }
 
   // ===========================================================================
@@ -6247,6 +6347,7 @@ function setupGMTool(): void {
     giveWeapon(type: string, level: number = 1) { gmGiveWeapon(type, level); },
     giveAllWeapons() { gmGiveAllWeapons(); },
     testLightning() { gmTestLightning(); },
+    showCollision() { gmToggleCollisionViz(); },
     help() {
       console.log(`
 GM Commands (window.__gm):
@@ -6263,6 +6364,11 @@ GM Commands (window.__gm):
                       — 加指定武器（type: sword/bone_bouncer/axe/bow/
                         lightning_staff/flame_ring/shotgun）
   .giveAllWeapons()   — 一键塞满全部武器
+  .testLightning()    — 在玩家头顶劈一道电（VFX 测试）
+  .showCollision()    — 切换碰撞盒可视化（绿 col_ / 红 wall_ /
+                        蓝 climb_ / 黄 ramp_ / 品红 spawn_*）
+                        ⚠️ 默认 Neon Crucible 没有 LevelData，需要 ?level
+                        加载关卡才能看到
       `);
     },
   };
@@ -6388,6 +6494,15 @@ function gmTestLightning(): void {
   // 在玩家头顶劈一道（不依赖敌人，纯视觉测试）
   activeScene.debugSpawnLightning(p.x, 0, p.z);
   console.log(`[GM] 强制劈电 @ (${p.x.toFixed(1)}, 0, ${p.z.toFixed(1)})`);
+}
+
+function gmToggleCollisionViz(): void {
+  if (!activeScene) {
+    console.warn('[GM] No active scene');
+    return;
+  }
+  const visible = activeScene.debugToggleCollisionViz();
+  console.log(`[GM] Collision viz: ${visible ? 'ON' : 'OFF'}`);
 }
 
 function toggleGMPanel(): void {

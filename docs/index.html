@@ -687,6 +687,7 @@
 
     <h4>技术</h4>
     <a data-tab="architecture">架构</a>
+    <a data-tab="physics">物理 / 碰撞</a>
     <a data-tab="performance">性能</a>
     <a data-tab="dev">开发指南</a>
     <a data-tab="assets">美术资源</a>
@@ -1728,9 +1729,11 @@ luck 来源 = luck_tome.level + floor(player.luckBonus * 100)</code></pre>
 │   └── spawnEnemy.ts         ← 4 mode (wave/miniBoss/necromancerSummon/bossSummon)
 │
 └── systems/                  ← 每帧 dispatch 纯函数 (Phase 6)
-    ├── types.ts              ← Engine interface (state + counters + effects + spatialHash + world)
+    ├── types.ts              ← Engine interface (state + counters + effects + spatialHash + world + geo)
     ├── helpers.ts            ← findNearestEnemy* / addDamageEvent / applyKnockback / checkPlayerDeath / checkGameOver
-    ├── terrain.ts            ← getTerrainHeight (Neon Crucible 4 层平台)
+    ├── collision.ts          ← LevelGeometry 接口 + 4 个 *At 查询（地形 / 支撑 / 横向 / climb）
+    ├── horizontalMove.ts     ← tryMoveHorizontally (player/enemy/boss 共用墙体滑行)
+    ├── terrain.ts            ← @deprecated shim, 给老 terrain.test.ts 兜底
     ├── player.ts             ← createInitialPlayer / tickPlayerMovement / tickDash / tickTimers / tickLevelUp
     ├── projectiles.ts        ← tickProjectiles (移动 / 寿命 / 出界)
     ├── collisions.ts         ← processCollisions (4 类碰撞)
@@ -1811,7 +1814,115 @@ engine.aiGroup = (engine.aiGroup + 1) % 4;  // 错峰组循环</code></pre>
   </div>
 </section>
 
-<!-- ============= PERFORMANCE ============= -->
+<!-- ============= PHYSICS ============= -->
+<section id="physics">
+  <h2>物理 / 碰撞系统</h2>
+  <p class="sub">本章对应 PR #7 引入的关卡系统 + 我们后续做的三阶段重构（commit <code>3198d6c</code> / <code>a46902a</code> / <code>e11cc20</code>）。</p>
+
+  <h3>背景：PR #7 引入了什么 / 留了什么坑</h3>
+  <p>PR #7 把硬编码 <code>terrain.ts</code> 升级为「Blender glb → LevelLoader → LevelData → core 消费」的数据驱动关卡系统，新增四类几何（<code>col_</code> 平台 / <code>wall_</code> 墙 / <code>climb_</code> 攀爬体 / <code>ramp_</code> 斜坡）和 wysiwyg 模式。但只让 <strong>玩家</strong> 接入了横向阻挡，<strong>敌人 / Boss / 投射物</strong> 都没改：</p>
+  <table>
+    <tr><th>Mover</th><th>PR #7 后行为</th><th>Bug</th></tr>
+    <tr><td>玩家</td><td>step / wall slide / climb</td><td>OK</td></tr>
+    <tr><td>敌人 (zombie/skeleton)</td><td>直接穿墙</td><td>无横向碰撞</td></tr>
+    <tr><td>Boss</td><td>spawn 时 <code>boss.y = getTerrainHeight</code>，之后从不更新</td><td>命中高 col_ 卡半空 26m</td></tr>
+    <tr><td>投射物 (骨弹)</td><td><code>proj.y &lt; terrainY+0.1</code> clamp，但 wysiwyg 外 terrainY = -∞</td><td>骨弹跌入 -∞ 看不见</td></tr>
+    <tr><td>Gargoyle</td><td>飞行不贴地</td><td>OK（设计如此）</td></tr>
+  </table>
+
+  <h3>三阶段修法</h3>
+
+  <div class="card">
+    <h4>🟢 阶段 1：止血 (commit <code>3198d6c</code>)</h4>
+    <ul>
+      <li><strong>软虚空</strong>：<code>getTerrainHeight</code> 在虚空时回落到 <code>y = 0</code>（不是 -∞），保证 boss / 投射物 / 敌人有地可踩</li>
+      <li><strong>Boss 跟地</strong>：<code>tickBossAi</code> 末尾每帧 <code>boss.y = getTerrainHeight(boss.x, boss.z)</code></li>
+      <li><strong>关卡 opt-in</strong>：<code>tryLoadLevel()</code> 不再自动加载，改成 URL 参数 <code>?level</code> 显式触发</li>
+      <li>玩家「掉出关卡 → 复活」语义保留（<code>getSupportHeight</code> 在 <code>limit &lt; 0</code> 时仍返回 <code>VOID_HEIGHT</code>）</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h4>🟡 阶段 2：抽 helper + 敌人 / Boss 接入墙 (commit <code>a46902a</code>)</h4>
+    <ul>
+      <li>新增 <code>systems/horizontalMove.ts</code> 的 <code>tryMoveHorizontally</code> helper，4-path fallback（直走 → 沿 X 滑 → 沿 Z 滑 → 原地）</li>
+      <li>player.ts 重构 7 行 → 3 行调 helper，行为不变</li>
+      <li>敌人 <code>_move.ts</code>、Boss <code>bossAi.ts</code> 接入 helper（gargoyle 提前 return 跳过阻挡）</li>
+      <li>radius：玩家 0.45（默认）/ 敌人 0.4 / Boss 1.0（体型大）</li>
+      <li>新增 <code>systems/__tests__/{collision,horizontalMove}.test.ts</code> + <code>ai/__tests__/_move.test.ts</code>，~30 用例</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h4>🔵 阶段 3：collision.ts 去全局状态 (commit <code>e11cc20</code>)</h4>
+    <ul>
+      <li>定义 <code>LevelGeometry</code> 接口（<code>rects / ramps / solidBoxes / climbs / wysiwyg</code> 不可变快照）</li>
+      <li>4 个查询 API 改成纯函数：<code>getTerrainHeightAt(geo, x, z)</code> / <code>getSupportHeightAt</code> / <code>isBlockedHorizontallyAt</code> / <code>findClimbAt</code></li>
+      <li><code>Engine</code> 加 <code>geo: LevelGeometry</code> 字段；<code>GameInstance.applyLevelConfig</code> 用 <code>makeLevelGeometry(config.level)</code> 实例化</li>
+      <li><code>AiContext</code> 也加 <code>geo</code>，每帧 <code>makeAiContext</code> 重建</li>
+      <li>测试无需 <code>beforeEach(clearLevel)</code>，新增「两个 geo 实例互不干扰」断言</li>
+      <li>未来收益：HMR 热重载关卡 / 多关卡并行 / Headless 测试零阻力</li>
+    </ul>
+  </div>
+
+  <h3>当前架构（阶段 3 后）</h3>
+  <pre><code>// 启动时
+GameInstance.applyLevelConfig() {
+  engine.geo = makeLevelGeometry(config.level);  // 不传 level → NEON_CRUCIBLE_GEOMETRY
+}
+
+// 每帧 makeAiContext
+ctx.geo = engine.geo;                            // 同一引用
+ctx.getTerrainHeight = (x,z) =&gt; getTerrainHeightAt(engine.geo, x, z);
+
+// 各 mover 的查询
+player.ts:   getSupportHeightAt(engine.geo, ...)  // 严格可达 (玩家迈步用)
+             findClimbAt(engine.geo, ...)
+             tryMoveHorizontally(engine.geo, ..., {includeClimb: !climbReleaseTimer})
+_move.ts:    ctx.getTerrainHeight(x, z) + tryMoveHorizontally(ctx.geo, ..., {radius: 0.4})
+bossAi.ts:   ctx.getTerrainHeight(...)            + tryMoveHorizontally(ctx.geo, ..., {radius: 1.0})
+projectiles: getTerrainHeightAt(engine.geo, ...) // 软虚空保底</code></pre>
+
+  <h3>各 mover 的虚空策略对比</h3>
+  <table>
+    <tr><th>Mover</th><th>y 更新</th><th>横向阻挡</th><th>掉出关卡</th></tr>
+    <tr><td>Player</td><td>重力 + 支撑面（严格）</td><td>tryMoveHorizontally + climb</td><td>FALL_RESPAWN_Y → 传送回出生点</td></tr>
+    <tr><td>Enemy</td><td>每帧贴地（软虚空）</td><td>tryMoveHorizontally(0.4)</td><td>不会发生（软虚空保底）</td></tr>
+    <tr><td>Boss</td><td>每帧贴地（软虚空）</td><td>tryMoveHorizontally(1.0)</td><td>同上</td></tr>
+    <tr><td>Projectile</td><td>vy 重力 + clamp ≥ terrainY+0.1</td><td>无（穿过所有墙）</td><td>同上</td></tr>
+    <tr><td>Gargoyle</td><td>固定 y=3 飞行</td><td>无（飞越所有阻挡）</td><td>不适用</td></tr>
+  </table>
+
+  <h3>关卡白盒 opt-in</h3>
+  <p>默认进游戏走内置 <strong>Neon Crucible</strong>（PR #7 之前的硬编码 4 层平台）。要测试 Blender 导出的关卡：</p>
+  <pre><code># 加载 public/models/levels/level_whitebox.glb
+http://localhost:1513/?level
+
+# 加载 public/models/levels/level_foo.glb
+http://localhost:1513/?level=foo</code></pre>
+  <p>关卡命名约定见 <a href="https://github.com/Adios94/megabonk-game/blob/master/level-editor/WHITEBOX_SPEC.md">level-editor/WHITEBOX_SPEC.md</a>（前缀：<code>col_</code> / <code>wall_</code> / <code>climb_</code> / <code>ramp_</code> / <code>spawn_*</code>）。</p>
+
+  <h3>GM 调试：碰撞盒可视化</h3>
+  <p>关卡设计师调白盒时可以打开 wireframe 叠加层，肉眼校对几何与 col_/wall_ 数据是否对齐：</p>
+  <pre><code>// 浏览器控制台（先加 ?level 进游戏）
+window.__gm.showCollision()</code></pre>
+  <table>
+    <tr><th>颜色</th><th>含义</th></tr>
+    <tr><td><span style="color:#0f0">绿</span></td><td><code>col_</code> 可站立平台（顶面 = 可走面）</td></tr>
+    <tr><td><span style="color:#f33">红</span></td><td><code>wall_</code> 实心遮挡（横向阻挡，可从下方穿过）</td></tr>
+    <tr><td><span style="color:#39f">蓝</span></td><td><code>climb_</code> 攀爬体（按 jump 键抓墙）</td></tr>
+    <tr><td><span style="color:#fc0">黄</span></td><td><code>ramp_</code> 可行走斜坡</td></tr>
+    <tr><td><span style="color:#f3f">品红球</span></td><td><code>spawn_player / boss / altar / chest</code> 标记</td></tr>
+  </table>
+  <p style="color: var(--dim); font-size: 13px;">注：默认 Neon Crucible 没有 LevelData，可视化命令在那里会 warn 跳过；切到 <code>?level</code> 加载白盒后才会生效。</p>
+
+  <h3>测试覆盖</h3>
+  <ul>
+    <li><code>systems/__tests__/collision.test.ts</code> — 4 API × 内置 / 加载关卡 / 边界 / 实例隔离</li>
+    <li><code>systems/__tests__/horizontalMove.test.ts</code> — helper 4 path fallback</li>
+    <li><code>ai/__tests__/_move.test.ts</code> — 敌人接入 wall_ 集成</li>
+  </ul>
+</section>
 <section id="performance">
   <h2>性能优化</h2>
 
@@ -1896,7 +2007,24 @@ pnpm run dev
 window.__session.gameInstance.getState()
 
 // 查看典籍等级
-window.__session.gameInstance.getState().player.tomes</code></pre>
+window.__session.gameInstance.getState().player.tomes
+
+// GM 命令 (按 ` 反引号开 / 关 panel)
+window.__gm.help()             // 命令清单
+window.__gm.giveAllWeapons()   // 满武器
+window.__gm.godMode()          // 无敌
+window.__gm.spawnBoss()        // 强制召唤 Boss
+window.__gm.showCollision()    // 切换碰撞盒可视化（仅 ?level 模式有效）
+window.__gm.testLightning()    // 在玩家头顶劈一道电（VFX 测试）</code></pre>
+
+  <h3>关卡设计 / 物理调试</h3>
+  <p class="sub">详见 <a data-tab="physics">物理 / 碰撞</a> 页。常用入口：</p>
+  <ul>
+    <li>启动游戏时加 <code>?level</code> URL 参数 → 加载 <code>public/models/levels/level_whitebox.glb</code>，用 Blender 导出的关卡测试</li>
+    <li><code>window.__gm.showCollision()</code> → wireframe 叠加层（绿 col / 红 wall / 蓝 climb / 黄 ramp / 品红 spawn）</li>
+    <li>新增 col_/wall_ 类型 → <code>game/core/source/types.ts</code> + <code>systems/collision.ts</code> 的 <code>makeLevelGeometry</code></li>
+    <li>调玩家迈步 / 攀爬手感 → <code>config.ts</code> 的 <code>STEP_HEIGHT</code> / <code>CLIMB_SPEED</code> / <code>FALL_RESPAWN_Y</code></li>
+  </ul>
 
   <h3>常见问题</h3>
   <table>

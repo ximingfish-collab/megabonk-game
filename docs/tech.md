@@ -101,18 +101,25 @@ game/core/source/
 │   └── spawnEnemy.ts         4 mode (wave/miniBoss/necromancerSummon/bossSummon) 处理 tier / elite buff / time scaling
 │
 └── systems/                  每帧 dispatch 的纯函数（Phase 6, 232 单测覆盖）
-    ├── types.ts              Engine interface (state + counters + spatialHash + world + effects)
+    ├── types.ts              Engine interface (state + counters + spatialHash + world + effects + geo)
     ├── helpers.ts            findNearestEnemy* / addDamageEvent / applyKnockback / checkPlayerDeath / checkGameOver
-    ├── terrain.ts            getTerrainHeight (Neon Crucible 4 层平台 + 斜坡过渡)
+    ├── collision.ts          LevelGeometry 接口 + 4 个 *At 查询（地形/支撑/横向/climb）— Phase 3 后无全局状态
+    ├── horizontalMove.ts     tryMoveHorizontally helper (玩家/敌人/Boss 共用墙体滑行 4-path fallback)
+    ├── terrain.ts            @deprecated re-export shim, 仅供老 terrain.test.ts 兜底
     ├── player.ts             createInitialPlayer / tickPlayerMovement / tickDash / tickTimers / tickLevelUp
     ├── projectiles.ts        tickProjectiles (移动 / 寿命 / 出界 / 地形 y clamp)
     ├── collisions.ts         processCollisions (4 类碰撞 + bone_bouncer 弹跳 + pierce + shield_tome)
     ├── pickups.ts            processDeaths / tickPickups / tickThorns
     ├── spawning.ts           tickSpawning (波次 + curse_tome 加快 + final swarm + mini-boss) / checkBossSpawn
-    ├── teleporters.ts        tickChests / tickTeleporters / generateChests
+    ├── altars.ts             tickAltars / generateAltars / onBossDefeated / consumePortalUsed (5 阶段状态机)
+    ├── chests.ts             tickChests / generateChests
+    ├── teleporters.ts        @deprecated re-export shim → altars.ts + chests.ts
+    ├── overtime.ts           tickOvertime (gameTime ≥ 540 累加 overtimeSeconds)
+    ├── tierTransition.ts     tickTierTransition (portal_used → tier++ + 重置场景)
+    ├── shrines.ts            tickShrines / generateShrines / applyShrineReward (充能神殿 4 选 1)
     ├── weapons.ts            tickWeapons / getWeaponStats / checkWeaponEvolutions
     ├── aiSystem.ts           tickEnemyAi (modifier → brain dispatch per enemy)
-    ├── bossAi.ts             tickBossAi (phase resolve + attack 调度 + 移动)
+    ├── bossAi.ts             tickBossAi (phase resolve + attack 调度 + 移动 + 墙阻挡 + y 跟地)
     └── weaponFiring.ts       tryFireWeaponEcs (BEHAVIORS map dispatch)
 ```
 
@@ -139,28 +146,85 @@ GameScene                   (Three.js 场景管理)
 `GameInstance.tick()` 现在只做 dispatch：
 
 ```ts
-tickPlayerMovement(engine, dt);    // 移动 / 跳 / slide / bunny hop
+tickPlayerMovement(engine, dt);    // 移动 / 跳 / slide / bunny hop / climb / wall slide
 tickDash(engine, dt);              // dash 短无敌 + 高速移动
 tickTimers(engine, dt);            // 各种 cooldown / hitFlash 倒计时
 tickEnemyAi(state.enemies, ctx);   // modifier → brain dispatch per enemy
 tickWeapons(engine, dt);           // attackSpeed × dt 推 cooldown, 触发即 fire
-tickProjectiles(engine, dt);       // 投射物移动 + 寿命 + 出界
+tickProjectiles(engine, dt);       // 投射物移动 + 寿命 + 出界 + 软虚空地形 clamp
 processCollisions(engine);         // 4 类: 子弹 vs 敌人/boss + 敌人近战 + 子弹 vs 玩家
 processDeaths(engine);             // hp ≤ 0 → spawn pickup + kill++
 tickPickups(engine, dt);           // 寿命 / 吸附 / collect
 tickLevelUp(engine);               // xp ≥ xpToNext → 进 level_up phase
 tickSpawning(engine, dt);          // wave + mini-boss + final swarm
-tickTeleporters(engine, dt);
+tickAltars(engine, dt);            // 5 阶段祭坛状态机 (按 [E] 召唤 / 进入 portal)
+tickShrines(engine, dt);           // 充能神殿 charging → ready → consumed
 tickChests(engine);
-checkBossSpawn(engine);
+checkBossSpawn(engine);            // 仅当祭坛 boss_active 时 spawn
 if (state.boss && phase === 'boss_fight') tickBossAi(state.boss, ctx);
 tickThorns(engine);
-checkGameOver(engine);
-engine.aiGroup = (engine.aiGroup + 1) % 4;  // 错峰组循环
+checkGameOver(engine);             // Boss 死 → portal_open；玩家死 → defeat
+tickTierTransition(engine);        // portal_used → tier++ + 重置场景
+tickOvertime(engine, dt);          // gameTime ≥ 540 累加 overtimeSeconds
+engine.aiGroup = (engine.aiGroup + 1) % 4;
 ```
 
-各 system 接受 `engine: Engine`（封装 state + counters + spatialHash + world + effects）和 `dt: number`，
+各 system 接受 `engine: Engine`（封装 state + counters + spatialHash + world + effects + **geo: LevelGeometry**）和 `dt: number`，
 mutate engine 内字段。这是 ECS-style 组合：数据 + 系统纯函数。
+
+### 4. 物理 / 碰撞系统（Phase 1-3 重构）
+
+PR #7 引入了数据驱动关卡（`LevelData` + Blender glb LevelLoader），但只让玩家接入了横向阻挡。后续做了三阶段修整：
+
+| 阶段 | commit | 关键变更 |
+|---|---|---|
+| 🟢 阶段 1 止血 | `3198d6c` | `getTerrainHeight` 软虚空保底 y=0；boss 每帧跟地；关卡 `?level` opt-in |
+| 🟡 阶段 2 抽 helper | `a46902a` | 新增 `tryMoveHorizontally` 4-path fallback；敌人 / Boss 接入墙阻挡 |
+| 🔵 阶段 3 去全局状态 | `e11cc20` | `LevelGeometry` 接口 + 纯函数；`Engine.geo` 实例化；`makeLevelGeometry(level?)` |
+
+**当前架构（Phase 3 后）：**
+
+```ts
+// GameInstance 持有
+engine.geo = makeLevelGeometry(config.level);  // 不传 level → NEON_CRUCIBLE_GEOMETRY
+
+// 4 个 *At 查询（系统接受 engine.geo / ctx.geo）
+getTerrainHeightAt(geo, x, z)         // 最高地表（软虚空 → 0）
+getSupportHeightAt(geo, x, z, feetY)  // 仅返回 feetY+STEP_HEIGHT 内可达的面
+isBlockedHorizontallyAt(geo, x, z, feetY, includeClimb?, radius?)
+findClimbAt(geo, x, z, feetY)
+
+// helper（玩家 / 敌人 / Boss 共用）
+tryMoveHorizontally(geo, oldX, oldZ, desiredX, desiredZ, feetY, opts)
+// 4-path fallback: 直走 → 沿 X 滑 → 沿 Z 滑 → 原地
+```
+
+**各 mover 的虚空 / 阻挡策略：**
+
+| Mover | y 更新 | 横向 | 掉出 |
+|---|---|---|---|
+| Player | 重力 + 严格支撑面 | helper(0.45) + climb | FALL_RESPAWN_Y = -20 → 复活 |
+| Enemy | 软虚空贴地 | helper(0.4) | 不会发生 |
+| Boss | 软虚空贴地 | helper(1.0) | 同上 |
+| Projectile | vy 重力 + clamp ≥ terrainY+0.1 | 无（穿墙） | 同上 |
+| Gargoyle | 固定 y=3 | 飞越所有阻挡 | 不适用 |
+
+**关卡白盒 opt-in：**
+
+```bash
+http://localhost:1513/                 # 默认 Neon Crucible
+http://localhost:1513/?level           # public/models/levels/level_whitebox.glb
+http://localhost:1513/?level=foo       # public/models/levels/level_foo.glb
+```
+
+关卡命名约定见 `level-editor/WHITEBOX_SPEC.md`（前缀：`col_` / `wall_` / `climb_` / `ramp_` / `spawn_*`）。
+
+**测试覆盖：**
+
+- `systems/__tests__/collision.test.ts` —— 4 API × 内置/加载关卡/边界/实例隔离
+- `systems/__tests__/horizontalMove.test.ts` —— helper 4 path fallback
+- `ai/__tests__/_move.test.ts` —— 敌人接入 wall_ 集成
+
 
 ---
 
@@ -380,6 +444,15 @@ window.__session.gameInstance.getState()
 
 // 修改典籍等级（dev 测试）
 window.__session.gameInstance.getState().player.tomes
+
+// GM 命令清单（按 ` 反引号开 / 关 panel）
+window.__gm.help()             // 打印所有命令
+window.__gm.giveAllWeapons()   // 满武器
+window.__gm.godMode()          // 无敌
+window.__gm.spawnBoss()        // 强制召唤 Boss
+window.__gm.testLightning()    // 在玩家头顶劈一道电（VFX 测试）
+window.__gm.showCollision()    // 切换碰撞盒可视化（仅 ?level 模式有效）
+                                // 绿 col_ / 红 wall_ / 蓝 climb_ / 黄 ramp_ / 品红 spawn
 ```
 
 ### 5. 构建与部署
