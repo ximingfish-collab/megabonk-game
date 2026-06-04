@@ -34,9 +34,9 @@ import { generateUpgradeOptions, xpForLevel } from '../upgrades.ts';
 import {
   getTerrainHeight,
   getSupportHeight,
-  isBlockedHorizontally,
   findClimb,
 } from './collision.ts';
+import { tryMoveHorizontally } from './horizontalMove.ts';
 import type { GameConfig, PlayerState } from '../types.ts';
 import type { Engine } from './types.ts';
 
@@ -259,17 +259,15 @@ export function tickPlayerMovement(engine: Engine, dt: number): void {
     );
     if (result) {
       // 横向阻挡：col_/wall_ 侧面挡人；climb_ 平时挡（蹬墙释放窗口内不挡，便于跳离）。
-      const oldX = player.x;
-      const oldZ = player.z;
       const includeClimb = climbReleaseTimer <= 0;
-      if (!isBlockedHorizontally(result.x, result.z, player.y, includeClimb)) {
-        player.x = result.x;
-        player.z = result.z;
-      } else if (!isBlockedHorizontally(result.x, oldZ, player.y, includeClimb)) {
-        player.x = result.x; // 沿 Z 向墙滑行
-      } else if (!isBlockedHorizontally(oldX, result.z, player.y, includeClimb)) {
-        player.z = result.z; // 沿 X 向墙滑行
-      }
+      const moved = tryMoveHorizontally(
+        player.x, player.z,
+        result.x, result.z,
+        player.y,
+        { includeClimb },
+      );
+      player.x = moved.x;
+      player.z = moved.z;
 
       // 地面跟随支撑面：迈步上 / 小台阶下贴地；无支撑或高崖则进入下落（修 O3）。
       if (player.isGrounded) {

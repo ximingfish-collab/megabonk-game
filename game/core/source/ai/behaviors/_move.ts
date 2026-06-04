@@ -3,9 +3,12 @@
  *
  * 等价于原 `GameInstance.moveEnemy(enemy, dt)` —— 处理速度倍率（charge/dive
  * inherent 加成、curse_tome buff、final swarm boost）+ 边界 clamp + 地形 y 跟随。
+ *
+ * 阶段 2：横向阻挡接入 tryMoveHorizontally（敌人不再穿 col_/wall_）。
  */
 import type { EnemyState } from '../../types.ts';
 import type { AiContext } from '../types.ts';
+import { tryMoveHorizontally } from '../../systems/horizontalMove.ts';
 
 export function applyMovement(enemy: EnemyState, ctx: AiContext): void {
   const dx = enemy.targetX - enemy.x;
@@ -34,14 +37,29 @@ export function applyMovement(enemy: EnemyState, ctx: AiContext): void {
   const nz = dz / dist;
 
   const halfMap = (ctx.mapSize + 10) * 0.5;
-  enemy.x = Math.max(-halfMap, Math.min(halfMap, enemy.x + nx * actualMove));
-  enemy.z = Math.max(-halfMap, Math.min(halfMap, enemy.z + nz * actualMove));
+  const desiredX = Math.max(-halfMap, Math.min(halfMap, enemy.x + nx * actualMove));
+  const desiredZ = Math.max(-halfMap, Math.min(halfMap, enemy.z + nz * actualMove));
 
-  // 地形 y 跟随（gargoyle 飞行单位除外）。虚空（无碰撞体）时保持原高度，不掉进无限深渊。
-  if (enemy.type !== 'gargoyle') {
-    const h = ctx.getTerrainHeight(enemy.x, enemy.z);
-    if (Number.isFinite(h)) {
-      enemy.y = h;
-    }
+  // 飞行单位（gargoyle）忽略所有横向阻挡，直接到位。
+  if (enemy.type === 'gargoyle') {
+    enemy.x = desiredX;
+    enemy.z = desiredZ;
+    return;
+  }
+
+  // 横向阻挡 + 沿墙滑行（与玩家共用同一套）。半径稍小于玩家，避免敌人挤在墙边。
+  const moved = tryMoveHorizontally(
+    enemy.x, enemy.z,
+    desiredX, desiredZ,
+    enemy.y,
+    { radius: 0.4, includeClimb: true },
+  );
+  enemy.x = moved.x;
+  enemy.z = moved.z;
+
+  // 地形 y 跟随（gargoyle 已经 return 了不会到这）
+  const h = ctx.getTerrainHeight(enemy.x, enemy.z);
+  if (Number.isFinite(h)) {
+    enemy.y = h;
   }
 }
