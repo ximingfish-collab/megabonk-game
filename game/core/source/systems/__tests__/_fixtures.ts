@@ -11,6 +11,7 @@ import { DEFAULT_GAME_CONFIG } from '../../config.ts';
 import type { GameConfig, GameState, InputState, PlayerState } from '../../types.ts';
 import type { AiEffects } from '../../ai/types.ts';
 import type { Engine } from '../types.ts';
+import { NEON_CRUCIBLE_GEOMETRY } from '../collision.ts';
 import { makePlayer } from '../../ai/__tests__/_fixtures.ts';
 
 export { makePlayer, makeEnemy, makeBoss } from '../../ai/__tests__/_fixtures.ts';
@@ -82,6 +83,7 @@ export function makeEngine(overrides: Partial<Engine> = {}): Engine {
     world: createWorld(),
     effects: overrides.effects ?? effects,
     spatialHash: overrides.spatialHash ?? new SpatialHash(4),
+    geo: overrides.geo ?? NEON_CRUCIBLE_GEOMETRY,
     nextEnemyId: 100,
     nextProjectileId: 100,
     nextPickupId: 100,

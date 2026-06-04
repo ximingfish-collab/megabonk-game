@@ -13,6 +13,7 @@ import type {
   BossState,
 } from '../../types.ts';
 import type { AiContext, AiEffects } from '../types.ts';
+import { NEON_CRUCIBLE_GEOMETRY } from '../../systems/collision.ts';
 
 export function makePlayer(overrides: Partial<PlayerState> = {}): PlayerState {
   return {
@@ -106,6 +107,7 @@ export function makeAiContext(overrides: Partial<AiContext> = {}): AiContext {
     aiGroup: 0,
     finalSwarm: false,
     getTerrainHeight: () => 0,
+    geo: NEON_CRUCIBLE_GEOMETRY,
     effects: overrides.effects ?? makeAiEffects(),
     ...overrides,
   };

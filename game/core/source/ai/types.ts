@@ -9,6 +9,7 @@
  */
 import type { PlayerState, EnemyState, BossState, EnemyType } from '../types.ts';
 import type { BehaviorEffects } from '../behaviors/types.ts';
+import type { LevelGeometry } from '../systems/collision.ts';
 
 export interface AiEffects extends BehaviorEffects {
   /**
@@ -47,6 +48,8 @@ export interface AiContext {
   finalSwarm: boolean;
   /** 地形高度查询（玩家平台几何） —— 非 gargoyle 敌人 y 跟随地形 */
   getTerrainHeight(x: number, z: number): number;
+  /** 当前关卡几何（横向阻挡 / climb 等查询用，与 engine.geo 同一份） */
+  geo: LevelGeometry;
   /** 副作用函数表 */
   effects: AiEffects;
 }

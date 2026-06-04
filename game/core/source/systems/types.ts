@@ -10,6 +10,7 @@ import type { GameConfig, GameState, InputState } from '../types.ts';
 import type { GameWorld } from '../world.ts';
 import type { AiEffects } from '../ai/types.ts';
 import type { SpatialHash } from '../spatial-hash.ts';
+import type { LevelGeometry } from './collision.ts';
 
 export interface Engine {
   // ─── 核心状态 ───
@@ -22,6 +23,8 @@ export interface Engine {
   world: GameWorld;
   effects: AiEffects;
   spatialHash: SpatialHash;
+  /** 当前关卡几何（碰撞 / 高度查询） */
+  geo: LevelGeometry;
 
   // ─── 计数器 / 自增 ID（systems 内 mutate）───
   nextEnemyId: number;

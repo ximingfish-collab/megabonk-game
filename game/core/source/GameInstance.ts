@@ -41,7 +41,7 @@ import { tickEnemyAi } from './systems/aiSystem.ts';
 import { tickBossAi } from './systems/bossAi.ts';
 
 import type { Engine } from './systems/types.ts';
-import { getTerrainHeight, loadLevel, clearLevel } from './systems/collision.ts';
+import { getTerrainHeightAt, makeLevelGeometry, NEON_CRUCIBLE_GEOMETRY } from './systems/collision.ts';
 import {
   createInitialPlayer,
   tickPlayerMovement,
@@ -103,6 +103,8 @@ export class GameInstance {
       world,
       effects: null as unknown as AiEffects,  // 立刻填
       spatialHash: new SpatialHash(4),
+      // 关卡几何 —— applyLevelConfig() 会根据 config.level 重新赋值；此处先用默认占位
+      geo: NEON_CRUCIBLE_GEOMETRY,
       nextEnemyId: 1,
       nextProjectileId: 1,
       nextPickupId: 1,
@@ -124,26 +126,24 @@ export class GameInstance {
 
   /**
    * 应用关卡数据：注入地形碰撞矩形 + 玩家出生点。
-   * 无关卡数据时回退到内置 Neon Crucible 几何（清掉上一个实例可能留下的模块状态）。
+   * 无关卡数据时回退到内置 Neon Crucible 几何。
    */
   private applyLevelConfig(): void {
     const { engine } = this;
     const level = engine.config.level;
+    engine.geo = makeLevelGeometry(level);
     if (level) {
-      // 碰撞系统统一接管关卡几何（col_/wall_ 实体盒、climb_ 攀爬体、ramp_ 斜坡、地表高度）。
-      loadLevel(level);
       const spawn = level.spawnPoints?.player;
       if (spawn) {
         engine.state.player.x = spawn.x;
         engine.state.player.z = spawn.z;
-        const groundAt = getTerrainHeight(spawn.x, spawn.z);
+        const groundAt = getTerrainHeightAt(engine.geo, spawn.x, spawn.z);
         engine.state.player.y = Number.isFinite(groundAt) ? groundAt : 0;
         setPlayerSpawn(spawn.x, spawn.z);
       } else {
         setPlayerSpawn(engine.state.player.x, engine.state.player.z);
       }
     } else {
-      clearLevel();
       setPlayerSpawn(engine.state.player.x, engine.state.player.z);
     }
     engine.state.player.isClimbing = false;
@@ -383,7 +383,9 @@ function makeAiContext(engine: Engine, dt: number): AiContext {
     mapSize: engine.config.mapSize,
     aiGroup: engine.aiGroup,
     finalSwarm: engine.state.finalSwarm,
-    getTerrainHeight,
+    // 闭包绑定 engine.geo —— 关卡切换后下一帧就读到新几何
+    getTerrainHeight: (x, z) => getTerrainHeightAt(engine.geo, x, z),
+    geo: engine.geo,
     effects: engine.effects,
   };
 }

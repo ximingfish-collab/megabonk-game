@@ -1,15 +1,23 @@
 /**
  * 关卡 / 碰撞系统 —— 单一权威来源，管理一关的全部静态几何与空间查询。
  *
- * 这是"建立各个系统"里的第一个独立系统：把原本散落在 terrain.ts（地表高度）
- * 与 player.ts（实体盒 / 攀爬体横向阻挡）里的关卡几何统一收拢，对外只暴露
- *   - loadLevel(level) / clearLevel()  —— 注入 / 清空关卡（换地图测试）
- *   - getTerrainHeight / getSupportHeight —— 竖直查询（敌人贴地 / 玩家站立）
- *   - isBlockedHorizontally / findClimb   —— 水平查询（任何 mover 通用）
+ * Phase 3 重构：从模块级状态改成 `LevelGeometry` 接口 + 纯函数。
+ * 所有查询都把 geo 作为第一参数：
+ *   makeLevelGeometry(level?)        —— 构造 (无 level 用内置 Neon Crucible)
+ *   getTerrainHeightAt(geo, x, z)    —— 竖直查询 (敌人贴地 / 抛射物 / 出生点)
+ *   getSupportHeightAt(geo, x, z, y) —— 玩家可达支撑面（带迈步高度）
+ *   isBlockedHorizontallyAt(...)     —— 水平阻挡查询
+ *   findClimbAt(...)                 —— 找可抓取的攀爬体
  *
- * 纯数据 + 纯函数，无副作用、无渲染依赖。模块级状态——同一时刻只跑一个
- * GameInstance，可接受。玩家 / 敌人 / 投射物都查询同一份几何，
- * 为后续共享移动系统（Stage 2）与 ECS 实体化（Stage 3）打地基。
+ * 调用方 (player / _move / bossAi / projectiles) 通过 engine.geo / ctx.geo
+ * 取得当前关卡几何。GameInstance 持有实例：
+ *   - 构造时：从 config.level 生成（无则用 NEON_CRUCIBLE_GEOMETRY 默认）
+ *   - reset 时：重新生成
+ *
+ * 好处：
+ *   - 多 GameInstance 安全（HMR 切换关卡不脏状态）
+ *   - 测试无需 beforeEach(clearLevel)
+ *   - 未来可做关卡热重载 / 多关卡并行
  */
 
 import type { CollisionRect, RampVolume, ClimbVolume, LevelData } from '../types.ts';
@@ -25,6 +33,24 @@ export interface SolidBox {
   halfD: number;
   bottomY: number;
   topY: number;
+}
+
+/** 一关的全部静态碰撞几何（不可变快照）。 */
+export interface LevelGeometry {
+  /** 平台矩形（可站立的顶面）。 */
+  readonly rects: readonly Rect[];
+  /** 可行走的倾斜地面。 */
+  readonly ramps: readonly RampVolume[];
+  /** 实体盒子（col_ + wall_ 合并），横向阻挡。 */
+  readonly solidBoxes: readonly SolidBox[];
+  /** 攀爬体（climb_），走不穿、可攀爬。 */
+  readonly climbs: readonly ClimbVolume[];
+  /**
+   * 所见即所得模式。
+   * - true（加载关卡）：盒外无自动斜坡边缘
+   * - false（内置 Neon Crucible）：盒外 RAMP_WIDTH 内自动斜坡过渡
+   */
+  readonly wysiwyg: boolean;
 }
 
 /** 内置 Neon Crucible 几何（缺省关卡 / 单测基线）。 */
@@ -62,40 +88,29 @@ const PLAYER_RADIUS = 0.45;
 /** 虚空高度：脚下没有任何碰撞体积时返回此值，mover 会因此下落。 */
 export const VOID_HEIGHT = Number.NEGATIVE_INFINITY;
 
-// ─── 当前生效的关卡几何（模块级状态） ──────────────────────────────────────
+/** 内置 Neon Crucible 默认几何（无关卡时使用）。 */
+export const NEON_CRUCIBLE_GEOMETRY: LevelGeometry = {
+  rects: NEON_CRUCIBLE,
+  ramps: [],
+  solidBoxes: [],
+  climbs: [],
+  wysiwyg: false,
+};
 
-/** 平台矩形（可站立的顶面）。默认 Neon Crucible。 */
-let activeRects: readonly Rect[] = NEON_CRUCIBLE;
-
-/**
- * 所见即所得模式。
- * - true（加载关卡）：只有 col_ 盒子顶面之上可站，盒外为虚空（VOID_HEIGHT），无自动斜坡。
- * - false（内置 Neon Crucible / 单测基线）：保留旧行为——默认 y=0 地板 + 边缘自动斜坡。
- */
-let wysiwyg = false;
-
-/** 可行走的倾斜地面（ramp_）。 */
-let activeRamps: readonly RampVolume[] = [];
-
-/** 实体盒子（col_ + wall_ 合并），横向阻挡。 */
-let solidBoxes: readonly SolidBox[] = [];
-
-/** 攀爬体（climb_），走不穿、可攀爬。 */
-let levelClimbs: readonly ClimbVolume[] = [];
-
-// ─── 关卡注入 / 清空 ──────────────────────────────────────────────────────
+// ─── 工厂 ─────────────────────────────────────────────────────────────────
 
 /**
- * 加载一关：把 LevelData 拆成各类几何并进入所见即所得模式。
- * col_ + wall_ 合并为实体盒（横向阻挡）；col_ 缺省 baseY 视为实心到底。
- * climb_ 的"走不穿"由调用方按需启用（见 isBlockedHorizontally 的 includeClimb）。
+ * 从 LevelData 构造一份 LevelGeometry 实例。
+ * - 无 level → 返回 NEON_CRUCIBLE_GEOMETRY
+ * - 有 level → 进入 wysiwyg=true，col_+wall_ 合并为实体盒
  */
-export function loadLevel(level: LevelData): void {
-  activeRects = level.collisionRects.map(
+export function makeLevelGeometry(level?: LevelData): LevelGeometry {
+  if (!level) return NEON_CRUCIBLE_GEOMETRY;
+
+  const rects: Rect[] = level.collisionRects.map(
     (r) => [r.cx, r.cz, r.halfW, r.halfD, r.height] as Rect,
   );
-  activeRamps = level.ramps ?? [];
-  solidBoxes = [
+  const solidBoxes: SolidBox[] = [
     ...level.collisionRects.map((r) => ({
       cx: r.cx, cz: r.cz, halfW: r.halfW, halfD: r.halfD,
       bottomY: r.baseY ?? Number.NEGATIVE_INFINITY,
@@ -106,17 +121,13 @@ export function loadLevel(level: LevelData): void {
       bottomY: w.bottomY, topY: w.topY,
     })),
   ];
-  levelClimbs = level.climbVolumes ?? [];
-  wysiwyg = true;
-}
-
-/** 恢复内置 Neon Crucible 几何（含默认地板 + 自动斜坡），清空关卡几何。 */
-export function clearLevel(): void {
-  activeRects = NEON_CRUCIBLE;
-  activeRamps = [];
-  solidBoxes = [];
-  levelClimbs = [];
-  wysiwyg = false;
+  return {
+    rects,
+    ramps: level.ramps ?? [],
+    solidBoxes,
+    climbs: level.climbVolumes ?? [],
+    wysiwyg: true,
+  };
 }
 
 // ─── 竖直查询 ─────────────────────────────────────────────────────────────
@@ -138,7 +149,7 @@ function rampHeightAt(ramp: RampVolume, x: number, z: number): number | null {
  * 单个矩形在 (x,z) 处的地表高度贡献。不覆盖返回 null。
  * 非所见即所得模式（内置 Neon Crucible）保留边缘自动斜坡。
  */
-function rectHeightAt(rect: Rect, x: number, z: number): number | null {
+function rectHeightAt(rect: Rect, x: number, z: number, wysiwyg: boolean): number | null {
   const [cx, cz, hw, hd, h] = rect;
   const dx = Math.abs(x - cx);
   const dz = Math.abs(z - cz);
@@ -154,17 +165,16 @@ function rectHeightAt(rect: Rect, x: number, z: number): number | null {
 
 /**
  * (x,z) 处的最高地表高度（不考虑 mover 当前高度）。
- * 用于敌人贴地、抛射物、出生点。无 col_ 覆盖时回落到 y=0 默认地板，避免
- * 把 -Infinity 传染给 boss / 投射物 / 敌人 y（这些 mover 没有"虚空回收"逻辑）。
- * 玩家"掉出关卡 → 复活"语义改由玩家自己读 getSupportHeight 判定。
+ * 用于敌人贴地、抛射物、出生点。无 col_ 覆盖时回落到 y=0 默认地板（软虚空）。
+ * 玩家"掉出关卡 → 复活"语义改由玩家自己读 getSupportHeightAt 判定。
  */
-export function getTerrainHeight(x: number, z: number): number {
+export function getTerrainHeightAt(geo: LevelGeometry, x: number, z: number): number {
   let height = 0; // 统一保底地板，软虚空
-  for (const rect of activeRects) {
-    const h = rectHeightAt(rect, x, z);
+  for (const rect of geo.rects) {
+    const h = rectHeightAt(rect, x, z, geo.wysiwyg);
     if (h !== null && h > height) height = h;
   }
-  for (const ramp of activeRamps) {
+  for (const ramp of geo.ramps) {
     const h = rampHeightAt(ramp, x, z);
     if (h !== null && h > height) height = h;
   }
@@ -174,19 +184,21 @@ export function getTerrainHeight(x: number, z: number): number {
 /**
  * mover 脚下的"支撑面"高度：覆盖 (x,z) 且顶面 ≤ feetY + STEP_HEIGHT 的最高地表。
  *
- * 与 getTerrainHeight 的区别：**只返回够得着的面**，比脚高出超过迈步高度的
+ * 与 getTerrainHeightAt 的区别：**只返回够得着的面**，比脚高出超过迈步高度的
  * 平台被忽略 —— 因此 mover 能从下方走过高架平台（不再有"空气墙"），
- * 想上高台必须跳到足够高度让其顶面进入迈步范围。无可站面则返回 VOID_HEIGHT（下落）。
+ * 想上高台必须跳到足够高度让其顶面进入迈步范围。
+ *
+ * 玩家掉出关卡（feetY < -STEP_HEIGHT）时默认地板也不可达 → 返回 VOID_HEIGHT
+ * → 玩家进入下落 / FALL_RESPAWN。
  */
-export function getSupportHeight(x: number, z: number, feetY: number): number {
+export function getSupportHeightAt(geo: LevelGeometry, x: number, z: number, feetY: number): number {
   const limit = feetY + STEP_HEIGHT;
-  // 默认 y=0 地板（在迈步范围内才算够得着）；玩家掉出关卡时 limit < 0 → 不再有支撑 → 进入下落 / FALL_RESPAWN。
   let best = 0 <= limit ? 0 : VOID_HEIGHT;
-  for (const rect of activeRects) {
-    const h = rectHeightAt(rect, x, z);
+  for (const rect of geo.rects) {
+    const h = rectHeightAt(rect, x, z, geo.wysiwyg);
     if (h !== null && h <= limit && h > best) best = h;
   }
-  for (const ramp of activeRamps) {
+  for (const ramp of geo.ramps) {
     const h = rampHeightAt(ramp, x, z);
     if (h !== null && h <= limit && h > best) best = h;
   }
@@ -223,13 +235,14 @@ function blockedByAny(
  * climb_ 攀爬体平时也挡（走不穿）；调用方在蹬墙释放窗口内传 includeClimb=false 放行，
  * 使"跳+方向"能离开 climb 范围下落。
  */
-export function isBlockedHorizontally(
+export function isBlockedHorizontallyAt(
+  geo: LevelGeometry,
   x: number, z: number, feetY: number,
   includeClimb = true, radius = PLAYER_RADIUS,
 ): boolean {
-  if (blockedByAny(solidBoxes, x, z, feetY, radius)) return true;
-  if (includeClimb && levelClimbs.length > 0) {
-    for (const c of levelClimbs) {
+  if (blockedByAny(geo.solidBoxes, x, z, feetY, radius)) return true;
+  if (includeClimb && geo.climbs.length > 0) {
+    for (const c of geo.climbs) {
       if (
         Math.abs(x - c.cx) <= c.halfW + radius &&
         Math.abs(z - c.cz) <= c.halfD + radius
@@ -244,8 +257,8 @@ export function isBlockedHorizontally(
 }
 
 /** 找到 (x,z,feetY) 处可抓取的攀爬体；无则返回 null。 */
-export function findClimb(x: number, z: number, feetY: number): ClimbVolume | null {
-  for (const c of levelClimbs) {
+export function findClimbAt(geo: LevelGeometry, x: number, z: number, feetY: number): ClimbVolume | null {
+  for (const c of geo.climbs) {
     if (
       Math.abs(x - c.cx) <= c.halfW + CLIMB_GRAB_MARGIN &&
       Math.abs(z - c.cz) <= c.halfD + CLIMB_GRAB_MARGIN &&
@@ -257,3 +270,6 @@ export function findClimb(x: number, z: number, feetY: number): ClimbVolume | nu
   }
   return null;
 }
+
+// 使用 CollisionRect 抑制 unused import lint（保留显式 import 以便文件做类型导出）
+export type { CollisionRect };

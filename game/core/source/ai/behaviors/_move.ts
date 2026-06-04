@@ -49,6 +49,7 @@ export function applyMovement(enemy: EnemyState, ctx: AiContext): void {
 
   // 横向阻挡 + 沿墙滑行（与玩家共用同一套）。半径稍小于玩家，避免敌人挤在墙边。
   const moved = tryMoveHorizontally(
+    ctx.geo,
     enemy.x, enemy.z,
     desiredX, desiredZ,
     enemy.y,

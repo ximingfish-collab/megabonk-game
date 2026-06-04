@@ -32,9 +32,9 @@ import { loadSave } from '../save.ts';
 import { getShopBonuses } from '../shop.ts';
 import { generateUpgradeOptions, xpForLevel } from '../upgrades.ts';
 import {
-  getTerrainHeight,
-  getSupportHeight,
-  findClimb,
+  getTerrainHeightAt,
+  getSupportHeightAt,
+  findClimbAt,
 } from './collision.ts';
 import { tryMoveHorizontally } from './horizontalMove.ts';
 import type { GameConfig, PlayerState } from '../types.ts';
@@ -128,7 +128,7 @@ export function tickPlayerMovement(engine: Engine, dt: number): void {
 
   // ===== 攀爬 climb_ =====
   if (player.isClimbing) {
-    const c = findClimb(player.x, player.z, player.y);
+    const c = findClimbAt(engine.geo, player.x, player.z, player.y);
     if (!c) {
       // 离开攀爬体 → 松手下落
       player.isClimbing = false;
@@ -159,7 +159,7 @@ export function tickPlayerMovement(engine: Engine, dt: number): void {
         // 朝当前朝向往里挪一点，落到平台面上
         player.x += engine.facingX * 0.9;
         player.z += engine.facingZ * 0.9;
-        const top = getSupportHeight(player.x, player.z, player.y);
+        const top = getSupportHeightAt(engine.geo, player.x, player.z, player.y);
         if (Number.isFinite(top)) player.y = top;
       } else if (player.y < c.bottomY) {
         player.y = c.bottomY;
@@ -169,7 +169,7 @@ export function tickPlayerMovement(engine: Engine, dt: number): void {
     if (player.isClimbing) return;
   } else {
     // 攀爬进入：跳向攀爬体（地面按跳），或下落中贴上攀爬体（仅下落阶段，避免蹬墙跳后立刻又抓住）
-    const c = findClimb(player.x, player.z, player.y);
+    const c = findClimbAt(engine.geo, player.x, player.z, player.y);
     const wantGrab =
       climbReleaseTimer <= 0 &&
       (jumpPressed || (!player.isGrounded && player.velocityY <= 0));
@@ -200,7 +200,7 @@ export function tickPlayerMovement(engine: Engine, dt: number): void {
     player.y += player.velocityY * dt;
 
     // 支撑面：只认脚够得着的面，下落阶段才着地。
-    const support = getSupportHeight(player.x, player.z, player.y);
+    const support = getSupportHeightAt(engine.geo, player.x, player.z, player.y);
     if (player.velocityY <= 0 && Number.isFinite(support) && player.y <= support) {
       player.y = support;
       player.velocityY = 0;
@@ -217,7 +217,7 @@ export function tickPlayerMovement(engine: Engine, dt: number): void {
       // 掉出关卡虚空 → 传送回出生点。
       player.x = spawnX;
       player.z = spawnZ;
-      const groundAt = getTerrainHeight(spawnX, spawnZ);
+      const groundAt = getTerrainHeightAt(engine.geo, spawnX, spawnZ);
       player.y = Number.isFinite(groundAt) ? groundAt : 0;
       player.velocityY = 0;
       player.isGrounded = true;
@@ -261,6 +261,7 @@ export function tickPlayerMovement(engine: Engine, dt: number): void {
       // 横向阻挡：col_/wall_ 侧面挡人；climb_ 平时挡（蹬墙释放窗口内不挡，便于跳离）。
       const includeClimb = climbReleaseTimer <= 0;
       const moved = tryMoveHorizontally(
+        engine.geo,
         player.x, player.z,
         result.x, result.z,
         player.y,
@@ -271,7 +272,7 @@ export function tickPlayerMovement(engine: Engine, dt: number): void {
 
       // 地面跟随支撑面：迈步上 / 小台阶下贴地；无支撑或高崖则进入下落（修 O3）。
       if (player.isGrounded) {
-        const support = getSupportHeight(player.x, player.z, player.y);
+        const support = getSupportHeightAt(engine.geo, player.x, player.z, player.y);
         if (Number.isFinite(support) && support - player.y >= -STEP_HEIGHT) {
           player.y = support;
         } else {

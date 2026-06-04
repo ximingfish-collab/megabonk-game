@@ -61,6 +61,7 @@ export function tickBossAi(
     const desiredZ = Math.max(-halfMap, Math.min(halfMap, boss.z + dir.z * boss.speed * ctx.dt));
     // boss 体型大，给一个稍宽的碰撞半径（默认 0.45 是玩家用的，boss 视觉直径 ≥ 5 → 取 1.0）。
     const moved = tryMoveHorizontally(
+      ctx.geo,
       boss.x, boss.z,
       desiredX, desiredZ,
       boss.y,

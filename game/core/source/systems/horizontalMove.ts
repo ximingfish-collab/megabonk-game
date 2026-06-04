@@ -10,10 +10,10 @@
  *   - 地图边界 clamp（已经由 applyMovement3D 或 mover 自己 clamp 过）
  *   - 攀爬 / 跳跃等 mover 特有逻辑
  */
-import { isBlockedHorizontally } from './collision.ts';
+import { isBlockedHorizontallyAt, type LevelGeometry } from './collision.ts';
 
 export interface HorizontalMoveOptions {
-  /** mover 横向碰撞半径，默认沿用 isBlockedHorizontally 默认值（PLAYER_RADIUS=0.45）。 */
+  /** mover 横向碰撞半径，默认沿用 isBlockedHorizontallyAt 默认值（PLAYER_RADIUS=0.45）。 */
   radius?: number;
   /** 是否把 climb_ 攀爬体也算实体阻挡。玩家蹬墙释放窗口内传 false，敌人/Boss 一律 true。 */
   includeClimb?: boolean;
@@ -24,13 +24,15 @@ export interface HorizontalMoveOptions {
  *
  * 返回最终落点（已应用阻挡）。调用方负责把结果写回 mover.x / mover.z。
  *
+ * @param geo      当前关卡几何（engine.geo / ctx.geo）
  * @param oldX     当前位置 X
  * @param oldZ     当前位置 Z
  * @param desiredX 想去的位置 X
  * @param desiredZ 想去的位置 Z
- * @param feetY    mover 脚的 y（用于 isBlockedHorizontally 判定迈步 / 头顶规则）
+ * @param feetY    mover 脚的 y（用于 isBlockedHorizontallyAt 判定迈步 / 头顶规则）
  */
 export function tryMoveHorizontally(
+  geo: LevelGeometry,
   oldX: number,
   oldZ: number,
   desiredX: number,
@@ -42,15 +44,15 @@ export function tryMoveHorizontally(
   const radius = options.radius;
 
   // Path 1: 整体直走
-  if (!isBlockedHorizontally(desiredX, desiredZ, feetY, includeClimb, radius)) {
+  if (!isBlockedHorizontallyAt(geo, desiredX, desiredZ, feetY, includeClimb, radius)) {
     return { x: desiredX, z: desiredZ };
   }
   // Path 2: 沿 Z 滑行（保留新 X，旧 Z）
-  if (!isBlockedHorizontally(desiredX, oldZ, feetY, includeClimb, radius)) {
+  if (!isBlockedHorizontallyAt(geo, desiredX, oldZ, feetY, includeClimb, radius)) {
     return { x: desiredX, z: oldZ };
   }
   // Path 3: 沿 X 滑行（旧 X，保留新 Z）
-  if (!isBlockedHorizontally(oldX, desiredZ, feetY, includeClimb, radius)) {
+  if (!isBlockedHorizontallyAt(geo, oldX, desiredZ, feetY, includeClimb, radius)) {
     return { x: oldX, z: desiredZ };
   }
   // Path 4: 全方向被挡 → 原地不动

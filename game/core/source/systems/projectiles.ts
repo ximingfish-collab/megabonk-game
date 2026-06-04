@@ -12,7 +12,7 @@
  */
 import { TICK_INTERVAL_MS } from '../config.ts';
 import { updateOrbitingProjectile } from '../weapons.ts';
-import { getTerrainHeight } from './terrain.ts';
+import { getTerrainHeightAt } from './collision.ts';
 import type { Engine } from './types.ts';
 
 void TICK_INTERVAL_MS; // 占位（避免 import 被裁掉）
@@ -32,7 +32,7 @@ export function tickProjectiles(engine: Engine, dt: number): void {
       proj.z += proj.vz * dt;
     }
 
-    const terrainY = getTerrainHeight(proj.x, proj.z);
+    const terrainY = getTerrainHeightAt(engine.geo, proj.x, proj.z);
     if (proj.y < terrainY + 0.1) {
       proj.y = terrainY + 0.1;
     }
