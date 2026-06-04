@@ -9,6 +9,27 @@
     "character": "角色",
     "selectCharacter": "选择角色"
   },
+  "characterSelect": {
+    "confirm": "确认",
+    "back": "返回",
+    "initialWeapon": "初始武器",
+    "statLabel": {
+      "hp": "血量",
+      "speed": "速度",
+      "damage": "伤害倍率",
+      "armor": "护甲",
+      "crit": "暴击率"
+    },
+    "weaponStat": {
+      "damage": "伤害: {{value}}",
+      "cooldown": "冷却: {{value}}秒",
+      "projectiles": "弹数: {{value}}",
+      "bounces": "弹射: {{value}}",
+      "chains": "连锁: {{value}}",
+      "range": "范围: {{value}}",
+      "aoe": "溅射范围: {{value}}"
+    }
+  },
   "character": {
     "megachad": "超级猛男",
     "megachad_desc": "均衡型战士，高伤害，标准速度",
@@ -19,7 +40,9 @@
     "stat": {
       "hp": "血量: {{value}}",
       "speed": "速度: {{value}}",
-      "damage": "伤害: {{value}}x"
+      "damage": "伤害: {{value}}x",
+      "armor": "护甲: {{value}}",
+      "crit": "暴击率: {{value}}%"
     }
   },
   "hud": {
@@ -183,6 +206,8 @@
     "2": "困难",
     "3": "噩梦",
     "select": "选择难度",
+    "choose": "选择",
+    "chosen": "已选择",
     "transition": "第 {{value}} 关",
     "stat": {
       "enemyHp": "敌人血量: {{value}}x",
