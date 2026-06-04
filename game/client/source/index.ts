@@ -6201,7 +6201,14 @@ async function main(): Promise<void> {
   }
 
   await loadModels();
-  await tryLoadLevel();
+  // 关卡白盒默认不自动加载（PR #7 引入了「数据驱动关卡」，但物理 / boss / 投射物
+  // 还没完全适配虚空语义，强制加载会暴露多处 bug）。
+  // 想用关卡：URL 加 `?level` 加载默认 whitebox，或 `?level=foo` 加载 level_foo.glb。
+  const levelParam = new URLSearchParams(location.search).get('level');
+  if (levelParam !== null) {
+    const name = levelParam || 'whitebox';
+    await tryLoadLevel(`/models/levels/level_${name}.glb`);
+  }
 
   showMainMenu();
 }

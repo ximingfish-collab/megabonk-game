@@ -59,4 +59,7 @@ export function tickBossAi(
     boss.x = Math.max(-halfMap, Math.min(halfMap, boss.x + dir.x * boss.speed * ctx.dt));
     boss.z = Math.max(-halfMap, Math.min(halfMap, boss.z + dir.z * boss.speed * ctx.dt));
   }
+
+  // 5. y 跟地（每帧更新，避免静止时站在 col_ 上玩家走开后 boss 不下来）
+  boss.y = ctx.getTerrainHeight(boss.x, boss.z);
 }

@@ -154,10 +154,12 @@ function rectHeightAt(rect: Rect, x: number, z: number): number | null {
 
 /**
  * (x,z) 处的最高地表高度（不考虑 mover 当前高度）。
- * 用于敌人贴地、抛射物、出生点。所见即所得模式下盒外返回 VOID_HEIGHT。
+ * 用于敌人贴地、抛射物、出生点。无 col_ 覆盖时回落到 y=0 默认地板，避免
+ * 把 -Infinity 传染给 boss / 投射物 / 敌人 y（这些 mover 没有"虚空回收"逻辑）。
+ * 玩家"掉出关卡 → 复活"语义改由玩家自己读 getSupportHeight 判定。
  */
 export function getTerrainHeight(x: number, z: number): number {
-  let height = wysiwyg ? VOID_HEIGHT : 0; // 旧模式有默认 y=0 地板
+  let height = 0; // 统一保底地板，软虚空
   for (const rect of activeRects) {
     const h = rectHeightAt(rect, x, z);
     if (h !== null && h > height) height = h;
@@ -178,8 +180,8 @@ export function getTerrainHeight(x: number, z: number): number {
  */
 export function getSupportHeight(x: number, z: number, feetY: number): number {
   const limit = feetY + STEP_HEIGHT;
-  let best = VOID_HEIGHT;
-  if (!wysiwyg && 0 <= limit) best = 0; // 旧模式默认地板
+  // 默认 y=0 地板（在迈步范围内才算够得着）；玩家掉出关卡时 limit < 0 → 不再有支撑 → 进入下落 / FALL_RESPAWN。
+  let best = 0 <= limit ? 0 : VOID_HEIGHT;
   for (const rect of activeRects) {
     const h = rectHeightAt(rect, x, z);
     if (h !== null && h <= limit && h > best) best = h;
