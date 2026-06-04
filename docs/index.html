@@ -1668,7 +1668,7 @@ luck 来源 = luck_tome.level + floor(player.luckBonus * 100)</code></pre>
         <ul>
           <li>Three.js 场景 / 模型 / 动画</li>
           <li>InstancedMesh 投射物 / 拾取物</li>
-          <li>VFX 粒子（500 池）</li>
+          <li>VFX 粒子（500 池） + Billboard VFX（64 池，贴图特效）</li>
           <li>HUD / 升级 / 商店 / 任务 UI</li>
           <li>相机系统（屏震 / 顿帧 / 动态 FOV）</li>
           <li>读取 GameState 渲染（不写）</li>
@@ -1846,6 +1846,7 @@ engine.aiGroup = (engine.aiGroup + 1) % 4;  // 错峰组循环</code></pre>
     <tr><td>拾取物 InstancedMesh</td><td class="num">300</td><td><code>MAX_PICKUPS</code></td></tr>
     <tr><td>敌人 InstancedMesh（legacy）</td><td class="num">100</td><td><code>MAX_ENEMIES</code></td></tr>
     <tr><td>VFX 粒子</td><td class="num">500</td><td><code>MAX_PARTICLES</code></td></tr>
+    <tr><td>Billboard VFX（贴图特效）</td><td class="num">64</td><td><code>MAX_BILLBOARDS</code></td></tr>
   </table>
 
   <h3>性能指标目标</h3>
@@ -1953,10 +1954,30 @@ window.__session.gameInstance.getState().player.tomes</code></pre>
   <h3>纹理</h3>
   <table>
     <tr><th>文件</th><th>是否在用</th></tr>
-    <tr><td><code>textures/particle_circle.png</code></td><td><span class="hl">✅ 主粒子贴图</span></td></tr>
+    <tr><td><code>textures/particle_circle.png</code></td><td>已退役（保留兼容）</td></tr>
     <tr><td><code>particle_flare / star / twirl.png</code></td><td>备选</td></tr>
     <tr><td><code>texture_sign.png</code></td><td>跟随 sign GLTF</td></tr>
   </table>
+
+  <h3>Billboard VFX 贴图（<code>textures/vfx/</code>）</h3>
+  <p class="sub">来源：<a href="https://kenney.nl/assets/particle-pack" target="_blank">Kenney Particle Pack</a>（CC0，可商用，无需署名）。<br>
+  Phase 8 接入，给"单帧贴图特效"用。系统：<code>BillboardVfx</code> 池 + <code>spawnBillboard()</code>（见 <code>client/source/index.ts</code> <code>VFX_TEXTURE_FILES</code> 表）。</p>
+  <table>
+    <tr><th>文件</th><th>用途</th><th>触发点</th></tr>
+    <tr><td><code>vfx/spark.png</code></td><td>通用粒子（主贴图）</td><td>所有点云粒子（替换 <code>particle_circle.png</code>）</td></tr>
+    <tr><td><code>vfx/muzzle.png</code></td><td>击中光晕 / 枪口火光</td><td>击中怪物、bow / shotgun 开火</td></tr>
+    <tr><td><code>vfx/slash.png</code></td><td>剑气贴图</td><td>剑攻击 swing（地面贴花，朝向 swing 方向）</td></tr>
+    <tr><td><code>vfx/smoke.png</code></td><td>死亡烟雾</td><td>怪物死亡</td></tr>
+    <tr><td><code>vfx/scorch.png</code></td><td>死亡烧痕（地面贴花）</td><td>怪物死亡，持续 1.5s</td></tr>
+    <tr><td><code>vfx/star.png</code></td><td>星光</td><td>升级 burst、拾取 sparkle</td></tr>
+    <tr><td><code>vfx/light.png</code></td><td>光环</td><td>升级 burst</td></tr>
+    <tr><td><code>vfx/magic_circle.png</code></td><td>旋转魔法圆</td><td>祭坛 ready / summoning 阶段地面 decal</td></tr>
+    <tr><td><code>vfx/portal_swirl.png</code></td><td>紫色漩涡</td><td>Boss 死亡后传送门（portal_ready）</td></tr>
+    <tr><td><code>vfx/dirt.png</code></td><td>尘土（预留）</td><td>预加载，待接入落地踢尘等</td></tr>
+    <tr><td><code>vfx/flame.png</code></td><td>火焰（预留）</td><td>预加载，待接入 flame_ring 升级特效</td></tr>
+  </table>
+
+  <p style="color: var(--dim);">新增 VFX 贴图流程：① PNG（透明背景）丢到 <code>public/textures/vfx/</code> ② <code>VfxTextureKey</code> union + <code>VFX_TEXTURE_FILES</code> 表加映射 ③ 触发点调 <code>this.spawnBillboard({ texture, x, y, z, scale, lifetime, ... })</code></p>
 
   <details>
     <summary>未启用的备选资源（可清理或留作扩展）</summary>
