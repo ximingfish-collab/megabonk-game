@@ -42,6 +42,22 @@ export function generateAltars(config: GameConfig): AltarState[] {
   const tierCfg = TIER_CONFIGS[config.tier];
   const count = tierCfg.teleporterCount;
   const altars: AltarState[] = [];
+
+  // 关卡手摆了 spawn_altar → 用它们（最多取 count 个）。
+  const placed = config.level?.spawnPoints?.altars;
+  if (placed && placed.length > 0) {
+    for (let i = 0; i < Math.min(count, placed.length); i++) {
+      altars.push({
+        x: placed[i].x,
+        z: placed[i].z,
+        phase: 'ready',
+        summonTimer: 0,
+        summonDuration: ALTAR_SUMMON_DURATION,
+      });
+    }
+    return altars;
+  }
+
   const halfMap = config.mapSize * 0.4;
   const maxRadius = halfMap * ALTAR_MAX_DISTANCE_RATIO;
   const minRadius = ALTAR_MIN_DISTANCE;

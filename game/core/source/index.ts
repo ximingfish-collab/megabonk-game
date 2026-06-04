@@ -39,6 +39,12 @@ export type {
   GameConfig,
   GameResult,
   DifficultyTier,
+  CollisionRect,
+  WallBox,
+  ClimbVolume,
+  RampVolume,
+  LevelSpawnPoints,
+  LevelData,
 } from './types.ts';
 
 export {

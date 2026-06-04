@@ -37,8 +37,11 @@ export function applyMovement(enemy: EnemyState, ctx: AiContext): void {
   enemy.x = Math.max(-halfMap, Math.min(halfMap, enemy.x + nx * actualMove));
   enemy.z = Math.max(-halfMap, Math.min(halfMap, enemy.z + nz * actualMove));
 
-  // 地形 y 跟随（gargoyle 飞行单位除外）
+  // 地形 y 跟随（gargoyle 飞行单位除外）。虚空（无碰撞体）时保持原高度，不掉进无限深渊。
   if (enemy.type !== 'gargoyle') {
-    enemy.y = ctx.getTerrainHeight(enemy.x, enemy.z);
+    const h = ctx.getTerrainHeight(enemy.x, enemy.z);
+    if (Number.isFinite(h)) {
+      enemy.y = h;
+    }
   }
 }

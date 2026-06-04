@@ -20,6 +20,14 @@ export const DASH_COOLDOWN = 5;
 // Jump & Slide (MegaBonk movement)
 export const JUMP_FORCE = 6.0;
 export const GRAVITY = 18.0;
+/** 自动迈步高度：相邻地面高度差 ≤ 此值时走路无缝上去；超过则被当作墙挡住。 */
+export const STEP_HEIGHT = 0.5;
+/** 跌落到此 y 以下（掉出关卡虚空）时，把玩家传送回出生点。 */
+export const FALL_RESPAWN_Y = -20;
+/** 攀爬上升 / 下降速度（单位/秒）。 */
+export const CLIMB_SPEED = 4.0;
+/** 攀爬抓取水平margin：玩家中心进入 climb_ 体积外扩此距离即可抓墙。 */
+export const CLIMB_GRAB_MARGIN = 0.6;
 export const SLIDE_DURATION = 0.5;
 export const SLIDE_SPEED_MULTIPLIER = 1.6;
 export const SLIDE_COOLDOWN = 0.3;
