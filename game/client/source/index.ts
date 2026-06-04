@@ -17,6 +17,7 @@ import {
   MAX_PICKUPS,
   DEFAULT_GAME_CONFIG,
   CHARACTER_CONFIGS,
+  WEAPON_STATS,
   WEAPON_EVOLUTIONS,
   SHOP_UPGRADES,
   QUESTS,
@@ -284,10 +285,157 @@ const SHRINE_REWARD_ICONS: Record<string, string> = {
 };
 
 const CHARACTER_COLORS: Record<string, number> = {
-  megachad: 0xf5d680,
-  roberto: 0x8844aa,
-  skateboard_skeleton: 0xd4a574,
+  megachad: 0xa8e6cf,
+  roberto: 0xff4444,
+  skateboard_skeleton: 0x999999,
 };
+
+const CHARACTER_AVATAR_PATHS: Record<CharacterType, string> = {
+  megachad: '/ui/characters/megachad_avatar.png',
+  roberto: '/ui/characters/roberto_avatar.png',
+  skateboard_skeleton: '/ui/characters/skateboard_skeleton_avatar.png',
+};
+
+const CHARACTER_FULL_PATHS: Record<CharacterType, string> = {
+  megachad: '/ui/characters/megachad_full.png',
+  roberto: '/ui/characters/roberto_full.png',
+  skateboard_skeleton: '/ui/characters/skateboard_skeleton_full.png',
+};
+
+const CHARACTER_SELECT_BACK_ICON = '/ui/button/back.png';
+const CHARACTER_DETAIL_PANEL_BG = '/ui/panel/character_detail.png';
+/** character_detail.png 原图 820×820，文本 inset 按原图像素换算为百分比 */
+const CHARACTER_DETAIL_PANEL_PX = 820;
+const CHARACTER_DETAIL_LAYOUT = {
+  mainRow: 492 / CHARACTER_DETAIL_PANEL_PX,
+  mainPad: { top: 84, left: 108, right: 76, bottom: 12 },
+  weaponPad: { top: 16, left: 120, right: 86, bottom: 46 },
+} as const;
+
+function characterDetailInsetPct(value: number): string {
+  return `${((value / CHARACTER_DETAIL_PANEL_PX) * 100).toFixed(3)}%`;
+}
+
+const TIER_PANEL_BGS: Record<DifficultyTier, string> = {
+  1: '/ui/panel/difficulty_normal.png',
+  2: '/ui/panel/difficulty_hard.png',
+  3: '/ui/panel/difficulty_nightmare.png',
+};
+
+/** 各难度面板原图尺寸（用于 aspect-ratio，避免拉伸） */
+const TIER_PANEL_SIZE: Record<DifficultyTier, { w: number; h: number }> = {
+  1: { w: 602, h: 920 },
+  2: { w: 580, h: 920 },
+  3: { w: 584, h: 919 },
+};
+
+const TIER_MONSTER_FRAME = '/ui/panel/frame_monster.png';
+const TIER_MONSTER_FRAME_SIZE = { w: 692, h: 922 };
+/** 绿 / 黄 / 紫僵尸头像，对应 zombie_basic · zombie_chubby · zombie_arm */
+const TIER_MONSTER_AVATARS = [
+  '/ui/characters/green_zombie_avatar.png',
+  '/ui/characters/yellow_zombie_avatar.png',
+  '/ui/characters/purple_zombie_avatar.png',
+] as const;
+
+const CHARACTER_AVATAR_FRAMES: Record<CharacterType, { normal: string; selected: string }> = {
+  megachad: {
+    normal: '/ui/button/frame_avatar_green_normal.png',
+    selected: '/ui/button/frame_avatar_green_selected.png',
+  },
+  roberto: {
+    normal: '/ui/button/frame_avatar_red_normal.png',
+    selected: '/ui/button/frame_avatar_red_selected.png',
+  },
+  skateboard_skeleton: {
+    normal: '/ui/button/frame_avatar_gray_normal.png',
+    selected: '/ui/button/frame_avatar_gray_selected.png',
+  },
+};
+
+const STARTING_WEAPON_IMAGE_PATHS: Record<string, string> = {
+  sword: '/ui/weapons/sword.png',
+  axe: '/ui/weapons/axe.png',
+  bone_bouncer: '/ui/weapons/bone_bouncer.png',
+};
+
+/** 选角右侧详情面板正文色（深蓝，与主菜单按钮字色一致） */
+const CHARACTER_DETAIL_TEXT_COLOR = '#1a3a6e';
+const CHARACTER_PREVIEW_STAGE_BG = 'rgba(220,225,232,0.7)';
+const WEAPON_ICON_PANEL_BG = '#e8e8ec';
+const WEAPON_ICON_PANEL_BORDER = '#5a5a66';
+
+/** 与 docs/index.html#characters 百分条分母一致 */
+const CHARACTER_STAT_BAR_MAX = {
+  hp: 200,
+  speed: 6,
+  damage: 1.5,
+  armor: 5,
+  crit: 0.15,
+} as const;
+
+const STAT_BAR_TRACK_BG = '#d9e0ed';
+/** 进度条填充：亮蓝，区别于正文深蓝 CHARACTER_DETAIL_TEXT_COLOR */
+const STAT_BAR_FILL = '#3b7ddd';
+
+const TITLE_IMAGE_PATH = '/ui/title/megabonk_title.png';
+const LOBBY_BG_PATH = '/ui/common/bg_lobby.png';
+
+const MENU_BUTTON_FRAME = '/ui/button/button.png';
+const CHARACTER_CONFIRM_BUTTON_FRAME = '/ui/button/button_orange.png';
+const TIER_SELECT_BUTTON_NORMAL = '/ui/button/button_orange.png';
+const TIER_SELECT_BUTTON_PRESSED = '/ui/button/button_orange_pressed.png';
+const MENU_BUTTON_ICONS = {
+  start: '/ui/button/pause.png',
+  shop: '/ui/button/shop.png',
+  quest: '/ui/button/task.png',
+} as const;
+
+const MENU_BUTTON_LABEL_COLOR = '#1a3a6e';
+
+const SILVER_COIN_ICON_PATH = '/ui/panel/coin_silver.png';
+const SILVER_BADGE_BG = '#1a3a6e';
+
+function createSilverBadge(count: number, prefix = ''): HTMLDivElement {
+  const badge = document.createElement('div');
+  badge.dataset.silverBadge = '1';
+  badge.style.cssText = `
+    display:inline-flex;align-items:center;gap:clamp(5px,1.5vw,8px);
+    background:${SILVER_BADGE_BG};border-radius:9999px;box-sizing:border-box;
+    padding:0 clamp(10px,2.5vw,14px) 0 clamp(2px,0.6vw,4px);
+  `;
+
+  const icon = document.createElement('img');
+  icon.src = SILVER_COIN_ICON_PATH;
+  icon.alt = '';
+  icon.draggable = false;
+  icon.style.cssText = 'width:clamp(28px,7.5vw,36px);height:clamp(28px,7.5vw,36px);object-fit:contain;flex-shrink:0;display:block;';
+
+  const amount = document.createElement('span');
+  amount.className = 'silver-badge-amount';
+  amount.style.cssText = 'color:#ffffff;font-size:clamp(13px,3.4vw,17px);font-weight:bold;line-height:1;white-space:nowrap;';
+  amount.textContent = `${prefix}${count}`;
+
+  badge.appendChild(icon);
+  badge.appendChild(amount);
+  return badge;
+}
+
+function setSilverBadgeAmount(badge: HTMLDivElement, count: number, prefix = ''): void {
+  const amount = badge.querySelector('.silver-badge-amount');
+  if (amount) amount.textContent = `${prefix}${count}`;
+}
+
+const I18N_DEVTOOLS_ID = '__i18n_devtools__';
+
+/** Reposition i18n dev language button (package default is bottom-right). */
+function positionLanguageSwitcher(): void {
+  const btn = document.getElementById(I18N_DEVTOOLS_ID);
+  if (!btn) return;
+  btn.style.right = 'auto';
+  btn.style.left = 'max(12px, env(safe-area-inset-left, 0px))';
+  btn.style.bottom = 'max(12px, env(safe-area-inset-bottom, 0px))';
+}
 
 const GROUND_SIZE = 120;
 const DAMAGE_NUM_POOL_SIZE = 30;
@@ -1626,7 +1774,7 @@ export class GameScene {
 
   private setupPlayer(): void {
     const state = this.session.getRenderState();
-    const charColor = CHARACTER_COLORS[state.character] ?? 0xf5d680;
+    const charColor = CHARACTER_COLORS[state.character] ?? 0xa8e6cf;
 
     // Character → model mapping
     const CHARACTER_MODELS: Record<string, string> = {
@@ -2151,8 +2299,8 @@ export class GameScene {
     this.hudContainer.appendChild(this.killLabel);
 
     // Silver earned this run (below kills)
-    this.silverLabel = document.createElement('div');
-    this.silverLabel.style.cssText = 'position:absolute;top:62px;right:16px;color:#eeeeaa;font-size:clamp(10px, 2.5vw, 13px);text-shadow:0 1px 3px rgba(0,0,0,0.8);';
+    this.silverLabel = createSilverBadge(0);
+    this.silverLabel.style.cssText += 'position:absolute;top:62px;right:16px;';
     this.hudContainer.appendChild(this.silverLabel);
 
     // Tier badge (top-left small)
@@ -4448,7 +4596,7 @@ export class GameScene {
     this.killLabel.textContent = `💀 ${state.stats.killCount}`;
 
     // Silver this run
-    this.silverLabel.textContent = `🪙 ${state.stats.silverEarned}`;
+    setSilverBadgeAmount(this.silverLabel, state.stats.silverEarned);
 
     // --- Weapon Icons Bar (bottom-left) ---
     this.weaponSlotsContainer.innerHTML = '';
@@ -4847,7 +4995,6 @@ export class GameScene {
       t('result.time', { time: timeStr }),
       t('result.kills', { count: String(result.killCount) }),
       t('result.level', { level: String(result.level) }),
-      t('result.silver', { count: String(result.silverEarned) }),
     ];
 
     // Show quest completions if any
@@ -4861,6 +5008,11 @@ export class GameScene {
       el.textContent = line;
       statsContainer.appendChild(el);
     }
+
+    const silverRow = document.createElement('div');
+    silverRow.style.cssText = 'display:flex;justify-content:center;margin-top:2px;';
+    silverRow.appendChild(createSilverBadge(result.silverEarned));
+    statsContainer.appendChild(silverRow);
 
     // Show newly completed quest rewards
     if (newQuests.length > 0) {
@@ -4943,109 +5095,672 @@ export class GameScene {
 let selectedCharacter: CharacterType = 'megachad';
 let selectedTier: DifficultyTier = 1;
 
-function showCharacterSelect(onSelect: (character: CharacterType) => void): HTMLDivElement {
-  const panel = document.createElement('div');
-  panel.style.cssText = 'display:flex;gap:16px;margin-top:16px;flex-wrap:wrap;justify-content:center;';
+const CHARACTER_ORDER: CharacterType[] = ['megachad', 'roberto', 'skateboard_skeleton'];
 
-  const characters: CharacterType[] = ['megachad', 'roberto', 'skateboard_skeleton'];
+const PREP_SCREEN_STYLE = `
+  position:fixed;top:0;left:0;width:100%;height:100%;box-sizing:border-box;
+  z-index:550;font-family:Arial,sans-serif;
+  background:#0a0a1a url(${LOBBY_BG_PATH}) center center/cover no-repeat;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  padding-left:env(safe-area-inset-left,0px);
+  padding-right:env(safe-area-inset-right,0px);
+`;
 
-  for (const char of characters) {
-    const card = document.createElement('div');
-    const isSelected = char === selectedCharacter;
-    const charColor = CHARACTER_COLORS[char] ?? 0xf5d680;
-    const hexColor = `#${charColor.toString(16).padStart(6, '0')}`;
+const PREP_SCREEN_HEADER_STYLE = `
+  display:flex;align-items:center;justify-content:space-between;width:100%;flex-shrink:0;
+  padding:clamp(6px,1.5vw,10px) clamp(8px,2vw,14px);box-sizing:border-box;z-index:2;
+`;
 
-    card.style.cssText = `
-      width:140px;padding:14px;background:rgba(20,20,40,0.9);
-      border:2px solid ${isSelected ? hexColor : '#555555'};
-      border-radius:10px;cursor:pointer;text-align:center;transition:all 0.15s;
-      ${isSelected ? `box-shadow:0 0 15px ${hexColor}44;` : ''}
-    `;
+function createPrepBackButton(onClick: () => void): HTMLButtonElement {
+  const backBtn = document.createElement('button');
+  backBtn.type = 'button';
+  backBtn.setAttribute('aria-label', t('characterSelect.back'));
+  backBtn.style.cssText = `
+    min-width:44px;min-height:44px;padding:0;border:none;background:transparent;cursor:pointer;
+    touch-action:manipulation;display:flex;align-items:center;justify-content:center;flex-shrink:0;
+    transition:transform 0.15s;
+  `;
+  const backImg = document.createElement('img');
+  backImg.src = CHARACTER_SELECT_BACK_ICON;
+  backImg.alt = '';
+  backImg.draggable = false;
+  backImg.style.cssText = 'width:clamp(36px,10vw,48px);height:clamp(36px,10vw,48px);object-fit:contain;pointer-events:none;';
+  backBtn.appendChild(backImg);
+  backBtn.addEventListener('mouseenter', () => { backBtn.style.transform = 'scale(1.05)'; });
+  backBtn.addEventListener('mouseleave', () => { backBtn.style.transform = 'scale(1)'; });
+  backBtn.addEventListener('click', onClick);
+  return backBtn;
+}
 
-    // Character icon placeholder. This square will hold portrait art later.
-    const iconEl = document.createElement('div');
-    iconEl.style.cssText = `width:48px;height:48px;border-radius:12px;margin:0 auto 8px;background:${hexColor};`;
-    card.appendChild(iconEl);
+function characterColorHex(char: CharacterType): string {
+  const charColor = CHARACTER_COLORS[char] ?? 0xa8e6cf;
+  return `#${charColor.toString(16).padStart(6, '0')}`;
+}
 
-    // Name
-    const nameEl = document.createElement('div');
-    nameEl.style.cssText = `color:${hexColor};font-size:13px;font-weight:bold;margin-bottom:4px;`;
-    nameEl.textContent = t(`character.${char}`);
-    card.appendChild(nameEl);
+let characterSelectSlotsHost: HTMLElement | null = null;
+let characterSelectPreviewHost: HTMLElement | null = null;
+let characterSelectDetailHost: HTMLElement | null = null;
+let characterSelectConfirmHost: HTMLElement | null = null;
+let characterSelectBodyEl: HTMLElement | null = null;
+let characterSelectResizeHandler: (() => void) | null = null;
 
-    // Description
-    const descEl = document.createElement('div');
-    descEl.style.cssText = 'color:#999;font-size:10px;line-height:1.3;';
-    descEl.textContent = t(`character.${char}_desc`);
-    card.appendChild(descEl);
+/** 确认按钮底边与立绘灰色背景 stage 底边对齐（padding-top 无效：confirm 贴在 detail 列底） */
+function alignCharacterSelectConfirmToStage(): void {
+  const confirmWrap = characterSelectConfirmHost;
+  const stage = characterSelectPreviewHost?.firstElementChild as HTMLElement | null;
+  const detail = confirmWrap?.parentElement as HTMLElement | null;
+  if (!confirmWrap || !stage || !detail) return;
 
-    // Stats preview
-    const cfg = CHARACTER_CONFIGS[char];
-    const statsEl = document.createElement('div');
-    statsEl.style.cssText = 'color:#777;font-size:9px;margin-top:6px;line-height:1.45;text-align:left;';
-    const statRows = [
-      t('character.stat.hp', { value: String(cfg.hp) }),
-      t('character.stat.speed', { value: String(cfg.speed) }),
-      t('character.stat.damage', { value: String(cfg.damage) }),
-    ];
-    for (const statText of statRows) {
-      const statEl = document.createElement('div');
-      statEl.textContent = statText;
-      statsEl.appendChild(statEl);
-    }
-    card.appendChild(statsEl);
-
-    card.addEventListener('click', () => {
-      selectedCharacter = char;
-      onSelect(char);
-      // Re-render all cards to show selection while keeping every option visible.
-      const newPanel = showCharacterSelect(onSelect);
-      panel.replaceWith(newPanel);
-    });
-
-    card.addEventListener('mouseenter', () => {
-      card.style.transform = 'scale(1.03)';
-    });
-    card.addEventListener('mouseleave', () => {
-      card.style.transform = 'scale(1)';
-    });
-
-    panel.appendChild(card);
+  const narrow = window.innerWidth < 720;
+  if (narrow) {
+    confirmWrap.style.paddingTop = '0';
+    confirmWrap.style.paddingBottom = 'clamp(10px,2.5vw,25px)';
+    return;
   }
 
-  return panel;
+  const stageRect = stage.getBoundingClientRect();
+  const detailRect = detail.getBoundingClientRect();
+  const inset = detailRect.bottom - stageRect.bottom;
+  confirmWrap.style.paddingTop = '0';
+  confirmWrap.style.paddingBottom = `${Math.max(0, Math.round(inset))}px`;
+}
+
+function scheduleCharacterSelectConfirmAlign(): void {
+  requestAnimationFrame(() => {
+    alignCharacterSelectConfirmToStage();
+  });
+}
+
+function mountCharacterSelectSlots(host: HTMLElement): void {
+  host.replaceChildren();
+
+  for (const char of CHARACTER_ORDER) {
+    const isSelected = char === selectedCharacter;
+    const frames = CHARACTER_AVATAR_FRAMES[char];
+
+    const slot = document.createElement('div');
+    slot.style.cssText = `
+      position:relative;width:clamp(52px,12vw,68px);min-width:44px;min-height:44px;
+      cursor:pointer;flex-shrink:0;transition:transform 0.15s;
+      touch-action:manipulation;user-select:none;
+    `;
+
+    const frameImg = document.createElement('img');
+    frameImg.src = isSelected ? frames.selected : frames.normal;
+    frameImg.alt = '';
+    frameImg.draggable = false;
+    frameImg.style.cssText = 'width:100%;height:auto;display:block;pointer-events:none;';
+
+    const icon = document.createElement('img');
+    icon.src = CHARACTER_AVATAR_PATHS[char];
+    icon.alt = t(`character.${char}`);
+    icon.draggable = false;
+    icon.style.cssText = `
+      position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+      width:74%;height:74%;object-fit:cover;border-radius:6px;pointer-events:none;
+    `;
+
+    slot.appendChild(frameImg);
+    slot.appendChild(icon);
+
+    slot.addEventListener('click', () => {
+      selectedCharacter = char;
+      mountCharacterSelectSlots(host);
+      refreshCharacterSelectUI();
+    });
+    slot.addEventListener('mouseenter', () => { slot.style.transform = 'scale(1.05)'; });
+    slot.addEventListener('mouseleave', () => { slot.style.transform = 'scale(1)'; });
+
+    host.appendChild(slot);
+  }
+}
+
+function createCharacterConfirmButton(label: string, onClick: () => void): HTMLDivElement {
+  const btn = document.createElement('div');
+  btn.dataset.action = 'confirm';
+  btn.style.cssText = `
+    position:relative;width:clamp(88px,22vw,116px);min-width:44px;max-width:100%;
+    cursor:pointer;user-select:none;touch-action:manipulation;transition:transform 0.15s;
+  `;
+
+  const frame = document.createElement('img');
+  frame.src = CHARACTER_CONFIRM_BUTTON_FRAME;
+  frame.alt = '';
+  frame.draggable = false;
+  frame.style.cssText = 'display:block;width:100%;height:auto;pointer-events:none;';
+
+  const labelEl = document.createElement('span');
+  labelEl.textContent = label;
+  labelEl.style.cssText = `
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    color:#ffffff;font-size:clamp(12px,3.2vw,15px);font-weight:bold;line-height:1.2;
+    pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,0.35);
+  `;
+
+  btn.appendChild(frame);
+  btn.appendChild(labelEl);
+  btn.addEventListener('mouseenter', () => { btn.style.transform = 'scale(1.05)'; });
+  btn.addEventListener('mouseleave', () => { btn.style.transform = 'scale(1)'; });
+  btn.addEventListener('click', onClick);
+  return btn;
+}
+
+function createCharacterStatBar(label: string, valueText: string, ratio: number, textColor: string): HTMLElement {
+  const pct = Math.min(100, Math.max(0, ratio * 100));
+
+  const row = document.createElement('div');
+  row.style.cssText = `
+    display:flex;align-items:center;gap:clamp(6px,1.5vw,10px);
+    font-size:clamp(10px,2.5vw,12px);margin:clamp(3px,0.8vw,5px) 0;width:100%;
+  `;
+
+  const labelEl = document.createElement('span');
+  labelEl.textContent = label;
+  labelEl.style.cssText = `
+    flex:0 0 clamp(52px,14vw,72px);color:${textColor};font-weight:600;flex-shrink:0;
+  `;
+
+  const track = document.createElement('div');
+  track.style.cssText = `
+    flex:1;height:clamp(6px,1.6vw,8px);background:${STAT_BAR_TRACK_BG};
+    border-radius:4px;overflow:hidden;min-width:0;
+  `;
+
+  const fill = document.createElement('div');
+  fill.style.cssText = `
+    height:100%;width:${pct}%;background:${STAT_BAR_FILL};border-radius:4px;
+    transition:width 0.2s ease;
+  `;
+  track.appendChild(fill);
+
+  const valEl = document.createElement('span');
+  valEl.textContent = valueText;
+  valEl.style.cssText = `
+    flex:0 0 clamp(40px,10vw,52px);text-align:right;color:${textColor};
+    font-weight:600;font-variant-numeric:tabular-nums;flex-shrink:0;
+  `;
+
+  row.appendChild(labelEl);
+  row.appendChild(track);
+  row.appendChild(valEl);
+  return row;
+}
+
+function formatWeaponStatLines(weaponType: string): string[] {
+  const stats = WEAPON_STATS[weaponType]?.[0];
+  if (!stats) return [];
+
+  const lines: string[] = [
+    t('characterSelect.weaponStat.damage', { value: String(stats.damage) }),
+    t('characterSelect.weaponStat.cooldown', { value: String(stats.cooldown) }),
+  ];
+  if (stats.projectileCount > 1) {
+    lines.push(t('characterSelect.weaponStat.projectiles', { value: String(stats.projectileCount) }));
+  }
+  if (stats.bounces > 0) {
+    lines.push(t('characterSelect.weaponStat.bounces', { value: String(stats.bounces) }));
+  }
+  if (stats.chains > 0) {
+    lines.push(t('characterSelect.weaponStat.chains', { value: String(stats.chains) }));
+  }
+  if (stats.range > 0) {
+    lines.push(t('characterSelect.weaponStat.range', { value: String(stats.range) }));
+  }
+  if (stats.aoeRadius > 0 && stats.aoeRadius !== stats.range) {
+    lines.push(t('characterSelect.weaponStat.aoe', { value: String(stats.aoeRadius) }));
+  }
+  return lines;
+}
+
+function refreshCharacterSelectDetail(): void {
+  if (!characterSelectDetailHost) return;
+
+  const id = selectedCharacter;
+  const cfg = CHARACTER_CONFIGS[id];
+  const weapon = cfg.startingWeapon;
+  const textColor = CHARACTER_DETAIL_TEXT_COLOR;
+  const detailFont = (size: string, extra = '') =>
+    `margin:0;color:${textColor};font-size:${size};line-height:1.45;${extra}`;
+
+  const { mainRow, mainPad, weaponPad } = CHARACTER_DETAIL_LAYOUT;
+  const mainRowPct = `${(mainRow * 100).toFixed(3)}%`;
+
+  const card = document.createElement('div');
+  card.style.cssText = `
+    width:100%;max-width:100%;aspect-ratio:1/1;max-height:min(100%,calc(100vh - 128px));
+    margin:0 auto;box-sizing:border-box;display:grid;
+    grid-template-rows:${mainRowPct} minmax(0,1fr);
+    background:url(${CHARACTER_DETAIL_PANEL_BG}) center center/100% 100% no-repeat;
+    filter:drop-shadow(0 4px 16px rgba(0,40,80,0.15));color:${textColor};overflow:hidden;
+  `;
+
+  const mainSection = document.createElement('div');
+  mainSection.style.cssText = `
+    box-sizing:border-box;display:flex;flex-direction:column;gap:clamp(4px,1vw,7px);
+    min-height:0;overflow-y:auto;
+    padding:${characterDetailInsetPct(mainPad.top)} ${characterDetailInsetPct(mainPad.right)}
+      ${characterDetailInsetPct(mainPad.bottom)} ${characterDetailInsetPct(mainPad.left)};
+  `;
+
+  const nameEl = document.createElement('h2');
+  nameEl.style.cssText = detailFont('clamp(18px,4.5vw,24px)', 'font-weight:bold;');
+  nameEl.textContent = t(`character.${id}`);
+  mainSection.appendChild(nameEl);
+
+  const descEl = document.createElement('p');
+  descEl.style.cssText = detailFont('clamp(12px,3vw,14px)', 'font-weight:bold;');
+  descEl.textContent = t(`character.${id}_desc`);
+  mainSection.appendChild(descEl);
+
+  const statsEl = document.createElement('div');
+  statsEl.style.cssText = 'display:flex;flex-direction:column;width:100%;margin:0;';
+  const characterStatRows: Array<{ key: keyof typeof CHARACTER_STAT_BAR_MAX; value: number; text: string }> = [
+    { key: 'hp', value: cfg.hp, text: String(cfg.hp) },
+    { key: 'speed', value: cfg.speed, text: cfg.speed.toFixed(1) },
+    { key: 'damage', value: cfg.damage, text: `${cfg.damage.toFixed(1)}×` },
+    { key: 'armor', value: cfg.armor, text: String(cfg.armor) },
+    { key: 'crit', value: cfg.critChance, text: `${Math.round(cfg.critChance * 100)}%` },
+  ];
+  for (const stat of characterStatRows) {
+    statsEl.appendChild(createCharacterStatBar(
+      t(`characterSelect.statLabel.${stat.key}`),
+      stat.text,
+      stat.value / CHARACTER_STAT_BAR_MAX[stat.key],
+      textColor,
+    ));
+  }
+  mainSection.appendChild(statsEl);
+  card.appendChild(mainSection);
+
+  const weaponSection = document.createElement('div');
+  weaponSection.style.cssText = `
+    box-sizing:border-box;display:flex;align-items:center;min-height:0;
+    padding:${characterDetailInsetPct(weaponPad.top)} ${characterDetailInsetPct(weaponPad.right)}
+      ${characterDetailInsetPct(weaponPad.bottom)} ${characterDetailInsetPct(weaponPad.left)};
+  `;
+
+  const weaponRow = document.createElement('div');
+  weaponRow.style.cssText = `
+    display:flex;align-items:center;gap:clamp(8px,2vw,12px);width:100%;box-sizing:border-box;
+  `;
+
+  const weaponBoxSize = 'clamp(64px,16vw,88px)';
+  const weaponImgWrap = document.createElement('div');
+  weaponImgWrap.style.cssText = `
+    flex-shrink:0;display:flex;align-items:center;justify-content:center;
+    width:${weaponBoxSize};height:${weaponBoxSize};aspect-ratio:1/1;
+    margin-top:0;box-sizing:border-box;
+    background:${WEAPON_ICON_PANEL_BG};border:2px solid ${WEAPON_ICON_PANEL_BORDER};
+    border-radius:clamp(8px,2vw,10px);padding:clamp(6px,1.5vw,10px);
+  `;
+  const weaponSrc = STARTING_WEAPON_IMAGE_PATHS[weapon];
+  if (weaponSrc) {
+    const weaponImg = document.createElement('img');
+    weaponImg.src = weaponSrc;
+    weaponImg.alt = t(`upgrade.weapon.${weapon}`);
+    weaponImg.draggable = false;
+    weaponImg.style.cssText = 'width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain;';
+    weaponImg.onerror = () => {
+      weaponImg.remove();
+      const fallback = document.createElement('div');
+      fallback.style.cssText = `font-size:36px;line-height:1;color:${textColor};`;
+      fallback.textContent = '⚔️';
+      weaponImgWrap.appendChild(fallback);
+    };
+    weaponImgWrap.appendChild(weaponImg);
+  } else {
+    const fallback = document.createElement('div');
+    fallback.style.cssText = `font-size:36px;line-height:1;color:${textColor};`;
+    fallback.textContent = '⚔️';
+    weaponImgWrap.appendChild(fallback);
+  }
+  weaponRow.appendChild(weaponImgWrap);
+
+  const weaponTextCol = document.createElement('div');
+  const weaponTextMarginTop = weapon === 'axe' ? 'clamp(-10px,-2.5vw,-6px)' : '0';
+  weaponTextCol.style.cssText = `
+    flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;margin-top:${weaponTextMarginTop};
+  `;
+
+  const weaponNameEl = document.createElement('div');
+  weaponNameEl.style.cssText = detailFont('clamp(13px,3.2vw,16px)', 'font-weight:bold;margin-top:0;');
+  weaponNameEl.textContent = t(`upgrade.weapon.${weapon}`);
+  weaponTextCol.appendChild(weaponNameEl);
+
+  const weaponDescEl = document.createElement('p');
+  weaponDescEl.style.cssText = detailFont('clamp(11px,2.8vw,13px)', 'font-weight:bold;margin-top:clamp(2px,0.6vw,4px);margin-bottom:2px;');
+  weaponDescEl.textContent = t(`upgrade.weapon.${weapon}_desc`);
+  weaponTextCol.appendChild(weaponDescEl);
+
+  const weaponStatsEl = document.createElement('div');
+  weaponStatsEl.style.cssText = detailFont('clamp(10px,2.5vw,12px)', 'display:flex;flex-direction:column;gap:2px;');
+  for (const line of formatWeaponStatLines(weapon)) {
+    const row = document.createElement('div');
+    row.textContent = line;
+    weaponStatsEl.appendChild(row);
+  }
+  weaponTextCol.appendChild(weaponStatsEl);
+
+  weaponRow.appendChild(weaponTextCol);
+  weaponSection.appendChild(weaponRow);
+  card.appendChild(weaponSection);
+
+  characterSelectDetailHost.replaceChildren(card);
+}
+
+function refreshCharacterSelectPreview(): void {
+  if (!characterSelectPreviewHost) return;
+
+  const id = selectedCharacter;
+  const stage = document.createElement('div');
+  stage.style.cssText = `
+    width:min(58%,340px);max-width:100%;height:100%;margin:0 auto;box-sizing:border-box;
+    display:flex;align-items:center;justify-content:center;
+    background:${CHARACTER_PREVIEW_STAGE_BG};border:none;border-radius:clamp(10px,2.5vw,16px);
+    padding:clamp(4px,1vw,8px);overflow:hidden;
+  `;
+
+  const preview = document.createElement('img');
+  preview.src = CHARACTER_FULL_PATHS[id];
+  preview.alt = t(`character.${id}`);
+  preview.draggable = false;
+  preview.style.cssText = `
+    width:auto;height:auto;max-width:100%;max-height:100%;
+    object-fit:contain;object-position:center center;
+    filter:drop-shadow(0 8px 24px rgba(0,0,0,0.25));pointer-events:none;user-select:none;
+  `;
+  preview.onerror = () => {
+    preview.src = CHARACTER_AVATAR_PATHS[id];
+    preview.style.height = 'auto';
+    preview.style.maxHeight = '100%';
+    scheduleCharacterSelectConfirmAlign();
+  };
+  preview.onload = () => scheduleCharacterSelectConfirmAlign();
+
+  stage.appendChild(preview);
+  characterSelectPreviewHost.replaceChildren(stage);
+  scheduleCharacterSelectConfirmAlign();
+}
+
+function refreshCharacterSelectUI(): void {
+  refreshCharacterSelectPreview();
+  refreshCharacterSelectDetail();
+}
+
+function applyCharacterSelectResponsiveLayout(): void {
+  if (!characterSelectBodyEl || !characterSelectSlotsHost) return;
+  const narrow = window.innerWidth < 720;
+  characterSelectBodyEl.style.flexDirection = narrow ? 'column' : 'row';
+  characterSelectSlotsHost.style.flexDirection = narrow ? 'row' : 'column';
+  characterSelectSlotsHost.style.overflowX = narrow ? 'auto' : 'visible';
+  characterSelectSlotsHost.style.overflowY = narrow ? 'hidden' : 'visible';
+  characterSelectSlotsHost.style.width = narrow ? '100%' : 'auto';
+  characterSelectSlotsHost.style.justifyContent = narrow ? 'center' : 'flex-start';
+  if (characterSelectPreviewHost) {
+    characterSelectPreviewHost.style.minHeight = narrow ? 'clamp(200px,38vh,320px)' : '0';
+    characterSelectPreviewHost.style.flex = narrow ? '0 0 auto' : '1 1 52%';
+  }
+  if (characterSelectDetailHost) {
+    characterSelectDetailHost.style.flex = narrow ? '1 1 auto' : '1 1 44%';
+    characterSelectDetailHost.style.width = narrow ? '100%' : 'auto';
+    characterSelectDetailHost.style.maxWidth = narrow ? '100%' : 'min(480px, 46vw)';
+  }
+  scheduleCharacterSelectConfirmAlign();
+}
+
+let characterSelectEl: HTMLDivElement | null = null;
+let tierSelectEl: HTMLDivElement | null = null;
+
+function showCharacterSelectScreen(): void {
+  if (characterSelectEl) return;
+
+  characterSelectEl = document.createElement('div');
+  characterSelectEl.id = 'character-select-root';
+  characterSelectEl.style.cssText = `${PREP_SCREEN_STYLE}display:flex;flex-direction:column;`;
+
+  const header = document.createElement('header');
+  header.dataset.region = 'header';
+  header.style.cssText = PREP_SCREEN_HEADER_STYLE;
+
+  header.appendChild(createPrepBackButton(() => {
+    destroyCharacterSelectScreen();
+    showMainMenu();
+  }));
+
+  const silverWrap = document.createElement('div');
+  silverWrap.dataset.region = 'silver';
+  silverWrap.appendChild(createSilverBadge(loadSave().silver));
+  header.appendChild(silverWrap);
+  characterSelectEl.appendChild(header);
+
+  const body = document.createElement('main');
+  body.dataset.region = 'body';
+  body.style.cssText = `
+    display:flex;flex:1;min-height:0;width:100%;gap:clamp(4px,1vw,8px);
+    padding:0 clamp(4px,1.2vw,10px) clamp(12px,3vw,20px);box-sizing:border-box;align-items:stretch;
+  `;
+  characterSelectBodyEl = body;
+
+  const rail = document.createElement('aside');
+  rail.dataset.region = 'rail';
+  rail.style.cssText = `
+    display:flex;flex-direction:column;gap:clamp(6px,1.5vw,10px);
+    flex:0 0 auto;align-items:center;align-self:flex-start;
+  `;
+  characterSelectSlotsHost = rail;
+  mountCharacterSelectSlots(rail);
+  body.appendChild(rail);
+
+  const center = document.createElement('section');
+  center.dataset.region = 'center';
+  center.style.cssText = `
+    flex:1 1 52%;min-width:0;min-height:0;display:flex;align-items:flex-end;justify-content:center;
+    padding:0;box-sizing:border-box;overflow:hidden;
+  `;
+  characterSelectPreviewHost = center;
+  body.appendChild(center);
+
+  const detail = document.createElement('aside');
+  detail.dataset.region = 'detail';
+  detail.style.cssText = `
+    flex:1 1 44%;width:auto;min-width:min(320px,88vw);max-width:min(480px,46vw);
+    display:flex;flex-direction:column;min-height:0;align-self:stretch;position:relative;
+  `;
+
+  const detailInner = document.createElement('div');
+  detailInner.dataset.region = 'detail-inner';
+  detailInner.style.cssText = 'flex:1;min-height:0;width:100%;display:flex;flex-direction:column;';
+  characterSelectDetailHost = detailInner;
+  detail.appendChild(detailInner);
+
+  const confirmWrap = document.createElement('div');
+  confirmWrap.dataset.region = 'confirm';
+  characterSelectConfirmHost = confirmWrap;
+  confirmWrap.style.cssText = `
+    flex-shrink:0;width:100%;display:flex;align-items:center;justify-content:center;
+    padding:0 clamp(4px,1vw,8px) 0;box-sizing:border-box;
+  `;
+  confirmWrap.appendChild(createCharacterConfirmButton(t('characterSelect.confirm'), () => {
+    destroyCharacterSelectScreen();
+    showTierSelectScreen();
+  }));
+  detail.appendChild(confirmWrap);
+
+  body.appendChild(detail);
+
+  characterSelectEl.appendChild(body);
+  refreshCharacterSelectUI();
+  applyCharacterSelectResponsiveLayout();
+
+  characterSelectResizeHandler = () => applyCharacterSelectResponsiveLayout();
+  window.addEventListener('resize', characterSelectResizeHandler);
+
+  document.body.appendChild(characterSelectEl);
+}
+
+function destroyCharacterSelectScreen(): void {
+  if (characterSelectResizeHandler) {
+    window.removeEventListener('resize', characterSelectResizeHandler);
+    characterSelectResizeHandler = null;
+  }
+  characterSelectEl?.remove();
+  characterSelectEl = null;
+  characterSelectSlotsHost = null;
+  characterSelectPreviewHost = null;
+  characterSelectDetailHost = null;
+  characterSelectConfirmHost = null;
+  characterSelectBodyEl = null;
+}
+
+function showTierSelectScreen(): void {
+  if (tierSelectEl) return;
+
+  tierSelectEl = document.createElement('div');
+  tierSelectEl.style.cssText = `${PREP_SCREEN_STYLE}display:flex;flex-direction:column;`;
+
+  const header = document.createElement('header');
+  header.dataset.region = 'header';
+  header.style.cssText = PREP_SCREEN_HEADER_STYLE;
+
+  header.appendChild(createPrepBackButton(() => {
+    destroyTierSelectScreen();
+    showCharacterSelectScreen();
+  }));
+
+  const silverWrap = document.createElement('div');
+  silverWrap.dataset.region = 'silver';
+  silverWrap.appendChild(createSilverBadge(loadSave().silver));
+  header.appendChild(silverWrap);
+  tierSelectEl.appendChild(header);
+
+  const body = document.createElement('main');
+  body.dataset.region = 'body';
+  body.style.cssText = `
+    flex:1;min-height:0;width:100%;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:clamp(12px,3vw,20px);
+    padding:0 clamp(4px,1.2vw,10px) clamp(12px,3vw,20px);box-sizing:border-box;
+  `;
+
+  const tierPanel = showTierSelect((_tier) => {
+    // selectedTier updated inside showTierSelect
+  });
+  body.appendChild(tierPanel);
+
+  const startWrap = document.createElement('div');
+  startWrap.style.cssText = 'margin-top:clamp(8px,2.5vw,16px);width:100%;display:flex;justify-content:center;padding:0 4px;box-sizing:border-box;';
+  startWrap.appendChild(createMainMenuButton(MENU_BUTTON_ICONS.start, t('menu.start'), () => {
+    destroyTierSelectScreen();
+    startGame(selectedCharacter);
+  }));
+  body.appendChild(startWrap);
+
+  tierSelectEl.appendChild(body);
+  document.body.appendChild(tierSelectEl);
+}
+
+function destroyTierSelectScreen(): void {
+  tierSelectEl?.remove();
+  tierSelectEl = null;
 }
 
 // =============================================================================
 // Tier Selection
 // =============================================================================
 
+function createTierMonsterAvatarRow(): HTMLElement {
+  const row = document.createElement('div');
+  row.style.cssText = `
+    display:flex;align-items:center;justify-content:space-between;width:100%;
+    gap:clamp(3px,0.8vw,6px);margin-top:clamp(5px,1.2vw,8px);box-sizing:border-box;
+  `;
+
+  const { w: fw, h: fh } = TIER_MONSTER_FRAME_SIZE;
+  for (const src of TIER_MONSTER_AVATARS) {
+    const slot = document.createElement('div');
+    slot.style.cssText = `
+      flex:1 1 0;min-width:0;position:relative;height:clamp(34px,8.5vw,50px);
+      aspect-ratio:${fw}/${fh};
+      background:url(${TIER_MONSTER_FRAME}) center center/contain no-repeat;
+    `;
+
+    const avatar = document.createElement('img');
+    avatar.src = src;
+    avatar.alt = '';
+    avatar.draggable = false;
+    avatar.style.cssText = `
+      position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+      width:62%;height:62%;object-fit:contain;pointer-events:none;user-select:none;
+    `;
+    slot.appendChild(avatar);
+    row.appendChild(slot);
+  }
+  return row;
+}
+
+function createTierPanelSelectButton(isSelected: boolean, onClick: () => void): HTMLDivElement {
+  const btn = document.createElement('div');
+  btn.setAttribute('role', 'button');
+  btn.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+  btn.style.cssText = `
+    position:relative;width:min(60%,60px);min-width:44px;max-width:100%;
+    cursor:${isSelected ? 'default' : 'pointer'};user-select:none;touch-action:manipulation;
+    transition:transform 0.15s;
+  `;
+
+  const frame = document.createElement('img');
+  frame.src = isSelected ? TIER_SELECT_BUTTON_PRESSED : TIER_SELECT_BUTTON_NORMAL;
+  frame.alt = '';
+  frame.draggable = false;
+  frame.style.cssText = 'display:block;width:100%;height:auto;pointer-events:none;';
+
+  const labelEl = document.createElement('span');
+  labelEl.textContent = t(isSelected ? 'tier.chosen' : 'tier.choose');
+  labelEl.style.cssText = `
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    color:#ffffff;font-size:clamp(9px,2.4vw,11px);font-weight:bold;line-height:1.2;
+    pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,0.35);
+  `;
+
+  btn.appendChild(frame);
+  btn.appendChild(labelEl);
+  if (!isSelected) {
+    btn.addEventListener('mouseenter', () => { btn.style.transform = 'scale(1.05)'; });
+    btn.addEventListener('mouseleave', () => { btn.style.transform = 'scale(1)'; });
+    btn.addEventListener('click', onClick);
+  }
+  return btn;
+}
+
 function showTierSelect(onSelect: (tier: DifficultyTier) => void): HTMLDivElement {
   const panel = document.createElement('div');
-  panel.style.cssText = 'display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;justify-content:center;';
+  panel.style.cssText = `
+    display:flex;gap:clamp(8px,2vw,14px);flex-wrap:wrap;justify-content:center;
+    width:min(100%,720px);box-sizing:border-box;
+  `;
 
   const tiers: DifficultyTier[] = [1, 2, 3];
+  const statColor = CHARACTER_DETAIL_TEXT_COLOR;
 
   for (const tier of tiers) {
     const cfg = TIER_CONFIGS[tier];
     const isSelected = tier === selectedTier;
-    const color = TIER_COLORS[tier];
+    const panelSize = TIER_PANEL_SIZE[tier];
 
-    const btn = document.createElement('div');
-    btn.style.cssText = `
-      padding:10px 18px;background:rgba(20,20,40,0.9);
-      border:2px solid ${isSelected ? color : '#444'};
-      border-radius:8px;cursor:pointer;text-align:center;transition:all 0.15s;min-width:100px;
-      ${isSelected ? `box-shadow:0 0 12px ${color}44;` : ''}
+    const card = document.createElement('div');
+    card.setAttribute('aria-label', t(`tier.${tier}`));
+    card.style.cssText = `
+      position:relative;width:min(140px,26vw);aspect-ratio:${panelSize.w}/${panelSize.h};height:auto;
+      box-sizing:border-box;
+      background:url(${TIER_PANEL_BGS[tier]}) center center/contain no-repeat;
+      border:none;border-radius:clamp(8px,2vw,12px);overflow:visible;
     `;
 
-    const nameEl = document.createElement('div');
-    nameEl.style.cssText = `color:${color};font-size:13px;font-weight:bold;margin-bottom:4px;`;
-    nameEl.textContent = t(`tier.${tier}`);
-    btn.appendChild(nameEl);
-
     const descEl = document.createElement('div');
-    descEl.style.cssText = 'color:#888;font-size:9px;line-height:1.45;text-align:left;';
+    descEl.style.cssText = `
+      position:absolute;top:28%;left:11%;right:11%;box-sizing:border-box;text-align:left;
+      color:${statColor};font-size:clamp(9px,2.2vw,11px);line-height:1.45;font-weight:600;
+    `;
     const tierStatRows = [
       t('tier.stat.enemyHp', { value: String(cfg.enemyHpMultiplier) }),
       t('tier.stat.enemyDamage', { value: String(cfg.enemyDamageMultiplier) }),
@@ -5056,19 +5771,24 @@ function showTierSelect(onSelect: (tier: DifficultyTier) => void): HTMLDivElemen
       statEl.textContent = statText;
       descEl.appendChild(statEl);
     }
-    btn.appendChild(descEl);
+    descEl.appendChild(createTierMonsterAvatarRow());
+    card.appendChild(descEl);
 
-    btn.addEventListener('click', () => {
+    const actionWrap = document.createElement('div');
+    actionWrap.style.cssText = `
+      position:absolute;left:0;right:0;bottom:5%;display:flex;justify-content:center;
+      padding:0 8%;box-sizing:border-box;
+    `;
+    actionWrap.appendChild(createTierPanelSelectButton(isSelected, () => {
+      if (selectedTier === tier) return;
       selectedTier = tier;
       onSelect(tier);
       const newPanel = showTierSelect(onSelect);
       panel.replaceWith(newPanel);
-    });
+    }));
+    card.appendChild(actionWrap);
 
-    btn.addEventListener('mouseenter', () => { btn.style.transform = 'scale(1.05)'; });
-    btn.addEventListener('mouseleave', () => { btn.style.transform = 'scale(1)'; });
-
-    panel.appendChild(btn);
+    panel.appendChild(card);
   }
 
   return panel;
@@ -5079,158 +5799,86 @@ function showTierSelect(onSelect: (tier: DifficultyTier) => void): HTMLDivElemen
 // =============================================================================
 
 let mainMenuEl: HTMLDivElement | null = null;
-let menuScene: { renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.PerspectiveCamera; animId: number | null } | null = null;
+
+function createMainMenuButton(iconSrc: string, label: string, onClick: () => void): HTMLDivElement {
+  const btn = document.createElement('div');
+  btn.style.cssText = `
+    position:relative;width:min(92%,clamp(168px,62vw,232px));cursor:pointer;user-select:none;
+    touch-action:manipulation;transition:transform 0.15s;max-width:100%;
+  `;
+
+  const frame = document.createElement('img');
+  frame.src = MENU_BUTTON_FRAME;
+  frame.alt = '';
+  frame.draggable = false;
+  frame.style.cssText = 'display:block;width:100%;height:auto;pointer-events:none;';
+
+  const content = document.createElement('div');
+  content.style.cssText = `
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    gap:clamp(6px,2vw,10px);padding:0 clamp(4px,2vw,12px);box-sizing:border-box;pointer-events:none;
+    max-width:100%;overflow:hidden;
+  `;
+
+  const icon = document.createElement('img');
+  icon.src = iconSrc;
+  icon.alt = '';
+  icon.draggable = false;
+  icon.style.cssText = 'width:clamp(22px,6.5vw,30px);height:clamp(22px,6.5vw,30px);object-fit:contain;flex-shrink:0;';
+
+  const labelEl = document.createElement('span');
+  labelEl.textContent = label;
+  labelEl.style.cssText = `color:${MENU_BUTTON_LABEL_COLOR};font-size:clamp(12px,3.6vw,16px);font-weight:bold;line-height:1.2;white-space:nowrap;flex-shrink:1;min-width:0;overflow:hidden;text-overflow:ellipsis;`;
+
+  content.appendChild(icon);
+  content.appendChild(labelEl);
+  btn.appendChild(frame);
+  btn.appendChild(content);
+  btn.addEventListener('mouseenter', () => { btn.style.transform = 'scale(1.05)'; });
+  btn.addEventListener('mouseleave', () => { btn.style.transform = 'scale(1)'; });
+  btn.addEventListener('click', onClick);
+  return btn;
+}
 
 function showMainMenu(): void {
-  const container = document.getElementById('game-container');
-  if (!container) return;
-
-  const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-  renderer.domElement.style.display = 'block';
-  container.appendChild(renderer.domElement);
-
-  const scene = new THREE.Scene();
-  scene.name = 'MenuScene';
-  scene.background = new THREE.Color(0x0a0a1a);
-  scene.fog = new THREE.Fog(0x0a0a1a, 30, 60);
-
-  const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 200);
-  camera.name = 'MenuCamera';
-  camera.position.set(0, 10, 18);
-  camera.lookAt(0, 0, 0);
-
-  const groundGeo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE);
-  const groundMat = new THREE.MeshToonMaterial({ color: 0x1a1a2a, gradientMap: toonGradientMap });
-  const ground = new THREE.Mesh(groundGeo, groundMat);
-  ground.name = 'MenuGround';
-  ground.rotation.x = -Math.PI / 2;
-  scene.add(ground);
-
-  const ambient = new THREE.AmbientLight(0x8888cc, 0.4);
-  ambient.name = 'MenuAmbient';
-  scene.add(ambient);
-  const dir = new THREE.DirectionalLight(0xaaccff, 0.6);
-  dir.name = 'MenuDirLight';
-  dir.position.set(8, 15, 5);
-  scene.add(dir);
-
-  // Decorative elements
-  for (let i = 0; i < 20; i++) {
-    const boxGeo = new THREE.BoxGeometry(0.9, 1.2, 0.9);
-    const color = [0xd4a574, 0xaaddff, 0x44cc55, 0x553366, 0xc87533][i % 5];
-    const boxMat = new THREE.MeshToonMaterial({ color, gradientMap: toonGradientMap });
-    const box = new THREE.Mesh(boxGeo, boxMat);
-    box.name = `MenuDecor_${i}`;
-    box.position.set(
-      (Math.random() - 0.5) * 30,
-      0.5,
-      (Math.random() - 0.5) * 30,
-    );
-    scene.add(box);
-  }
-
-  const removeDisplay = installThreeHighDpi({
-    renderer,
-    container,
-    onResize: ({ width, height }) => {
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
-    },
-  });
-
-  let angle = 0;
-  let animId: number | null = null;
-
-  function animateMenu(): void {
-    animId = requestAnimationFrame(animateMenu);
-    angle += 0.003;
-    camera.position.x = Math.sin(angle) * 20;
-    camera.position.z = Math.cos(angle) * 20;
-    camera.lookAt(0, 0, 0);
-    renderer.render(scene, camera);
-  }
-  animateMenu();
-
-  menuScene = { renderer, scene, camera, animId };
-
-  // Menu overlay
   mainMenuEl = document.createElement('div');
-  mainMenuEl.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:500;font-family:Arial,sans-serif;gap:16px;';
+  mainMenuEl.style.cssText = `
+    position:fixed;top:0;left:0;width:100%;height:100%;box-sizing:border-box;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    z-index:500;font-family:Arial,sans-serif;gap:16px;
+    background:#0a0a1a url(${LOBBY_BG_PATH}) center center/cover no-repeat;
+  `;
 
   // Silver display at top
   const save = loadSave();
-  const silverDisplay = document.createElement('div');
-  silverDisplay.style.cssText = 'position:absolute;top:16px;right:16px;color:#eeeeee;font-size:16px;font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.8);background:rgba(20,20,40,0.7);padding:6px 14px;border-radius:6px;border:1px solid rgba(255,255,255,0.2);';
-  silverDisplay.textContent = t('shop.silver', { count: String(save.silver) });
+  const silverDisplay = createSilverBadge(save.silver);
+  silverDisplay.style.position = 'absolute';
+  silverDisplay.style.top = '16px';
+  silverDisplay.style.right = '16px';
   mainMenuEl.appendChild(silverDisplay);
 
   // Title
-  const title = document.createElement('div');
-  title.style.cssText = 'font-size:56px;font-weight:bold;color:#ffdd00;text-shadow:0 0 20px #ff8800,0 0 40px #ff4400,0 4px 8px rgba(0,0,0,0.6);letter-spacing:4px;-webkit-text-stroke:2px #cc6600;';
-  title.textContent = t('game.title');
+  const title = document.createElement('img');
+  title.src = TITLE_IMAGE_PATH;
+  title.alt = t('game.title');
+  title.draggable = false;
+  title.style.cssText = 'width:min(88vw,520px);height:auto;object-fit:contain;margin-bottom:8px;filter:drop-shadow(0 4px 12px rgba(0,0,0,0.65));user-select:none;';
   mainMenuEl.appendChild(title);
-
-  // Character select label
-  const selectLabel = document.createElement('div');
-  selectLabel.style.cssText = 'color:#cccccc;font-size:14px;margin-top:12px;';
-  selectLabel.textContent = t('menu.selectCharacter');
-  mainMenuEl.appendChild(selectLabel);
-
-  // Character select cards
-  const charPanel = showCharacterSelect((_char) => {
-    // Character selection updates via the showCharacterSelect function
-  });
-  mainMenuEl.appendChild(charPanel);
-
-  // Tier select label
-  const tierLabel = document.createElement('div');
-  tierLabel.style.cssText = 'color:#cccccc;font-size:13px;margin-top:10px;';
-  tierLabel.textContent = t('tier.select');
-  mainMenuEl.appendChild(tierLabel);
-
-  // Tier select buttons
-  const tierPanel = showTierSelect((_tier) => {
-    // Tier selection updates via the showTierSelect function
-  });
-  mainMenuEl.appendChild(tierPanel);
 
   // Button row (Start + Shop + Quests)
   const btnRow = document.createElement('div');
-  btnRow.style.cssText = 'display:flex;gap:12px;margin-top:16px;flex-wrap:wrap;justify-content:center;';
+  btnRow.style.cssText = 'display:flex;flex-direction:column;gap:clamp(8px,2.5vw,12px);margin-top:16px;align-items:center;width:100%;max-width:100%;box-sizing:border-box;padding:0 4px;';
 
-  // Start button
-  const startBtn = document.createElement('div');
-  startBtn.style.cssText = 'padding:14px 40px;background:linear-gradient(135deg,#ff6600,#ffaa00);color:#ffffff;font-size:20px;font-weight:bold;border-radius:12px;cursor:pointer;user-select:none;box-shadow:0 4px 16px rgba(255,100,0,0.4);transition:transform 0.15s;text-shadow:0 2px 4px rgba(0,0,0,0.3);';
-  startBtn.textContent = t('menu.start');
-  startBtn.addEventListener('mouseenter', () => { startBtn.style.transform = 'scale(1.05)'; });
-  startBtn.addEventListener('mouseleave', () => { startBtn.style.transform = 'scale(1)'; });
-  startBtn.addEventListener('click', () => {
+  btnRow.appendChild(createMainMenuButton(MENU_BUTTON_ICONS.start, t('menu.start'), () => {
     destroyMainMenu();
-    startGame(selectedCharacter);
-  });
-  btnRow.appendChild(startBtn);
-
-  // Shop button
-  const shopBtn = document.createElement('div');
-  shopBtn.style.cssText = 'padding:14px 28px;background:linear-gradient(135deg,#4488cc,#66aaee);color:#ffffff;font-size:18px;font-weight:bold;border-radius:12px;cursor:pointer;user-select:none;box-shadow:0 4px 12px rgba(50,100,200,0.4);transition:transform 0.15s;text-shadow:0 2px 4px rgba(0,0,0,0.3);';
-  shopBtn.textContent = t('menu.shop');
-  shopBtn.addEventListener('mouseenter', () => { shopBtn.style.transform = 'scale(1.05)'; });
-  shopBtn.addEventListener('mouseleave', () => { shopBtn.style.transform = 'scale(1)'; });
-  shopBtn.addEventListener('click', () => {
+    showCharacterSelectScreen();
+  }));
+  btnRow.appendChild(createMainMenuButton(MENU_BUTTON_ICONS.shop, t('menu.shop'), () => {
     showShopOverlay();
-  });
-  btnRow.appendChild(shopBtn);
-
-  // Quests button
-  const questBtn = document.createElement('div');
-  questBtn.style.cssText = 'padding:14px 28px;background:linear-gradient(135deg,#aa6633,#cc8844);color:#ffffff;font-size:18px;font-weight:bold;border-radius:12px;cursor:pointer;user-select:none;box-shadow:0 4px 12px rgba(150,80,30,0.4);transition:transform 0.15s;text-shadow:0 2px 4px rgba(0,0,0,0.3);';
-  questBtn.textContent = t('menu.quests');
-  questBtn.addEventListener('mouseenter', () => { questBtn.style.transform = 'scale(1.05)'; });
-  questBtn.addEventListener('mouseleave', () => { questBtn.style.transform = 'scale(1)'; });
-  questBtn.addEventListener('click', () => {
+  }));
+  btnRow.appendChild(createMainMenuButton(MENU_BUTTON_ICONS.quest, t('menu.quests'), () => {
     showQuestsOverlay();
-  });
-  btnRow.appendChild(questBtn);
+  }));
 
   mainMenuEl.appendChild(btnRow);
   document.body.appendChild(mainMenuEl);
@@ -5239,13 +5887,6 @@ function showMainMenu(): void {
 function destroyMainMenu(): void {
   mainMenuEl?.remove();
   mainMenuEl = null;
-
-  if (menuScene) {
-    if (menuScene.animId !== null) cancelAnimationFrame(menuScene.animId);
-    menuScene.renderer.dispose();
-    menuScene.renderer.domElement.remove();
-    menuScene = null;
-  }
 }
 
 // =============================================================================
@@ -5269,11 +5910,8 @@ function showShopOverlay(): void {
   titleEl.textContent = t('shop.title');
   header.appendChild(titleEl);
 
-  const silverEl = document.createElement('div');
-  silverEl.style.cssText = 'font-size:18px;color:#eeeeee;font-weight:bold;background:rgba(40,40,60,0.8);padding:6px 14px;border-radius:6px;border:1px solid rgba(255,255,255,0.2);';
   const save = loadSave();
-  silverEl.textContent = t('shop.silver', { count: String(save.silver) });
-  header.appendChild(silverEl);
+  header.appendChild(createSilverBadge(save.silver));
 
   shopOverlayEl.appendChild(header);
 
@@ -5367,10 +6005,9 @@ function showShopOverlay(): void {
     hideShopOverlay();
     // Refresh silver on main menu
     if (mainMenuEl) {
-      const silverDisp = mainMenuEl.querySelector('div') as HTMLDivElement | null;
+      const silverDisp = mainMenuEl.querySelector('[data-silver-badge]') as HTMLDivElement | null;
       if (silverDisp) {
-        const freshSave = loadSave();
-        silverDisp.textContent = t('shop.silver', { count: String(freshSave.silver) });
+        setSilverBadgeAmount(silverDisp, loadSave().silver);
       }
     }
   });
@@ -5464,8 +6101,15 @@ function showQuestsOverlay(): void {
 
     // Reward
     const rewardEl = document.createElement('div');
-    rewardEl.style.cssText = 'color:#ffcc00;font-size:11px;text-align:right;flex-shrink:0;';
-    rewardEl.textContent = formatQuestReward(quest.reward);
+    rewardEl.style.cssText = 'display:flex;justify-content:flex-end;flex-shrink:0;';
+    if (quest.reward.type === 'silver') {
+      rewardEl.appendChild(createSilverBadge(quest.reward.value as number, '+'));
+    } else {
+      const rewardText = document.createElement('span');
+      rewardText.style.cssText = 'color:#ffcc00;font-size:11px;text-align:right;';
+      rewardText.textContent = formatQuestReward(quest.reward);
+      rewardEl.appendChild(rewardText);
+    }
     row.appendChild(rewardEl);
 
     questList.appendChild(row);
@@ -5553,6 +6197,7 @@ async function main(): Promise<void> {
 
   if (import.meta.env.DEV) {
     mountDevtools();
+    positionLanguageSwitcher();
   }
 
   await loadModels();

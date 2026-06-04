@@ -9,6 +9,27 @@
     "character": "Character",
     "selectCharacter": "Select Character"
   },
+  "characterSelect": {
+    "confirm": "Confirm",
+    "back": "Back",
+    "initialWeapon": "Starting Weapon",
+    "statLabel": {
+      "hp": "HP",
+      "speed": "Speed",
+      "damage": "Damage",
+      "armor": "Armor",
+      "crit": "Crit"
+    },
+    "weaponStat": {
+      "damage": "Damage: {{value}}",
+      "cooldown": "Cooldown: {{value}}s",
+      "projectiles": "Projectiles: {{value}}",
+      "bounces": "Bounces: {{value}}",
+      "chains": "Chains: {{value}}",
+      "range": "Range: {{value}}",
+      "aoe": "AoE radius: {{value}}"
+    }
+  },
   "character": {
     "megachad": "Megachad",
     "megachad_desc": "Balanced fighter. High damage, standard speed.",
@@ -19,7 +40,9 @@
     "stat": {
       "hp": "HP: {{value}}",
       "speed": "Speed: {{value}}",
-      "damage": "Damage: {{value}}x"
+      "damage": "Damage: {{value}}x",
+      "armor": "Armor: {{value}}",
+      "crit": "Crit: {{value}}%"
     }
   },
   "hud": {
@@ -183,6 +206,8 @@
     "2": "Hard",
     "3": "Nightmare",
     "select": "Select Difficulty",
+    "choose": "Select",
+    "chosen": "Selected",
     "transition": "Tier {{value}}",
     "stat": {
       "enemyHp": "Enemy HP: {{value}}x",
