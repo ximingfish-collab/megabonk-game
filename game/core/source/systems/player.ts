@@ -24,13 +24,34 @@ import {
   BUNNY_HOP_WINDOW,
   BUNNY_HOP_BONUS,
   MAX_WEAPONS_CAP,
+  STEP_HEIGHT,
+  FALL_RESPAWN_Y,
+  CLIMB_SPEED,
 } from '../config.ts';
 import { loadSave } from '../save.ts';
 import { getShopBonuses } from '../shop.ts';
 import { generateUpgradeOptions, xpForLevel } from '../upgrades.ts';
-import { getTerrainHeight } from './terrain.ts';
+import {
+  getTerrainHeight,
+  getSupportHeight,
+  isBlockedHorizontally,
+  findClimb,
+} from './collision.ts';
 import type { GameConfig, PlayerState } from '../types.ts';
 import type { Engine } from './types.ts';
+
+/** 出生点 / 跌落复活点（模块级；GameInstance 开局通过 setPlayerSpawn 注入）。 */
+let spawnX = 0;
+let spawnZ = 0;
+
+/** 蹬墙跳离后短暂禁止自动再抓墙（秒），确保能离开 climb 范围再下落。 */
+let climbReleaseTimer = 0;
+
+/** 设置玩家出生点（同时作为掉出虚空后的复活点）。 */
+export function setPlayerSpawn(x: number, z: number): void {
+  spawnX = x;
+  spawnZ = z;
+}
 
 export function createInitialPlayer(config: GameConfig): PlayerState {
   const charCfg = CHARACTER_CONFIGS[config.character];
@@ -98,10 +119,71 @@ export function tickPlayerMovement(engine: Engine, dt: number): void {
 
   // Bunny hop window 倒计时
   if (player.bunnyHopTimer > 0) player.bunnyHopTimer -= dt;
+  if (climbReleaseTimer > 0) climbReleaseTimer -= dt;
 
   // Jump (edge detect)
   const jumpPressed = engine.input.jump && !engine.lastJumpInput;
   engine.lastJumpInput = engine.input.jump;
+  const isMoving = moveX !== 0 || moveZ !== 0;
+
+  // ===== 攀爬 climb_ =====
+  if (player.isClimbing) {
+    const c = findClimb(player.x, player.z, player.y);
+    if (!c) {
+      // 离开攀爬体 → 松手下落
+      player.isClimbing = false;
+      player.isGrounded = false;
+    } else if (jumpPressed) {
+      // 爬一半跳下：蹬墙跳开。给离墙水平初速 + 短暂禁止再抓，确保跳+方向能离开 climb 范围下落。
+      player.isClimbing = false;
+      player.isGrounded = false;
+      player.isJumping = true;
+      player.velocityY = JUMP_FORCE * 0.8;
+      climbReleaseTimer = 0.5;
+      if (isMoving) player.currentSpeed = player.speed; // 朝输入方向蹬离墙面
+    } else {
+      // 贴墙竖直移动：有移动输入=上爬，按 slide=下爬，否则悬停
+      const vdir = isMoving ? 1 : engine.input.slide ? -1 : 0;
+      player.y += CLIMB_SPEED * vdir * dt;
+      player.velocityY = 0;
+      // 锁定在攀爬体表面（防止飘出 footprint）
+      player.x = clamp(player.x, c.cx - c.halfW, c.cx + c.halfW);
+      player.z = clamp(player.z, c.cz - c.halfD, c.cz + c.halfD);
+
+      if (player.y >= c.topY) {
+        // 爬到顶 → 翻上平台
+        player.isClimbing = false;
+        player.isGrounded = true;
+        player.isJumping = false;
+        player.y = c.topY;
+        // 朝当前朝向往里挪一点，落到平台面上
+        player.x += engine.facingX * 0.9;
+        player.z += engine.facingZ * 0.9;
+        const top = getSupportHeight(player.x, player.z, player.y);
+        if (Number.isFinite(top)) player.y = top;
+      } else if (player.y < c.bottomY) {
+        player.y = c.bottomY;
+      }
+    }
+    // 仍在攀爬：跳过常规重力 / 水平移动
+    if (player.isClimbing) return;
+  } else {
+    // 攀爬进入：跳向攀爬体（地面按跳），或下落中贴上攀爬体（仅下落阶段，避免蹬墙跳后立刻又抓住）
+    const c = findClimb(player.x, player.z, player.y);
+    const wantGrab =
+      climbReleaseTimer <= 0 &&
+      (jumpPressed || (!player.isGrounded && player.velocityY <= 0));
+    if (c && player.y < c.topY - 0.1 && wantGrab) {
+      player.isClimbing = true;
+      player.isJumping = false;
+      player.velocityY = 0;
+      player.isSliding = false;
+      player.slideSpeedBoost = 0;
+      player.x = clamp(player.x, c.cx - c.halfW, c.cx + c.halfW);
+      player.z = clamp(player.z, c.cz - c.halfD, c.cz + c.halfD);
+      return; // 本帧进入攀爬，跳过普通跳跃 / 重力
+    }
+  }
 
   if (jumpPressed && player.isGrounded && !player.isSliding) {
     const isBunnyHop = player.bunnyHopTimer > 0;
@@ -117,9 +199,10 @@ export function tickPlayerMovement(engine: Engine, dt: number): void {
     player.velocityY -= GRAVITY * dt;
     player.y += player.velocityY * dt;
 
-    const groundHeight = getTerrainHeight(player.x, player.z);
-    if (player.y <= groundHeight) {
-      player.y = groundHeight;
+    // 支撑面：只认脚够得着的面，下落阶段才着地。
+    const support = getSupportHeight(player.x, player.z, player.y);
+    if (player.velocityY <= 0 && Number.isFinite(support) && player.y <= support) {
+      player.y = support;
       player.velocityY = 0;
       player.isGrounded = true;
       player.isJumping = false;
@@ -130,6 +213,15 @@ export function tickPlayerMovement(engine: Engine, dt: number): void {
         player.slideTimer = SLIDE_DURATION;
         player.slideSpeedBoost = SLIDE_SPEED_MULTIPLIER;
       }
+    } else if (player.y < FALL_RESPAWN_Y) {
+      // 掉出关卡虚空 → 传送回出生点。
+      player.x = spawnX;
+      player.z = spawnZ;
+      const groundAt = getTerrainHeight(spawnX, spawnZ);
+      player.y = Number.isFinite(groundAt) ? groundAt : 0;
+      player.velocityY = 0;
+      player.isGrounded = true;
+      player.isJumping = false;
     }
   }
 
@@ -150,7 +242,6 @@ export function tickPlayerMovement(engine: Engine, dt: number): void {
   // 水平移动 (加速度)
   const speedMultiplier = player.isSliding ? player.slideSpeedBoost : 1.0;
   const targetSpeed = player.speed * speedMultiplier;
-  const isMoving = moveX !== 0 || moveZ !== 0;
 
   if (isMoving) {
     player.currentSpeed += (targetSpeed - player.currentSpeed) * Math.min(1, 12.0 * dt);
@@ -167,10 +258,35 @@ export function tickPlayerMovement(engine: Engine, dt: number): void {
       engine.config.mapSize,
     );
     if (result) {
-      player.x = result.x;
-      player.z = result.z;
+      // 横向阻挡：col_/wall_ 侧面挡人；climb_ 平时挡（蹬墙释放窗口内不挡，便于跳离）。
+      const oldX = player.x;
+      const oldZ = player.z;
+      const includeClimb = climbReleaseTimer <= 0;
+      if (!isBlockedHorizontally(result.x, result.z, player.y, includeClimb)) {
+        player.x = result.x;
+        player.z = result.z;
+      } else if (!isBlockedHorizontally(result.x, oldZ, player.y, includeClimb)) {
+        player.x = result.x; // 沿 Z 向墙滑行
+      } else if (!isBlockedHorizontally(oldX, result.z, player.y, includeClimb)) {
+        player.z = result.z; // 沿 X 向墙滑行
+      }
+
+      // 地面跟随支撑面：迈步上 / 小台阶下贴地；无支撑或高崖则进入下落（修 O3）。
+      if (player.isGrounded) {
+        const support = getSupportHeight(player.x, player.z, player.y);
+        if (Number.isFinite(support) && support - player.y >= -STEP_HEIGHT) {
+          player.y = support;
+        } else {
+          player.isGrounded = false;
+          player.velocityY = 0;
+        }
+      }
     }
   }
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : v > hi ? hi : v;
 }
 
 export function tickDash(engine: Engine, dt: number): void {

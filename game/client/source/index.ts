@@ -48,6 +48,7 @@ import {
   type DifficultyTier,
   type ShrineState,
   type ShrineRewardOption,
+  type LevelData,
 } from '@minigame/core';
 import { PlatformInput } from '@minigame/platform';
 import { installThreeHighDpi } from '@minigame/render-adapter';
@@ -540,6 +541,199 @@ async function loadModels(): Promise<void> {
 
   // Load OBJ item models for pickups/projectiles
   await loadObjItems();
+}
+
+// =============================================================================
+// Level Loader — parse a Blender-exported .glb into LevelData + whitebox scene
+// =============================================================================
+//
+// 约定（见 level-editor/WHITEBOX_SPEC.md）：
+//   导出时勾 +Y Up，所以加载进 Three 后的坐标已是游戏坐标系（无需再转 Y→-Z）。
+//   物体名前缀决定类型：
+//     col_*   → 可站立地面（height = 包围盒顶面 box.max.y）
+//     wall_*  → 实心遮挡（bottomY~topY = 包围盒）
+//     climb_* → 攀爬体（同 wall_）
+//     spawn_player / spawn_boss / spawn_altar / spawn_chest / spawn_enemy_*
+//     其它    → 视觉模型（直接随场景渲染）
+
+const DEFAULT_LEVEL_PATH = '/models/levels/level_whitebox.glb';
+
+/** 已加载的关卡（数据 + 用于渲染的场景）。null = 用内置硬编码 arena。 */
+let loadedLevel: { data: LevelData; scene: THREE.Object3D } | null = null;
+
+const _box = new THREE.Box3();
+const _vec = new THREE.Vector3();
+
+/**
+ * 分析一个物体「朝上的表面」是平的还是斜的。
+ * 只看法线朝上（n.y>0.5）的三角面，取这些面顶点的最低/最高世界点。
+ * 这样厚平台（顶面平）会判定为平，倾斜板会判定为斜坡。
+ */
+function analyzeTopSurface(node: THREE.Object3D): {
+  sloped: boolean;
+  lo: THREE.Vector3;
+  hi: THREE.Vector3;
+} {
+  const lo = new THREE.Vector3(0, Infinity, 0);
+  const hi = new THREE.Vector3(0, -Infinity, 0);
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const ab = new THREE.Vector3();
+  const ac = new THREE.Vector3();
+  const n = new THREE.Vector3();
+
+  node.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.geometry) return;
+    const pos = mesh.geometry.attributes.position as THREE.BufferAttribute | undefined;
+    if (!pos) return;
+    mesh.updateWorldMatrix(true, false);
+    const m = mesh.matrixWorld;
+    const index = mesh.geometry.index;
+    const triCount = index ? index.count / 3 : pos.count / 3;
+    for (let t = 0; t < triCount; t++) {
+      const i0 = index ? index.getX(t * 3) : t * 3;
+      const i1 = index ? index.getX(t * 3 + 1) : t * 3 + 1;
+      const i2 = index ? index.getX(t * 3 + 2) : t * 3 + 2;
+      a.fromBufferAttribute(pos, i0).applyMatrix4(m);
+      b.fromBufferAttribute(pos, i1).applyMatrix4(m);
+      c.fromBufferAttribute(pos, i2).applyMatrix4(m);
+      ab.subVectors(b, a);
+      ac.subVectors(c, a);
+      n.crossVectors(ab, ac).normalize();
+      if (n.y <= 0.5) continue; // 只看朝上的面（顶面）
+      for (const v of [a, b, c]) {
+        if (v.y < lo.y) lo.copy(v);
+        if (v.y > hi.y) hi.copy(v);
+      }
+    }
+  });
+
+  const sloped =
+    Number.isFinite(lo.y) && Number.isFinite(hi.y) && hi.y - lo.y > 0.3;
+  return { sloped, lo, hi };
+}
+
+/** 把分析结果写成 ramp（顶面斜）或 col 实体盒（顶面平）。 */
+function pushColOrRamp(node: THREE.Object3D, box: THREE.Box3, data: LevelData): void {
+  const cx = (box.min.x + box.max.x) / 2;
+  const cz = (box.min.z + box.max.z) / 2;
+  const halfW = (box.max.x - box.min.x) / 2;
+  const halfD = (box.max.z - box.min.z) / 2;
+  const surf = analyzeTopSurface(node);
+  if (surf.sloped) {
+    const axis: 'x' | 'z' =
+      Math.abs(surf.hi.x - surf.lo.x) >= Math.abs(surf.hi.z - surf.lo.z) ? 'x' : 'z';
+    data.ramps.push({
+      cx, cz, halfW, halfD, axis,
+      lowY: surf.lo.y,
+      highY: surf.hi.y,
+      ascendPositive: axis === 'x' ? surf.hi.x > surf.lo.x : surf.hi.z > surf.lo.z,
+    });
+  } else {
+    data.collisionRects.push({
+      cx, cz, halfW, halfD,
+      height: box.max.y, // 平顶面 = 可站立高度
+      baseY: box.min.y,  // 底面 = 实体盒下边界
+    });
+  }
+}
+
+function parseLevelGltf(root: THREE.Object3D): LevelData {
+  root.updateMatrixWorld(true);
+
+  const data: LevelData = {
+    collisionRects: [],
+    walls: [],
+    climbVolumes: [],
+    ramps: [],
+    spawnPoints: {},
+    chestSpawns: [],
+  };
+
+  root.traverse((node) => {
+    const name = node.name;
+    if (!name) return;
+
+    if (name.startsWith('col_')) {
+      _box.setFromObject(node);
+      if (_box.isEmpty()) return;
+      // 顶面平 → 实体盒；顶面斜 → 自动当可行走斜坡（避免倾斜 col_ 变成一堵墙）。
+      pushColOrRamp(node, _box, data);
+    } else if (name.startsWith('wall_')) {
+      _box.setFromObject(node);
+      if (_box.isEmpty()) return;
+      data.walls.push({
+        cx: (_box.min.x + _box.max.x) / 2,
+        cz: (_box.min.z + _box.max.z) / 2,
+        halfW: (_box.max.x - _box.min.x) / 2,
+        halfD: (_box.max.z - _box.min.z) / 2,
+        bottomY: _box.min.y,
+        topY: _box.max.y,
+      });
+    } else if (name.startsWith('climb_')) {
+      _box.setFromObject(node);
+      if (_box.isEmpty()) return;
+      data.climbVolumes.push({
+        cx: (_box.min.x + _box.max.x) / 2,
+        cz: (_box.min.z + _box.max.z) / 2,
+        halfW: (_box.max.x - _box.min.x) / 2,
+        halfD: (_box.max.z - _box.min.z) / 2,
+        bottomY: _box.min.y,
+        topY: _box.max.y,
+      });
+    } else if (name.startsWith('ramp_')) {
+      _box.setFromObject(node);
+      if (_box.isEmpty()) return;
+      pushColOrRamp(node, _box, data);
+    } else if (name.startsWith('spawn_')) {
+      node.getWorldPosition(_vec);
+      const p = { x: _vec.x, z: _vec.z };
+      if (name.startsWith('spawn_player')) data.spawnPoints.player = p;
+      else if (name.startsWith('spawn_boss')) data.spawnPoints.boss = p;
+      else if (name.startsWith('spawn_altar') || name.startsWith('spawn_teleporter')) {
+        (data.spawnPoints.altars ??= []).push(p);
+      } else if (name.startsWith('spawn_chest')) {
+        data.chestSpawns.push(p);
+      } else if (name.startsWith('spawn_enemy_')) {
+        const key = name.replace(/\.\d+$/, '');
+        (data.spawnPoints.enemyZones ??= {})[key] = p;
+      }
+    }
+  });
+
+  return data;
+}
+
+/**
+ * 尝试加载关卡 glb。文件不存在（404）则静默回退到内置 arena。
+ * 白盒迭代：把导出的关卡丢到 public/models/levels/level_whitebox.glb 即可。
+ */
+async function tryLoadLevel(path: string = DEFAULT_LEVEL_PATH): Promise<void> {
+  try {
+    const gltf = await gltfLoader.loadAsync(path);
+    const scene = gltf.scene;
+    scene.name = 'LoadedLevel';
+    convertToToonMaterials(scene);
+    scene.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+      }
+    });
+    const data = parseLevelGltf(scene);
+    loadedLevel = { data, scene };
+    console.log(
+      `[Level] Loaded ${path}: ${data.collisionRects.length} col, ${data.walls.length} wall, ` +
+      `${data.climbVolumes.length} climb, ${data.ramps.length} ramp, ${data.chestSpawns.length} chest, ` +
+      `player=${!!data.spawnPoints.player} boss=${!!data.spawnPoints.boss}`,
+    );
+  } catch {
+    loadedLevel = null;
+    console.log(`[Level] No level at ${path} — using built-in arena.`);
+  }
 }
 
 // OBJ geometry cache for pickups/projectiles
@@ -1118,9 +1312,15 @@ export class GameScene {
     this.scene.add(this.groundMesh);
 
     // =========================================================================
-    // 2. Build the cyberpunk arena from loaded models
+    // 2. Build arena — loaded level (whitebox) if present, else built-in arena
     // =========================================================================
-    this.buildArena();
+    if (loadedLevel) {
+      const levelScene = cloneSkeleton(loadedLevel.scene) as THREE.Object3D;
+      levelScene.name = 'LevelRoot';
+      this.scene.add(levelScene);
+    } else {
+      this.buildArena();
+    }
 
     // =========================================================================
     // 3. Hidden grid lines (required by type)
@@ -5321,6 +5521,7 @@ function startGame(character: CharacterType = 'megachad'): void {
     ...DEFAULT_GAME_CONFIG,
     character,
     tier: selectedTier,
+    level: loadedLevel?.data,
   };
 
   const session = new LocalGameSession(config);
@@ -5355,6 +5556,7 @@ async function main(): Promise<void> {
   }
 
   await loadModels();
+  await tryLoadLevel();
 
   showMainMenu();
 }

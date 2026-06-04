@@ -12,7 +12,23 @@ import {
 import type { ChestState, GameConfig } from '../types.ts';
 import type { Engine } from './types.ts';
 
+function randomReward(): number {
+  return CHEST_SILVER_MIN + Math.floor(Math.random() * (CHEST_SILVER_MAX - CHEST_SILVER_MIN));
+}
+
 export function generateChests(config: GameConfig): ChestState[] {
+  // 关卡手摆了 spawn_chest → 用它们；否则按旧逻辑随机环形分布。
+  const placed = config.level?.chestSpawns;
+  if (placed && placed.length > 0) {
+    return placed.map((p, i) => ({
+      id: i + 1,
+      x: p.x,
+      z: p.z,
+      opened: false,
+      reward: randomReward(),
+    }));
+  }
+
   const chests: ChestState[] = [];
   const halfMap = config.mapSize * 0.4;
   for (let i = 0; i < CHEST_COUNT; i++) {
@@ -23,7 +39,7 @@ export function generateChests(config: GameConfig): ChestState[] {
       x: Math.cos(angle) * dist,
       z: Math.sin(angle) * dist,
       opened: false,
-      reward: CHEST_SILVER_MIN + Math.floor(Math.random() * (CHEST_SILVER_MAX - CHEST_SILVER_MIN)),
+      reward: randomReward(),
     });
   }
   return chests;
