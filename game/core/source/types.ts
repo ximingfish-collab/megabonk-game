@@ -141,6 +141,8 @@ export interface PlayerState {
   difficultyMult?: number;
   /** 额外幸运值（百分比，加到 luck tome 等级上参与 rolls）。 */
   luckBonus?: number;
+  /** 是否正在攀爬 climb_ 体积（攀爬时关闭重力、锁定水平移动）。 */
+  isClimbing?: boolean;
 }
 
 // --- Charge Shrine ---
@@ -412,12 +414,92 @@ export interface GameState {
 export type DifficultyTier = 1 | 2 | 3;
 
 // --- Config ---
+// --- Level data (data-driven levels parsed from Blender .glb) ---
+
+/**
+ * 可站立地面 / 平台 —— 实为一个实体盒子。
+ * height = 顶面（可站立高度）；baseY = 底面。
+ * 盒子作为实体参与碰撞：可站顶面、横向挡人（除非顶面在迈步范围内可直接上）、底在头顶之上时可从下方穿过。
+ */
+export interface CollisionRect {
+  cx: number;
+  cz: number;
+  halfW: number;
+  halfD: number;
+  height: number;
+  /** 盒子底面 y。缺省视为 -∞（实心到底，旧数据兼容）。 */
+  baseY?: number;
+}
+
+/** 实心遮挡体（水平阻挡）。bottomY~topY 为竖直占据区间。 */
+export interface WallBox {
+  cx: number;
+  cz: number;
+  halfW: number;
+  halfD: number;
+  bottomY: number;
+  topY: number;
+  blockProjectile?: boolean;
+}
+
+/**
+ * 斜坡 —— 可**行走**上去的倾斜地面（区别于 climb_ 攀爬）。
+ * 顶面沿 axis 轴从一端线性升高到另一端。
+ */
+export interface RampVolume {
+  cx: number;
+  cz: number;
+  halfW: number;
+  halfD: number;
+  /** 坡度方向轴。 */
+  axis: 'x' | 'z';
+  /** 低端顶面高度。 */
+  lowY: number;
+  /** 高端顶面高度。 */
+  highY: number;
+  /** true = 沿 +axis 方向升高；false = 沿 -axis 升高。 */
+  ascendPositive: boolean;
+}
+
+/** 攀爬体。玩家可在 bottomY~topY 间攀爬；怪物可经此登高。 */
+export interface ClimbVolume {
+  cx: number;
+  cz: number;
+  halfW: number;
+  halfD: number;
+  bottomY: number;
+  topY: number;
+}
+
+/** 关卡出生点。坐标已转换为游戏坐标系（x, z）。 */
+export interface LevelSpawnPoints {
+  player?: { x: number; z: number };
+  boss?: { x: number; z: number };
+  altars?: { x: number; z: number }[];
+  enemyZones?: Record<string, { x: number; z: number }>;
+}
+
+/**
+ * 一关的全部逻辑数据。由 client 的 LevelLoader 解析 .glb 产出，
+ * 经 GameConfig.level 传入 core。缺省时回退到内置 Neon Crucible 几何。
+ */
+export interface LevelData {
+  collisionRects: CollisionRect[];
+  walls: WallBox[];
+  climbVolumes: ClimbVolume[];
+  ramps: RampVolume[];
+  spawnPoints: LevelSpawnPoints;
+  chestSpawns: { x: number; z: number }[];
+}
+
 export interface GameConfig {
   mapSize: number;
   tickIntervalMs: number;
   maxEnemies: number;
   character: CharacterType;
   tier: DifficultyTier;
+  /** 可选关卡数据；缺省回退到内置 Neon Crucible 几何。 */
+  level?: LevelData;
 }
 
 // --- Result ---

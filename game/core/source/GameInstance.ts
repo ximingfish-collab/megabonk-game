@@ -14,7 +14,7 @@
  *   - systems/aiSystem.ts   — enemy AI 主循环
  *   - systems/bossAi.ts     — boss AI 主循环
  *   - systems/helpers.ts    — findNearestEnemy / addDamageEvent / applyKnockback / ...
- *   - systems/terrain.ts    — getTerrainHeight 纯函数
+ *   - systems/collision.ts  — 关卡 / 碰撞系统（geometry + 高度 / 横向阻挡查询）
  *
  * 公开 API 完全不变：start / tick / applyAction / selectUpgrade / pause / resume
  *                  / getState / getResult.
@@ -41,13 +41,14 @@ import { tickEnemyAi } from './systems/aiSystem.ts';
 import { tickBossAi } from './systems/bossAi.ts';
 
 import type { Engine } from './systems/types.ts';
-import { getTerrainHeight } from './systems/terrain.ts';
+import { getTerrainHeight, loadLevel, clearLevel } from './systems/collision.ts';
 import {
   createInitialPlayer,
   tickPlayerMovement,
   tickDash,
   tickTimers,
   tickLevelUp,
+  setPlayerSpawn,
 } from './systems/player.ts';
 import { tickWeapons, checkWeaponEvolutions } from './systems/weapons.ts';
 import { tickProjectiles } from './systems/projectiles.ts';
@@ -117,6 +118,35 @@ export class GameInstance {
 
     engine.effects = makeEffects(engine);
     this.engine = engine;
+
+    this.applyLevelConfig();
+  }
+
+  /**
+   * 应用关卡数据：注入地形碰撞矩形 + 玩家出生点。
+   * 无关卡数据时回退到内置 Neon Crucible 几何（清掉上一个实例可能留下的模块状态）。
+   */
+  private applyLevelConfig(): void {
+    const { engine } = this;
+    const level = engine.config.level;
+    if (level) {
+      // 碰撞系统统一接管关卡几何（col_/wall_ 实体盒、climb_ 攀爬体、ramp_ 斜坡、地表高度）。
+      loadLevel(level);
+      const spawn = level.spawnPoints?.player;
+      if (spawn) {
+        engine.state.player.x = spawn.x;
+        engine.state.player.z = spawn.z;
+        const groundAt = getTerrainHeight(spawn.x, spawn.z);
+        engine.state.player.y = Number.isFinite(groundAt) ? groundAt : 0;
+        setPlayerSpawn(spawn.x, spawn.z);
+      } else {
+        setPlayerSpawn(engine.state.player.x, engine.state.player.z);
+      }
+    } else {
+      clearLevel();
+      setPlayerSpawn(engine.state.player.x, engine.state.player.z);
+    }
+    engine.state.player.isClimbing = false;
   }
 
   start(): void {
@@ -151,6 +181,8 @@ export class GameInstance {
     engine.aiGroup = 0;
     engine.landingTimer = 0;
     engine.miniBossTimer = 0;
+
+    this.applyLevelConfig();
   }
 
   tick(): boolean {
