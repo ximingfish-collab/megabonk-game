@@ -1903,18 +1903,33 @@ http://localhost:1513/?level=foo</code></pre>
   <p>关卡命名约定见 <a href="https://github.com/Adios94/megabonk-game/blob/master/level-editor/WHITEBOX_SPEC.md">level-editor/WHITEBOX_SPEC.md</a>（前缀：<code>col_</code> / <code>wall_</code> / <code>climb_</code> / <code>ramp_</code> / <code>spawn_*</code>）。</p>
 
   <h3>GM 调试：碰撞盒可视化</h3>
-  <p>关卡设计师调白盒时可以打开 wireframe 叠加层，肉眼校对几何与 col_/wall_ 数据是否对齐：</p>
-  <pre><code>// 浏览器控制台（先加 ?level 进游戏）
-window.__gm.showCollision()</code></pre>
+  <p>关卡设计师调白盒时可以打开叠加层，肉眼校对几何与 col_/wall_ 数据是否对齐。两种触发方式：</p>
+  <pre><code>// 方式 1：浏览器控制台（先用 ?level 进游戏）
+window.__gm.showCollision()
+
+// 方式 2：按 ` 反引号开 GM 面板，点「🟩 切换碰撞盒可视化」</code></pre>
+
+  <h4>视觉规范</h4>
+  <p>每个几何 = <strong>加色透明 fill</strong>（重叠处更亮）+ <strong>高亮边缘线</strong> + <strong>永远置顶</strong>（不被场景遮挡）。spawn 点除了发光球还多一根 5 单位高的细立柱定位针，远处也能看见。</p>
   <table>
-    <tr><th>颜色</th><th>含义</th></tr>
-    <tr><td><span style="color:#0f0">绿</span></td><td><code>col_</code> 可站立平台（顶面 = 可走面）</td></tr>
-    <tr><td><span style="color:#f33">红</span></td><td><code>wall_</code> 实心遮挡（横向阻挡，可从下方穿过）</td></tr>
-    <tr><td><span style="color:#39f">蓝</span></td><td><code>climb_</code> 攀爬体（按 jump 键抓墙）</td></tr>
-    <tr><td><span style="color:#fc0">黄</span></td><td><code>ramp_</code> 可行走斜坡</td></tr>
-    <tr><td><span style="color:#f3f">品红球</span></td><td><code>spawn_player / boss / altar / chest</code> 标记</td></tr>
+    <tr><th>颜色</th><th>类型</th><th>玩家怎么"用"它</th><th>形状语义</th></tr>
+    <tr><td><span style="color:#0f4">绿</span></td><td><code>col_</code> 平台</td><td>站在顶面</td><td>顶面 = 可走面（平的）</td></tr>
+    <tr><td><span style="color:#f35">红</span></td><td><code>wall_</code> 墙</td><td>横向走不过</td><td>整个体积都挡，可从头顶下穿过</td></tr>
+    <tr><td><span style="color:#3af">蓝</span></td><td><code>climb_</code> 攀爬体</td><td>按 jump 抓墙爬</td><td>整个体积是攀爬带；走不穿</td></tr>
+    <tr><td><span style="color:#fc0">黄</span></td><td><code>ramp_</code> 斜坡</td><td><strong>走</strong>上去（不用跳/爬）</td><td>顶面是斜的：从 <code>lowY</code> 线性插值到 <code>highY</code><br><span style="color:var(--dim);font-size:12px">注：可视化里画的是包围盒，盒内对角斜面才是真实可走面</span></td></tr>
+    <tr><td><span style="color:#f3f">品红</span></td><td>spawn 点</td><td>逻辑出生位置</td><td>发光球 + 立柱定位针：<code>spawn_player / boss / altar / chest</code></td></tr>
   </table>
-  <p style="color: var(--dim); font-size: 13px;">注：默认 Neon Crucible 没有 LevelData，可视化命令在那里会 warn 跳过；切到 <code>?level</code> 加载白盒后才会生效。</p>
+
+  <h4>选哪种几何</h4>
+  <table>
+    <tr><th>高度差 Δh（相邻可站面）</th><th>玩家上去方法</th><th>关卡里放</th></tr>
+    <tr><td>≤ 0.5</td><td>走路自动迈步</td><td>相邻 <code>col_</code></td></tr>
+    <tr><td>0.5 ~ 1.0</td><td>普通跳</td><td>相邻 <code>col_</code></td></tr>
+    <tr><td>1.0 ~ 1.44</td><td>兔子跳（落地 0.3s 内连跳）</td><td>相邻 <code>col_</code> 或 <code>ramp_</code></td></tr>
+    <tr><td>&gt; 1.44</td><td>必须 ramp 或攀爬</td><td><code>ramp_</code> / <code>climb_</code></td></tr>
+  </table>
+
+  <p style="color: var(--dim); font-size: 13px;">注：默认 Neon Crucible 没有 LevelData，命令会 warn 跳过；切到 <code>?level</code> 加载白盒后才会生效。</p>
 
   <h3>测试覆盖</h3>
   <ul>
@@ -2021,7 +2036,7 @@ window.__gm.testLightning()    // 在玩家头顶劈一道电（VFX 测试）</c
   <p class="sub">详见 <a data-tab="physics">物理 / 碰撞</a> 页。常用入口：</p>
   <ul>
     <li>启动游戏时加 <code>?level</code> URL 参数 → 加载 <code>public/models/levels/level_whitebox.glb</code>，用 Blender 导出的关卡测试</li>
-    <li><code>window.__gm.showCollision()</code> → wireframe 叠加层（绿 col / 红 wall / 蓝 climb / 黄 ramp / 品红 spawn）</li>
+    <li><code>window.__gm.showCollision()</code> → 加色透明叠加层（绿 col / 红 wall / 蓝 climb / 黄 ramp / 品红 spawn）。也可在 GM 面板里点按钮触发，详见 <a data-tab="physics">物理 / 碰撞</a> 页</li>
     <li>新增 col_/wall_ 类型 → <code>game/core/source/types.ts</code> + <code>systems/collision.ts</code> 的 <code>makeLevelGeometry</code></li>
     <li>调玩家迈步 / 攀爬手感 → <code>config.ts</code> 的 <code>STEP_HEIGHT</code> / <code>CLIMB_SPEED</code> / <code>FALL_RESPAWN_Y</code></li>
   </ul>

@@ -452,8 +452,14 @@ window.__gm.godMode()          // 无敌
 window.__gm.spawnBoss()        // 强制召唤 Boss
 window.__gm.testLightning()    // 在玩家头顶劈一道电（VFX 测试）
 window.__gm.showCollision()    // 切换碰撞盒可视化（仅 ?level 模式有效）
-                                // 绿 col_ / 红 wall_ / 蓝 climb_ / 黄 ramp_ / 品红 spawn
+                                // 加色透明 fill + 高亮边缘 + 永远置顶
+                                // 绿 col_（站顶面）/ 红 wall_（横向挡）
+                                // 蓝 climb_（攀爬带）/ 黄 ramp_（走上斜面）
+                                // 品红 spawn_*（发光球 + 5 单位高定位针）
+                                // 也可在 GM 面板按钮触发
 ```
+
+**ramp_ 与 col_ 的区别**：col_ 顶面是平的（一个固定 height），ramp_ 顶面沿 axis 轴线性插值（lowY → highY）。可视化里画的是包围盒，盒内对角斜面才是真实可走面。
 
 ### 5. 构建与部署
 
