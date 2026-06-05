@@ -714,21 +714,27 @@ const _vec = new THREE.Vector3();
 
 /**
  * 分析一个物体「朝上的表面」是平的还是斜的。
- * 只看法线朝上（n.y>0.5）的三角面，取这些面顶点的最低/最高世界点。
- * 这样厚平台（顶面平）会判定为平，倾斜板会判定为斜坡。
+ *
+ * 关键算法：用**面积加权的法线累加**算斜坡的真实上坡方向 ——
+ * 比单纯取「最低/最高顶点的 XZ 连线」鲁棒得多（后者在多顶点共享 lo/hi y 时
+ * 容易选到对角顶点，误差大）。
  *
  * 返回：
- *   - lo / hi: 顶面最低 / 最高顶点（世界坐标）
- *   - topVerts: 所有顶面顶点的世界坐标拷贝（用于算旋转 footprint）
+ *   - sloped: 顶面 y 跨度 > 0.3 即视为斜坡
+ *   - lowY / highY: 顶面 y 范围
+ *   - normalSum: 所有朝上三角面法线的面积加权和（未归一化）
+ *   - topVerts: 所有顶面顶点的世界坐标拷贝
  */
 function analyzeTopSurface(node: THREE.Object3D): {
   sloped: boolean;
-  lo: THREE.Vector3;
-  hi: THREE.Vector3;
+  lowY: number;
+  highY: number;
+  normalSum: { x: number; y: number; z: number };
   topVerts: THREE.Vector3[];
 } {
-  const lo = new THREE.Vector3(0, Infinity, 0);
-  const hi = new THREE.Vector3(0, -Infinity, 0);
+  let lowY = Infinity;
+  let highY = -Infinity;
+  let nx = 0, ny = 0, nz = 0;
   const topVerts: THREE.Vector3[] = [];
   const a = new THREE.Vector3();
   const b = new THREE.Vector3();
@@ -755,44 +761,45 @@ function analyzeTopSurface(node: THREE.Object3D): {
       c.fromBufferAttribute(pos, i2).applyMatrix4(m);
       ab.subVectors(b, a);
       ac.subVectors(c, a);
-      n.crossVectors(ab, ac).normalize();
-      if (n.y <= 0.5) continue; // 只看朝上的面（顶面）
+      n.crossVectors(ab, ac); // 未归一化（长度 = 2 × 三角面积）
+      const len = n.length();
+      if (len < 1e-6) continue; // 退化三角面
+      // 判定朝上（unit n.y > 0.5）。法线已未归一化，单独算 unit y。
+      if (n.y / len <= 0.5) continue;
+      // 面积加权累加（直接加未归一化法线 ⇒ area weighted）
+      nx += n.x; ny += n.y; nz += n.z;
       for (const v of [a, b, c]) {
-        if (v.y < lo.y) lo.copy(v);
-        if (v.y > hi.y) hi.copy(v);
+        if (v.y < lowY) lowY = v.y;
+        if (v.y > highY) highY = v.y;
         topVerts.push(v.clone());
       }
     }
   });
 
   const sloped =
-    Number.isFinite(lo.y) && Number.isFinite(hi.y) && hi.y - lo.y > 0.3;
-  return { sloped, lo, hi, topVerts };
+    Number.isFinite(lowY) && Number.isFinite(highY) && highY - lowY > 0.3;
+  return { sloped, lowY, highY, normalSum: { x: nx, y: ny, z: nz }, topVerts };
 }
 
 /** 把分析结果写成 ramp（顶面斜，含旋转 footprint）或 col 实体盒（顶面平）。 */
 function pushColOrRamp(node: THREE.Object3D, box: THREE.Box3, data: LevelData): void {
   const surf = analyzeTopSurface(node);
   if (surf.sloped && surf.topVerts.length > 0) {
-    // 1) 上升方向 = lo → hi 在 XZ 平面的投影，归一化
-    const dx = surf.hi.x - surf.lo.x;
-    const dz = surf.hi.z - surf.lo.z;
-    const slopeLen = Math.hypot(dx, dz);
+    // 1) 上坡方向 = -法线在 XZ 平面投影（法线指上+下坡侧 → 反向得上坡）
+    const nHorizLen = Math.hypot(surf.normalSum.x, surf.normalSum.z);
     let slopeDirX = 1, slopeDirZ = 0;
-    if (slopeLen > 1e-4) {
-      slopeDirX = dx / slopeLen;
-      slopeDirZ = dz / slopeLen;
+    if (nHorizLen > 1e-4) {
+      slopeDirX = -surf.normalSum.x / nHorizLen;
+      slopeDirZ = -surf.normalSum.z / nHorizLen;
     }
-    // 2) 法向（slopeDir 旋转 90°）
+    // 2) 法向（slopeDir 旋转 90° CCW）
     const perpX = -slopeDirZ;
     const perpZ = slopeDirX;
-    // 3) 把所有顶面顶点投影到 (slopeDir, perp)，找旋转矩形的 min/max
+    // 3) 把所有顶面顶点投影到 (slopeDir, perp)，找旋转矩形 min/max
     let minS = Infinity, maxS = -Infinity, minP = Infinity, maxP = -Infinity;
     for (const v of surf.topVerts) {
-      const vx = v.x - surf.lo.x;
-      const vz = v.z - surf.lo.z;
-      const s = vx * slopeDirX + vz * slopeDirZ;
-      const p = vx * perpX + vz * perpZ;
+      const s = v.x * slopeDirX + v.z * slopeDirZ;
+      const p = v.x * perpX + v.z * perpZ;
       if (s < minS) minS = s;
       if (s > maxS) maxS = s;
       if (p < minP) minP = p;
@@ -800,15 +807,16 @@ function pushColOrRamp(node: THREE.Object3D, box: THREE.Box3, data: LevelData): 
     }
     const centerS = (minS + maxS) / 2;
     const centerP = (minP + maxP) / 2;
-    const cx = surf.lo.x + centerS * slopeDirX + centerP * perpX;
-    const cz = surf.lo.z + centerS * slopeDirZ + centerP * perpZ;
+    // 4) 旋转矩形中心从局部坐标转回世界
+    const cx = centerS * slopeDirX + centerP * perpX;
+    const cz = centerS * slopeDirZ + centerP * perpZ;
     data.ramps.push({
       cx, cz,
       halfSlope: (maxS - minS) / 2,
       halfPerp: (maxP - minP) / 2,
       slopeDirX, slopeDirZ,
-      lowY: surf.lo.y,
-      highY: surf.hi.y,
+      lowY: surf.lowY,
+      highY: surf.highY,
     });
   } else {
     // 平顶 → 实体盒。位置/尺寸用 mesh 整体 AABB（已经传进来）。
