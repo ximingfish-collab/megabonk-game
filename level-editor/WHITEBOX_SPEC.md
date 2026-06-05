@@ -201,6 +201,21 @@ public/models/levels/
 **白盒阶段**：单文件就够了（visual-only 模式），不用拆。
 **生产阶段**：建议拆双文件 —— 美术做高模时不用顾忌碰撞盒，关卡设计师改碰撞时不用碰美术。
 
+**双文件模式的性能成本：**
+
+| 阶段 | 单文件 | 双文件 | 差异 |
+|---|---|---|---|
+| HTTP 请求 | 1 | 2（并行） | 延迟 ≈ max(t1, t2)，**不相加** |
+| 下载流量 | visual | visual + col | col 是低模，通常 < 100 KB |
+| GLB 解析（CPU） | 1 次 | 2 次 | 多几毫秒，仅一次性 |
+| 常驻内存 | visual scene + LevelData | 同左 | col scene 解析后立即 `dispose()` 释放几何 / 材质 |
+| **运行期每帧** | — | — | **零差异** |
+
+> 运行期零成本：①碰撞数据已 flatten 成 `LevelData` 扁平数组，物理查询与 GLB 脱钩；
+> ② col scene 不进 render tree（不渲染 / 不 raycast / 不上 GPU）；
+> ③ 双文件模式下显式 dispose 释放 typed array。
+> 真正要担心的是 visual 高模本身（draw call / 顶点数）—— 那是单文件也有的问题。
+
 ### 导出前自检
 
 - [ ] 有且仅有 1 个 `spawn_player`、1 个 `spawn_boss`
