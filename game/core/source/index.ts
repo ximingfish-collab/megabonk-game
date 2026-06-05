@@ -33,6 +33,7 @@ export type {
   BossAttack,
   BossState,
   DamageEvent,
+  LevelUpCompensationEvent,
   GamePhase,
   GameStats,
   GameState,
@@ -63,6 +64,7 @@ export {
   DASH_DURATION,
   DASH_COOLDOWN,
   MAX_LEVEL,
+  ACTIVE_WEAPON_SLOTS_INRUN_MAX,
   MAX_WEAPONS_DEFAULT,
   MAX_WEAPONS_CAP,
   XP_BASE,
@@ -95,11 +97,13 @@ export type { EnemyDef, EnemyConfig, EnemyModifierId } from './data/enemies.ts';
 export { applyMovement3D, distanceBetween, normalizeDirection } from './physics.ts';
 export { SpatialHash } from './spatial-hash.ts';
 export { fireWeapon, applyBounce, updateOrbitingProjectile, applyGravitationalPull } from './weapons.ts';
-export { generateUpgradeOptions, xpForLevel } from './upgrades.ts';
+export { computeActiveWeaponSlots, generateUpgradeOptions, xpForLevel } from './upgrades.ts';
+export { getUpgradePreviewLines } from './upgradePreview.ts';
+export type { UpgradePreviewLine } from './upgradePreview.ts';
 export { GameInstance } from './GameInstance.ts';
 
 // Progression systems
-export { loadSave, saveSave, getDefaultSave, addSilver, spendSilver, updateRunStats } from './save.ts';
+export { loadSave, saveSave, getDefaultSave, addSilver, spendSilver, updateRunStats, recordWeaponsUsed } from './save.ts';
 export type { SaveData } from './save.ts';
 export { SHOP_UPGRADES, getUpgradeCost, canAfford, purchaseUpgrade, getShopBonuses } from './shop.ts';
 export type { ShopUpgrade } from './shop.ts';

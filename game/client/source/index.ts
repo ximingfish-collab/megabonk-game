@@ -29,6 +29,7 @@ import {
   getQuestProgress,
   getCompletedQuestCount,
   checkQuestCompletion,
+  getUpgradePreviewLines,
   type GameConfig,
   type GameState,
   type GameResult,
@@ -40,6 +41,7 @@ import {
   type PickupType,
   type BossState,
   type DamageEvent,
+  type LevelUpCompensationEvent,
   type UpgradeOption,
   type GamePhase,
   type UpgradeRarity,
@@ -534,6 +536,8 @@ const WEAPON_ICONS: Record<string, string> = {
 
 const TOME_ICONS: Record<string, string> = {
   attack_speed_tome: '⚡',
+  life_tome: '❤️',
+  consumable_tome: '🎒',
   luck_tome: '🍀',
   thorns_tome: '🌹',
   shield_tome: '🛡️',
@@ -547,6 +551,8 @@ const TOME_ICONS: Record<string, string> = {
 
 const TOME_COLORS: Record<string, string> = {
   attack_speed_tome: '#ffaa00',
+  life_tome: '#ff6666',
+  consumable_tome: '#cc9966',
   luck_tome: '#44cc44',
   thorns_tome: '#cc4444',
   shield_tome: '#4488ff',
@@ -1237,6 +1243,7 @@ export class GameScene {
   // Animation state
   private deathAnimTimer = 0;
   private levelUpAnimTimer = 0;
+  private levelCompPulseTimer = 0;
   private wasAlive = true;
   private wasGrounded = true; // Track grounded state for jump animation trigger
   private lastPhase: GamePhase = 'playing';
@@ -4111,21 +4118,150 @@ export class GameScene {
   }
 
   private emitLevelUpBurst(x: number, y: number, z: number): void {
-    const count = 30;
+    this.emitCompensationBurst(x, y, z, 'gold');
+  }
+
+  /** 空池升级补偿粒子：金币金黄、银币蓝白。 */
+  private emitCompensationBurst(x: number, y: number, z: number, kind: 'gold' | 'silver'): void {
+    const count = kind === 'silver' ? 36 : 30;
     for (let i = 0; i < count; i++) {
       const angle = (i / count) * Math.PI * 2;
-      const speed = 3 + Math.random() * 2;
+      const speed = 3 + Math.random() * 2.5;
       const vx = Math.cos(angle) * speed;
-      const vy = 1.5 + Math.random() * 1.5;
+      const vy = 1.8 + Math.random() * 2;
       const vz = Math.sin(angle) * speed;
-      const size = 0.6 + Math.random() * 0.5;
-      const life = 0.6 + Math.random() * 0.4;
-      // Gold particles
-      const r = 1.0;
-      const g = 0.8 + Math.random() * 0.2;
-      const b = 0.1 + Math.random() * 0.2;
+      const size = 0.55 + Math.random() * 0.55;
+      const life = 0.65 + Math.random() * 0.45;
+      let r: number, g: number, b: number;
+      if (kind === 'silver') {
+        r = 0.75 + Math.random() * 0.2;
+        g = 0.85 + Math.random() * 0.15;
+        b = 1.0;
+      } else {
+        r = 1.0;
+        g = 0.8 + Math.random() * 0.2;
+        b = 0.1 + Math.random() * 0.2;
+      }
       this.spawnParticle(x, y + 0.5, z, vx, vy, vz, size, life, r, g, b);
     }
+    // 中心星光 + 光柱（与正常升级类似的仪式感，颜色按奖励类型区分）
+    const color = kind === 'silver' ? 0xaaccff : 0xffd866;
+    this.spawnBillboard({
+      texture: 'star',
+      x, y: y + 1.4, z,
+      scale: 1.2,
+      endScale: 4.0,
+      lifetime: 0.65,
+      opacityCurve: 'flash',
+      opacity: 1.0,
+      color,
+      rotationSpeed: 5.0,
+    });
+    this.spawnBillboard({
+      texture: 'light',
+      x, y: y + 0.4, z,
+      scale: 1.8,
+      endScale: 3.2,
+      lifetime: 0.75,
+      opacityCurve: 'fadeOut',
+      opacity: 0.8,
+      color: kind === 'silver' ? 0xccdfff : 0xffe080,
+    });
+  }
+
+  private playCompensationLevelUpFx(evt: LevelUpCompensationEvent): void {
+    this.levelUpAnimTimer = 0.45;
+    this.levelCompPulseTimer = 0.9;
+    this.emitCompensationBurst(evt.x, evt.y, evt.z, evt.kind);
+    this.triggerScreenFlash(evt.kind === 'silver' ? '#8899ff' : '#ffcc00', 0.22);
+    this.spawnCompensationFloatText(evt);
+    this.showCompensationToast(evt);
+    // 银币时让 HUD 银币徽章闪一下
+    if (evt.kind === 'silver' && this.silverLabel) {
+      this.silverLabel.style.transition = 'transform 0.15s';
+      this.silverLabel.style.transform = 'scale(1.25)';
+      setTimeout(() => {
+        if (this.silverLabel) this.silverLabel.style.transform = 'scale(1)';
+      }, 200);
+    }
+  }
+
+  private spawnCompensationFloatText(evt: LevelUpCompensationEvent): void {
+    const el = this.damageNums[this.damageNumIndex];
+    this.damageNumIndex = (this.damageNumIndex + 1) % DAMAGE_NUM_POOL_SIZE;
+
+    this._tempVec.set(evt.x, evt.y + 1.2, evt.z);
+    this._tempVec.project(this.camera);
+    const hw = window.innerWidth / 2;
+    const hh = window.innerHeight / 2;
+    const screenX = this._tempVec.x * hw + hw;
+    const screenY = -(this._tempVec.y * hh) + hh;
+
+    const isSilver = evt.kind === 'silver';
+    const label = isSilver
+      ? t('upgrade.compensationSilver', { amount: String(evt.amount) })
+      : t('upgrade.compensationGold', { amount: String(evt.amount) });
+
+    el.textContent = label;
+    el.style.color = isSilver ? '#cce0ff' : '#ffd700';
+    el.style.left = `${screenX}px`;
+    el.style.top = `${screenY}px`;
+    el.style.fontSize = '20px';
+    el.style.fontWeight = 'bold';
+    el.style.textShadow = isSilver
+      ? '0 0 8px rgba(120,160,255,0.9)'
+      : '0 0 8px rgba(255,200,0,0.9)';
+    el.style.opacity = '1';
+    el.style.transform = 'translateY(0px) scale(1.1)';
+    el.style.transition = 'none';
+    void el.offsetWidth;
+    el.style.transition = 'opacity 0.7s ease-out, transform 0.7s ease-out';
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(-70px) scale(0.85)';
+  }
+
+  private showCompensationToast(evt: LevelUpCompensationEvent): void {
+    const toast = document.createElement('div');
+    const accent = evt.kind === 'silver' ? '#aaccff' : '#ffdd44';
+    toast.style.cssText = `
+      position:fixed;top:18%;left:50%;transform:translateX(-50%) scale(0.85);
+      z-index:250;pointer-events:none;text-align:center;
+      font-family:Arial,sans-serif;opacity:0;
+      transition:opacity 0.2s ease-out, transform 0.25s cubic-bezier(0.2,1.4,0.4,1);
+    `;
+
+    const title = document.createElement('div');
+    title.style.cssText = `color:${accent};font-size:28px;font-weight:bold;letter-spacing:2px;text-shadow:0 0 20px ${accent}88,0 2px 8px rgba(0,0,0,0.8);`;
+    title.textContent = t('upgrade.compensationTitle');
+    toast.appendChild(title);
+
+    const levelLine = document.createElement('div');
+    levelLine.style.cssText = 'color:#ffffff;font-size:16px;margin-top:4px;text-shadow:0 1px 4px rgba(0,0,0,0.8);';
+    levelLine.textContent = t('hud.level', { level: String(evt.level) });
+    toast.appendChild(levelLine);
+
+    const rewardLine = document.createElement('div');
+    rewardLine.style.cssText = `color:${accent};font-size:22px;font-weight:bold;margin-top:8px;text-shadow:0 0 12px ${accent}66;`;
+    rewardLine.textContent = evt.kind === 'silver'
+      ? t('upgrade.compensationSilver', { amount: String(evt.amount) })
+      : t('upgrade.compensationGold', { amount: String(evt.amount) });
+    toast.appendChild(rewardLine);
+
+    const sub = document.createElement('div');
+    sub.style.cssText = 'color:#aaaacc;font-size:12px;margin-top:6px;';
+    sub.textContent = t('upgrade.compensationSubtitle');
+    toast.appendChild(sub);
+
+    document.body.appendChild(toast);
+    void toast.offsetWidth;
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateX(-50%) scale(1)';
+
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateX(-50%) scale(0.95) translateY(-12px)';
+    }, 900);
+    setTimeout(() => toast.remove(), 1200);
   }
 
   private emitFlameRingParticles(x: number, y: number, z: number, radius: number): void {
@@ -4820,8 +4956,19 @@ export class GameScene {
       this.xpBarInner.style.background = 'linear-gradient(90deg,#cc9900,#ffcc00)';
     }
 
-    // Level label
+    // Level label（空池升级时脉冲高亮）
     this.levelLabel.textContent = t('hud.level', { level: String(p.level) });
+    if (this.levelCompPulseTimer > 0) {
+      this.levelCompPulseTimer -= 1 / 60;
+      const pulse = 1 + Math.sin(this.levelCompPulseTimer * 28) * 0.12;
+      this.levelLabel.style.transform = `translateX(-50%) scale(${pulse})`;
+      this.levelLabel.style.color = '#ffff88';
+      this.levelLabel.style.textShadow = '0 0 16px rgba(255,220,80,0.9),0 0 32px rgba(255,180,40,0.5)';
+    } else {
+      this.levelLabel.style.transform = 'translateX(-50%) scale(1)';
+      this.levelLabel.style.color = '#ffcc00';
+      this.levelLabel.style.textShadow = '0 0 8px rgba(255,200,0,0.4),0 1px 3px rgba(0,0,0,0.8)';
+    }
 
     // Timer
     const totalSec = Math.floor(state.gameTime);
@@ -5005,6 +5152,11 @@ export class GameScene {
       this.spawnDamageNumber(evt);
     }
 
+    // 空池升级补偿特效（银币/金币）
+    for (const evt of state.levelUpCompensationEvents) {
+      this.playCompensationLevelUpFx(evt);
+    }
+
     // === Combo HUD (#6) ===
     if (this.comboLabel) {
       const combo = state.player.comboCount;
@@ -5095,6 +5247,7 @@ export class GameScene {
   }
 
   private showUpgradePanel(options: UpgradeOption[]): void {
+    const player = this.session.getRenderState().player;
     this.upgradePanel = document.createElement('div');
     this.upgradePanel.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:300;font-family:Arial,sans-serif;';
 
@@ -5113,7 +5266,7 @@ export class GameScene {
     }
 
     for (const option of options) {
-      const card = this.createUpgradeCard(option);
+      const card = this.createUpgradeCard(option, player);
       cardRow.appendChild(card);
     }
 
@@ -5121,7 +5274,7 @@ export class GameScene {
     document.body.appendChild(this.upgradePanel);
   }
 
-  private createUpgradeCard(option: UpgradeOption): HTMLDivElement {
+  private createUpgradeCard(option: UpgradeOption, player: GameState['player']): HTMLDivElement {
     const card = document.createElement('div');
     const borderColor = RARITY_COLORS[option.rarity] ?? '#aaaaaa';
 
@@ -5156,9 +5309,31 @@ export class GameScene {
 
     // Description
     const descEl = document.createElement('div');
-    descEl.style.cssText = 'color:#cccccc;font-size:11px;margin-bottom:8px;';
+    descEl.style.cssText = 'color:#cccccc;font-size:11px;margin-bottom:8px;line-height:1.35;';
     descEl.textContent = this.getUpgradeDesc(option);
     card.appendChild(descEl);
+
+    // 数值预览（基础步进 × 稀有度 / 典籍每级增益）
+    const previewLines = getUpgradePreviewLines(option, player);
+    if (previewLines.length > 0) {
+      const statsEl = document.createElement('div');
+      statsEl.style.cssText = 'margin-bottom:8px;padding:6px 8px;background:rgba(255,255,255,0.06);border-radius:6px;text-align:left;';
+      for (const line of previewLines) {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;justify-content:space-between;gap:6px;font-size:11px;line-height:1.5;';
+        const label = document.createElement('span');
+        label.style.color = '#9999aa';
+        const key = line.labelKey.replace('upgrade.stat.', '');
+        label.textContent = t(`upgrade.stat.${key}`);
+        const val = document.createElement('span');
+        val.style.cssText = `color:${borderColor};font-weight:bold;`;
+        val.textContent = line.value;
+        row.appendChild(label);
+        row.appendChild(val);
+        statsEl.appendChild(row);
+      }
+      card.appendChild(statsEl);
+    }
 
     // Level info
     const levelEl = document.createElement('div');

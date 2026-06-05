@@ -40,16 +40,37 @@ export type WeaponType =
   | 'flame_ring'
   | 'shotgun';
 
+/**
+ * 武器运行时成长累加值（新升级规则）。
+ * 有效数值 = 基础(L1) + growth；每次升级把「本级→下一级」表步进 × 稀有度倍率累加进来。
+ * 字段与 config.WeaponLevelStats 对应（此处独立声明以避免 types ←→ config 循环依赖）。
+ */
+export interface WeaponGrowth {
+  damage: number;
+  cooldown: number;
+  projectileCount: number;
+  bounces: number;
+  chains: number;
+  range: number;
+  aoeRadius: number;
+  pierce: number;
+  speed: number;
+}
+
 export interface WeaponState {
   type: WeaponType;
   level: number;
   cooldownTimer: number;
   evolved: boolean;
+  /** 新升级规则的成长累加值；旧 fixture / 旧存档可不带（getWeaponStats 退回等级查表）。 */
+  growth?: WeaponGrowth;
 }
 
 // --- Tomes (passive items) ---
 export type TomeType =
   | 'attack_speed_tome'
+  | 'life_tome'
+  | 'consumable_tome'
   | 'luck_tome'
   | 'thorns_tome'
   | 'shield_tome'
@@ -65,7 +86,13 @@ export type PassiveType = TomeType;
 
 export interface TomeState {
   type: TomeType;
+  /** 升级次数：只用于 maxLevel / 进化需求等次数判定。 */
   level: number;
+  /**
+   * 实际成长值：每次升级把选项稀有度倍率累加进来。
+   * 旧存档 / fixture 没有该字段时按 level 视作 common 累加。
+   */
+  growth?: number;
 }
 
 // Legacy alias
@@ -86,6 +113,8 @@ export interface PlayerState {
   bunnyHopTimer: number;
   hp: number;
   maxHp: number;
+  /** 消耗品掉落倍率（base 1.0，consumable_tome 等来源会提高）。 */
+  consumableDropMult?: number;
   level: number;
   xp: number;
   xpToNext: number;
@@ -108,6 +137,10 @@ export interface PlayerState {
   alive: boolean;
   character: CharacterType;
   maxWeaponSlots: number;
+  /** 本局已解锁武器槽（局内等级解锁，不超过 maxWeaponSlots）。 */
+  activeWeaponSlots: number;
+  /** 局内金币（宝箱 / 空池补偿等）。 */
+  gold: number;
   comboCount: number;
   comboTimer: number;
   // --- Shrine bonuses (累积来自 Charge Shrine 的奖励) ---
@@ -352,6 +385,16 @@ export interface BossState {
   enraged: boolean;
 }
 
+// --- Level-up compensation events (empty upgrade pool → gold/silver) ---
+export interface LevelUpCompensationEvent {
+  x: number;
+  y: number;
+  z: number;
+  level: number;
+  kind: 'gold' | 'silver';
+  amount: number;
+}
+
 // --- Damage Events (for rendering feedback) ---
 export interface DamageEvent {
   x: number;
@@ -395,6 +438,8 @@ export interface GameState {
   boss: BossState | null;
   upgradeOptions: UpgradeOption[] | null;
   damageEvents: DamageEvent[];
+  /** 空池升级补偿事件（client 读完后由 tick 清空）。 */
+  levelUpCompensationEvents: LevelUpCompensationEvent[];
   stats: GameStats;
   waveIndex: number;
   /**

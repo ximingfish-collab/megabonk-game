@@ -23,14 +23,16 @@ import {
   SLIDE_SPEED_MULTIPLIER,
   BUNNY_HOP_WINDOW,
   BUNNY_HOP_BONUS,
-  MAX_WEAPONS_CAP,
+  MAX_LEVEL,
+  ACTIVE_WEAPON_SLOTS_INRUN_MAX,
   STEP_HEIGHT,
   FALL_RESPAWN_Y,
   CLIMB_SPEED,
 } from '../config.ts';
 import { loadSave } from '../save.ts';
 import { getShopBonuses } from '../shop.ts';
-import { generateUpgradeOptions, xpForLevel } from '../upgrades.ts';
+import { computeActiveWeaponSlots, generateUpgradeOptions, xpForLevel } from '../upgrades.ts';
+import { emptyWeaponGrowth } from './weapons.ts';
 import {
   getTerrainHeightAt,
   getSupportHeightAt,
@@ -57,8 +59,9 @@ export function createInitialPlayer(config: GameConfig): PlayerState {
   const charCfg = CHARACTER_CONFIGS[config.character];
   const save = loadSave();
   const shopBonuses = getShopBonuses();
-  const extraSlots = save.extraWeaponSlots;
+  const hasExtraSlot = save.extraWeaponSlots >= 1;
   const startLevel = 1 + (shopBonuses['startLevel'] ?? 0);
+  const maxWeaponSlots = ACTIVE_WEAPON_SLOTS_INRUN_MAX + (hasExtraSlot ? 1 : 0);
 
   return {
     x: 0, y: 0, z: 0, rotation: 0,
@@ -66,6 +69,7 @@ export function createInitialPlayer(config: GameConfig): PlayerState {
     isSliding: false, slideTimer: 0, slideSpeedBoost: 0, bunnyHopTimer: 0,
     hp: charCfg.hp + (shopBonuses['maxHp'] ?? 0),
     maxHp: charCfg.hp + (shopBonuses['maxHp'] ?? 0),
+    consumableDropMult: 1,
     level: startLevel,
     xp: 0,
     xpToNext: xpForLevel(startLevel),
@@ -77,12 +81,14 @@ export function createInitialPlayer(config: GameConfig): PlayerState {
     critDamage: PLAYER_BASE_CRIT_DAMAGE,
     armor: charCfg.armor + (shopBonuses['armor'] ?? 0),
     pickupRadius: PLAYER_PICKUP_RADIUS + (shopBonuses['pickupRadius'] ?? 0),
-    weapons: [{ type: charCfg.startingWeapon, level: 1, cooldownTimer: 0, evolved: false }],
+    weapons: [{ type: charCfg.startingWeapon, level: 1, cooldownTimer: 0, evolved: false, growth: emptyWeaponGrowth() }],
     tomes: [],
     passives: [],
     dashCooldown: 0, dashCooldownMax: DASH_COOLDOWN, dashTimer: 0, invincibleTimer: 0,
     alive: true, character: config.character,
-    maxWeaponSlots: Math.min(MAX_WEAPONS_CAP, charCfg.weaponSlots + extraSlots),
+    maxWeaponSlots,
+    activeWeaponSlots: computeActiveWeaponSlots(startLevel, maxWeaponSlots),
+    gold: 0,
     comboCount: 0, comboTimer: 0,
     // Shrine bonuses (默认值；charge shrine 奖励会累计到这些字段上)
     shield: 0,
@@ -341,28 +347,47 @@ export function tickTimers(engine: Engine, dt: number): void {
   }
 }
 
+/** 升级选项池为空时 roll 金币或银币（50/50，数量随 level 缩放）。 */
+function rollEmptyPoolCompensation(engine: Engine, level: number): void {
+  const player = engine.state.player;
+  const scale = 1 + level * 0.08;
+  const isGold = Math.random() < 0.5;
+  const amount = isGold
+    ? Math.round(8 * scale + Math.floor(Math.random() * 13))
+    : Math.round(15 * scale + Math.floor(Math.random() * 26));
+
+  if (isGold) {
+    player.gold += amount;
+  } else {
+    engine.state.stats.silverEarned += amount;
+  }
+
+  engine.state.levelUpCompensationEvents.push({
+    x: player.x,
+    y: player.y,
+    z: player.z,
+    level,
+    kind: isGold ? 'gold' : 'silver',
+    amount,
+  });
+}
+
 /**
  * 检测升级 —— 一次可跨多级。满级时跳过。每升一级：
- *   - xp 扣减 / level++ / xpToNext 重算
- *   - 治疗 10% maxHp
- *   - 5 / 10 / 20 / 30 级解锁武器槽
- *   - 第一次 generateUpgradeOptions 命中 → 进入 level_up phase, return (后续升级延后处理)
+ *   - xp 扣减 / level++ / xpToNext 重算 / activeWeaponSlots 重算
+ *   - 无自动治疗或 maxHp 增长
+ *   - 有升级选项 → 进入 level_up phase；无选项 → roll 金币/银币补偿
  */
 export function tickLevelUp(engine: Engine): void {
   const player = engine.state.player;
   if (!player.alive || engine.state.phase === 'level_up') return;
-  if (player.level >= 40) return;
+  if (player.level >= MAX_LEVEL) return;
 
-  while (player.xp >= player.xpToNext && player.level < 40) {
+  while (player.xp >= player.xpToNext && player.level < MAX_LEVEL) {
     player.xp -= player.xpToNext;
     player.level++;
     player.xpToNext = xpForLevel(player.level);
-    player.hp = Math.min(player.maxHp, player.hp + Math.round(player.maxHp * 0.1));
-
-    if (player.level === 5 && player.maxWeaponSlots < 3) player.maxWeaponSlots = 3;
-    if (player.level === 10 && player.maxWeaponSlots < 4) player.maxWeaponSlots = 4;
-    if (player.level === 20 && player.maxWeaponSlots < 5) player.maxWeaponSlots = 5;
-    if (player.level === 30 && player.maxWeaponSlots < MAX_WEAPONS_CAP) player.maxWeaponSlots = MAX_WEAPONS_CAP;
+    player.activeWeaponSlots = computeActiveWeaponSlots(player.level, player.maxWeaponSlots);
 
     const options = generateUpgradeOptions(player, 3);
     if (options.length > 0) {
@@ -370,5 +395,6 @@ export function tickLevelUp(engine: Engine): void {
       engine.state.phase = 'level_up';
       return;
     }
+    rollEmptyPoolCompensation(engine, player.level);
   }
 }

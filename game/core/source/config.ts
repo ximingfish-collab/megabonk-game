@@ -34,9 +34,13 @@ export const SLIDE_COOLDOWN = 0.3;
 export const BUNNY_HOP_WINDOW = 0.15; // seconds after landing to chain jump
 export const BUNNY_HOP_BONUS = 1.2; // extra jump height multiplier for bunny hops
 
-export const MAX_LEVEL = 40;
-export const MAX_WEAPONS_DEFAULT = 2; // Start with 2 weapon slots (MegaBonk progression)
-export const MAX_WEAPONS_CAP = 6; // Absolute max weapon slots
+export const MAX_LEVEL = 100;
+/** 局内等级解锁的武器槽上限（无局外任务奖励时）。 */
+export const ACTIVE_WEAPON_SLOTS_INRUN_MAX = 5;
+export const MAX_WEAPONS_CAP = 6; // 局外任务 +1 后的绝对上限
+/** @deprecated 旧角色配置字段；槽位改由 ACTIVE_WEAPON_SLOTS_INRUN_MAX + extraWeaponSlots 决定。 */
+export const MAX_WEAPONS_DEFAULT = ACTIVE_WEAPON_SLOTS_INRUN_MAX;
+export const WEAPON_MAX_LEVEL = 10; // 单把武器等级上限（= 单局最多出现次数）
 export const XP_BASE = 10;
 export const XP_GROWTH = 0.35;
 
@@ -252,16 +256,18 @@ export const WEAPON_STATS: Record<string, WeaponLevelStats[]> = {
 
 // Tome max levels
 export const TOME_MAX_LEVELS: Record<TomeType, number> = {
-  attack_speed_tome: 5,
-  luck_tome: 3,
-  thorns_tome: 5,
-  shield_tome: 5,
-  xp_gain_tome: 5,
-  attraction_tome: 5,
-  curse_tome: 3,
-  precision_tome: 5,
-  knockback_tome: 3,
-  speed_tome: 5,
+  attack_speed_tome: 8,
+  life_tome: 8,
+  consumable_tome: 8,
+  luck_tome: 8,
+  thorns_tome: 8,
+  shield_tome: 8,
+  xp_gain_tome: 8,
+  attraction_tome: 8,
+  curse_tome: 8,
+  precision_tome: 8,
+  knockback_tome: 8,
+  speed_tome: 8,
 };
 
 // Legacy alias
@@ -276,7 +282,7 @@ export const ALL_WEAPON_TYPES: WeaponType[] = [
 
 // All tome types available in the game
 export const ALL_TOME_TYPES: TomeType[] = [
-  'attack_speed_tome', 'luck_tome', 'thorns_tome', 'shield_tome',
+  'attack_speed_tome', 'life_tome', 'consumable_tome', 'luck_tome', 'thorns_tome', 'shield_tome',
   'xp_gain_tome', 'attraction_tome', 'curse_tome', 'precision_tome',
   'knockback_tome', 'speed_tome',
 ];

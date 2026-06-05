@@ -21,6 +21,7 @@ import {
 } from '../config.ts';
 import { ENEMIES } from '../data/enemies.ts';
 import { getShopBonuses } from '../shop.ts';
+import { getTomePower } from '../tomeProgression.ts';
 import type { EnemyState, PickupState, PickupType } from '../types.ts';
 import type { Engine } from './types.ts';
 
@@ -46,7 +47,7 @@ function spawnPickupFromEnemy(engine: Engine, enemy: EnemyState): void {
 
   let xpReward = cfg.xpReward;
   const curseTome = engine.state.player.tomes.find(t => t.type === 'curse_tome');
-  if (curseTome) xpReward = Math.round(xpReward * (1 + curseTome.level * 0.2));
+  if (curseTome) xpReward = Math.round(xpReward * (1 + getTomePower(curseTome) * 0.2));
 
   let pickupType: PickupType;
   if (xpReward >= 30) pickupType = 'xp_orange';
@@ -146,7 +147,7 @@ function collectPickup(engine: Engine, pickup: PickupState): void {
   if (pickup.type === 'silver') {
     engine.state.stats.silverEarned += pickup.value;
     const luckTome = player.tomes.find(t => t.type === 'luck_tome');
-    if (luckTome) engine.state.stats.silverEarned += luckTome.level;
+    if (luckTome) engine.state.stats.silverEarned += Math.floor(getTomePower(luckTome));
     return;
   }
 
@@ -158,7 +159,7 @@ function collectPickup(engine: Engine, pickup: PickupState): void {
   // XP pickup
   let xpValue = pickup.value;
   const xpGainTome = player.tomes.find(t => t.type === 'xp_gain_tome');
-  if (xpGainTome) xpValue = Math.floor(xpValue * (1 + xpGainTome.level * 0.15));
+  if (xpGainTome) xpValue = Math.floor(xpValue * (1 + getTomePower(xpGainTome) * 0.15));
 
   const shopXpBonus = getShopBonuses()['xpGain'] ?? 0;
   if (shopXpBonus > 0) xpValue = Math.floor(xpValue * (1 + shopXpBonus));
@@ -176,9 +177,10 @@ function collectPickup(engine: Engine, pickup: PickupState): void {
 export function tickThorns(engine: Engine): void {
   const player = engine.state.player;
   const thornsTome = player.tomes.find(t => t.type === 'thorns_tome');
-  if (!thornsTome || thornsTome.level <= 0) return;
+  const thornsPower = getTomePower(thornsTome);
+  if (thornsPower <= 0) return;
 
-  const thornsDamage = thornsTome.level * 3;
+  const thornsDamage = thornsPower * 3;
   for (const enemy of engine.state.enemies) {
     if (enemy.hp <= 0) continue;
     const dist = distanceBetween(player.x, player.z, enemy.x, enemy.z);

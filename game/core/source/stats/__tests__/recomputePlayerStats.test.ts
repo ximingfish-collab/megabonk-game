@@ -14,7 +14,7 @@ import {
   PLAYER_BASE_CRIT_DAMAGE,
   PLAYER_PICKUP_RADIUS,
 } from '../../config.ts';
-import type { PlayerState, TomeType, CharacterType } from '../../types.ts';
+import type { PlayerState, TomeType, CharacterType, TomeState } from '../../types.ts';
 
 // ─── 旧路径的纯函数版（直接照搬 Phase 4 末的 switch case）───
 function legacyRecompute(
@@ -55,7 +55,7 @@ function legacyRecompute(
 }
 
 // ─── fixture 工具 ───
-function makePlayer(tomes: { type: TomeType; level: number }[] = []): PlayerState {
+function makePlayer(tomes: TomeState[] = []): PlayerState {
   return {
     x: 0, y: 0, z: 0, rotation: 0,
     velocityY: 0, isGrounded: true, isJumping: false,
@@ -68,7 +68,7 @@ function makePlayer(tomes: { type: TomeType; level: number }[] = []): PlayerStat
     weapons: [], tomes, passives: [],
     dashCooldown: 0, dashCooldownMax: 5, dashTimer: 0, invincibleTimer: 0,
     alive: true, character: 'megachad',
-    maxWeaponSlots: 2, comboCount: 0, comboTimer: 0,
+    maxWeaponSlots: 2, activeWeaponSlots: 2, gold: 0, comboCount: 0, comboTimer: 0,
   };
 }
 
@@ -87,7 +87,7 @@ function snapshot(p: PlayerState) {
 function assertEquivalent(
   character: CharacterType,
   shop: ShopBonuses,
-  tomes: { type: TomeType; level: number }[],
+  tomes: TomeState[],
 ) {
   const a = makePlayer(tomes);
   const b = makePlayer(tomes);
@@ -211,5 +211,23 @@ describe('recomputePlayerStats: 边界与具体数值', () => {
     recomputePlayerStats(p, 'roberto', {});
     expect(p.critChance).toBeCloseTo(0.05 + 0.15, 5);
     expect(p.critDamage).toBeCloseTo(1.5 + 0.30, 5);
+  });
+
+  it('life_tome 使用 growth 结算：level 1 / legendary power 2 → maxHp +30', () => {
+    const p = makePlayer([{ type: 'life_tome', level: 1, growth: 2 }]);
+    recomputePlayerStats(p, 'megachad', {});
+    expect(p.maxHp).toBe(130);
+  });
+
+  it('consumable_tome 使用 growth 结算：level 1 / rare power 1.6 → 掉落倍率 +8%', () => {
+    const p = makePlayer([{ type: 'consumable_tome', level: 1, growth: 1.6 }]);
+    recomputePlayerStats(p, 'megachad', {});
+    expect(p.consumableDropMult).toBeCloseTo(1.08, 5);
+  });
+
+  it('speed_tome 使用 growth 结算：level 1 / rare power 1.6 → 移速 +12.8%', () => {
+    const p = makePlayer([{ type: 'speed_tome', level: 1, growth: 1.6 }]);
+    recomputePlayerStats(p, 'megachad', {});
+    expect(p.speed).toBeCloseTo(4.0 * 1.128, 5);
   });
 });

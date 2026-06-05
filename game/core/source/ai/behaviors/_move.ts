@@ -9,6 +9,7 @@
 import type { EnemyState } from '../../types.ts';
 import type { AiContext } from '../types.ts';
 import { tryMoveHorizontally } from '../../systems/horizontalMove.ts';
+import { getTomePower } from '../../tomeProgression.ts';
 
 export function applyMovement(enemy: EnemyState, ctx: AiContext): void {
   const dx = enemy.targetX - enemy.x;
@@ -22,9 +23,7 @@ export function applyMovement(enemy: EnemyState, ctx: AiContext): void {
 
   // Curse tome: 敌人移动加速
   const curseTome = ctx.player.tomes.find(t => t.type === 'curse_tome');
-  if (curseTome) {
-    speedMult *= (1 + curseTome.level * 0.1);
-  }
+  speedMult *= (1 + getTomePower(curseTome) * 0.1);
 
   // Final Swarm: 全体 +20% speed
   if (ctx.finalSwarm) {

@@ -4,7 +4,8 @@
  */
 
 import type { PlayerState, UpgradeOption, UpgradeRarity, WeaponType, TomeType } from './types.ts';
-import { XP_BASE, XP_GROWTH, TOME_MAX_LEVELS, WEAPON_STATS, ALL_WEAPON_TYPES, ALL_TOME_TYPES } from './config.ts';
+import { XP_BASE, XP_GROWTH, TOME_MAX_LEVELS, WEAPON_MAX_LEVEL, MAX_WEAPONS_CAP, ALL_WEAPON_TYPES, ALL_TOME_TYPES } from './config.ts';
+import { getTomePower } from './tomeProgression.ts';
 
 const RARITY_WEIGHTS: { rarity: UpgradeRarity; weight: number }[] = [
   { rarity: 'common', weight: 55 },
@@ -15,11 +16,34 @@ const RARITY_WEIGHTS: { rarity: UpgradeRarity; weight: number }[] = [
 
 const TOTAL_RARITY_WEIGHT = RARITY_WEIGHTS.reduce((sum, r) => sum + r.weight, 0);
 
+const MAX_TOME_TYPES = 6;
+const XP_LATE_BASE = 150;
+const XP_LATE_GROWTH = 1.0725;
+const XP_CURVE_BREAK = 40;
+
 /**
  * Calculate XP required to reach the next level.
+ * L ≤ 40: floor(10 × (1 + L × 0.35)); L > 40: floor(150 × 1.0725^(L - 40)).
  */
 export function xpForLevel(level: number): number {
-  return Math.floor(XP_BASE * (1 + level * XP_GROWTH));
+  if (level <= XP_CURVE_BREAK) {
+    return Math.floor(XP_BASE * (1 + level * XP_GROWTH));
+  }
+  return Math.floor(XP_LATE_BASE * Math.pow(XP_LATE_GROWTH, level - XP_CURVE_BREAK));
+}
+
+/**
+ * 局内武器槽解锁：1 起步，10/20/30/40 级各 +1（最高 5）。
+ * 第 6 槽仅在 maxWeaponSlots ≥ 6（完成「7 把不同武器」任务）且 50 级时解锁。
+ */
+export function computeActiveWeaponSlots(level: number, maxWeaponSlots: number): number {
+  let slots = 1;
+  if (level >= 10) slots++;
+  if (level >= 20) slots++;
+  if (level >= 30) slots++;
+  if (level >= 40) slots++;
+  if (level >= 50 && maxWeaponSlots >= MAX_WEAPONS_CAP) slots++;
+  return Math.min(maxWeaponSlots, slots);
 }
 
 /**
@@ -50,12 +74,12 @@ function rollRarity(luckLevel: number = 0): UpgradeRarity {
  */
 function buildAvailableOptions(player: PlayerState): UpgradeOption[] {
   const options: UpgradeOption[] = [];
-  const luckLevel = player.tomes.find(t => t.type === 'luck_tome')?.level ?? 0;
+  const luckLevel = getTomePower(player.tomes.find(t => t.type === 'luck_tome'));
 
-  // Weapon upgrades for existing weapons (level up)
+  // Weapon upgrades for existing weapons (level up; evolved weapons are maxed out)
   for (const weapon of player.weapons) {
-    const maxLevel = WEAPON_STATS[weapon.type] ? WEAPON_STATS[weapon.type].length : 8;
-    if (weapon.level < maxLevel) {
+    if (weapon.evolved) continue;
+    if (weapon.level < WEAPON_MAX_LEVEL) {
       options.push({
         id: `upgrade_${weapon.type}_${weapon.level + 1}`,
         kind: 'weapon_upgrade',
@@ -67,8 +91,8 @@ function buildAvailableOptions(player: PlayerState): UpgradeOption[] {
     }
   }
 
-  // New weapons (if player has room)
-  if (player.weapons.length < player.maxWeaponSlots) {
+  // New weapons (if player has room in active slots)
+  if (player.weapons.length < player.activeWeaponSlots) {
     const ownedTypes = new Set(player.weapons.map(w => w.type));
     for (const weaponType of ALL_WEAPON_TYPES) {
       if (!ownedTypes.has(weaponType)) {
@@ -84,11 +108,13 @@ function buildAvailableOptions(player: PlayerState): UpgradeOption[] {
     }
   }
 
-  // Tome upgrades
+  // Tome upgrades (new tomes only when holding fewer than 6 types)
   const ownedTomes = new Map(player.tomes.map(t => [t.type, t.level]));
+  const ownedTomeCount = player.tomes.length;
   for (const tomeType of ALL_TOME_TYPES) {
     const currentLevel = ownedTomes.get(tomeType) ?? 0;
     const maxLevel = TOME_MAX_LEVELS[tomeType] ?? 5;
+    if (currentLevel === 0 && ownedTomeCount >= MAX_TOME_TYPES) continue;
     if (currentLevel < maxLevel) {
       options.push({
         id: `tome_${tomeType}_${currentLevel + 1}`,

@@ -8,7 +8,7 @@ import { loadSave, saveSave } from './save.ts';
 export interface Quest {
   id: string;
   description: string;
-  type: 'kill' | 'survive' | 'collect' | 'evolve' | 'level' | 'no_damage' | 'boss';
+  type: 'kill' | 'survive' | 'collect' | 'evolve' | 'level' | 'no_damage' | 'boss' | 'weapons_used';
   target: number;
   reward: QuestReward;
 }
@@ -28,9 +28,9 @@ export const QUESTS: Quest[] = [
   // Kill quests
   { id: 'q1', description: 'quest.kill_100', type: 'kill', target: 100, reward: { type: 'silver', value: 50 } },
   { id: 'q2', description: 'quest.kill_500', type: 'kill', target: 500, reward: { type: 'silver', value: 150 } },
-  { id: 'q3', description: 'quest.kill_1000', type: 'kill', target: 1000, reward: { type: 'weapon_slot', value: 1 } },
+  { id: 'q3', description: 'quest.kill_1000', type: 'kill', target: 1000, reward: { type: 'silver', value: 200 } },
   { id: 'q4', description: 'quest.kill_2500', type: 'kill', target: 2500, reward: { type: 'silver', value: 300 } },
-  { id: 'q5', description: 'quest.kill_5000', type: 'kill', target: 5000, reward: { type: 'weapon_slot', value: 1 } },
+  { id: 'q5', description: 'quest.kill_5000', type: 'kill', target: 5000, reward: { type: 'silver', value: 400 } },
   { id: 'q6', description: 'quest.kill_10000', type: 'kill', target: 10000, reward: { type: 'silver', value: 500 } },
 
   // Survival quests
@@ -54,7 +54,7 @@ export const QUESTS: Quest[] = [
   { id: 'q19', description: 'quest.defeat_boss', type: 'boss', target: 1, reward: { type: 'silver', value: 200 } },
   { id: 'q20', description: 'quest.defeat_boss_3', type: 'boss', target: 3, reward: { type: 'character_unlock', value: 'roberto' } },
   { id: 'q21', description: 'quest.defeat_boss_5', type: 'boss', target: 5, reward: { type: 'silver', value: 500 } },
-  { id: 'q22', description: 'quest.defeat_boss_10', type: 'boss', target: 10, reward: { type: 'weapon_slot', value: 1 } },
+  { id: 'q22', description: 'quest.defeat_boss_10', type: 'boss', target: 10, reward: { type: 'silver', value: 600 } },
 
   // No damage quests
   { id: 'q23', description: 'quest.no_damage_1min', type: 'no_damage', target: 1, reward: { type: 'silver', value: 150 } },
@@ -66,7 +66,10 @@ export const QUESTS: Quest[] = [
   { id: 'q27', description: 'quest.collect_2000_silver', type: 'collect', target: 2000, reward: { type: 'silver', value: 250 } },
   { id: 'q28', description: 'quest.collect_5000_silver', type: 'collect', target: 5000, reward: { type: 'silver', value: 500 } },
   { id: 'q29', description: 'quest.collect_10000_silver', type: 'collect', target: 10000, reward: { type: 'silver', value: 1000 } },
-  { id: 'q30', description: 'quest.collect_25000_silver', type: 'collect', target: 25000, reward: { type: 'weapon_slot', value: 1 } },
+  { id: 'q30', description: 'quest.collect_25000_silver', type: 'collect', target: 25000, reward: { type: 'silver', value: 1500 } },
+
+  // 唯一局外 +1 武器槽任务：累计装备过 7 把不同武器
+  { id: 'q31', description: 'quest.use_7_weapons', type: 'weapons_used', target: 7, reward: { type: 'weapon_slot', value: 1 } },
 ];
 
 /**
@@ -103,6 +106,9 @@ export function checkQuestCompletion(): string[] {
       case 'collect':
         progress = save.totalSilverEarned;
         break;
+      case 'weapons_used':
+        progress = save.stats.uniqueWeaponsUsed.length;
+        break;
     }
 
     if (progress >= quest.target) {
@@ -136,7 +142,7 @@ function applyQuestReward(save: ReturnType<typeof loadSave>, reward: QuestReward
       }
       break;
     case 'weapon_slot':
-      save.extraWeaponSlots += reward.value as number;
+      save.extraWeaponSlots = 1; // 局外最多 +1 槽
       break;
     case 'tome_unlock':
       // Tomes are always available; this is for future use
@@ -177,6 +183,9 @@ export function getQuestProgress(): QuestProgress[] {
           break;
         case 'collect':
           current = save.totalSilverEarned;
+          break;
+        case 'weapons_used':
+          current = save.stats.uniqueWeaponsUsed.length;
           break;
       }
     } else {

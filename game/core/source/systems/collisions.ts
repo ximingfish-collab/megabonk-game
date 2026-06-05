@@ -13,6 +13,7 @@
 import { distanceBetween, normalizeDirection } from '../physics.ts';
 import { TICK_INTERVAL_MS, PLAYER_INVINCIBLE_DURATION } from '../config.ts';
 import { getBossMeleeDamage } from '../ai/bosses/skeletonKing.ts';
+import { getTomePower } from '../tomeProgression.ts';
 import {
   addDamageEvent,
   applyKnockback,
@@ -180,7 +181,7 @@ function rebuildSpatialHash(engine: Engine): void {
 function computePlayerHitDamage(engine: Engine, raw: number): number {
   const player = engine.state.player;
   const shieldTome = player.tomes.find(t => t.type === 'shield_tome');
-  const shieldReduction = shieldTome ? shieldTome.level * 0.05 : 0;
+  const shieldReduction = getTomePower(shieldTome) * 0.05;
   const afterArmor = Math.max(1, raw - player.armor);
   return Math.max(1, Math.round(afterArmor * (1 - shieldReduction)));
 }

@@ -32,11 +32,12 @@ import type { AiEffects, AiContext } from './ai/types.ts';
 
 import { SpatialHash } from './spatial-hash.ts';
 import { createWorld } from './world.ts';
-import { updateRunStats } from './save.ts';
+import { updateRunStats, recordWeaponsUsed } from './save.ts';
 import { getShopBonuses } from './shop.ts';
 import { checkQuestCompletion } from './quests.ts';
 import { spawnEnemy } from './factories/spawnEnemy.ts';
 import { recomputePlayerStats } from './stats/recomputePlayerStats.ts';
+import { applyTomeUpgrade, getTomePower } from './tomeProgression.ts';
 import { tickEnemyAi } from './systems/aiSystem.ts';
 import { tickBossAi } from './systems/bossAi.ts';
 
@@ -50,7 +51,7 @@ import {
   tickLevelUp,
   setPlayerSpawn,
 } from './systems/player.ts';
-import { tickWeapons, checkWeaponEvolutions } from './systems/weapons.ts';
+import { tickWeapons, checkWeaponEvolutions, applyWeaponUpgrade, emptyWeaponGrowth } from './systems/weapons.ts';
 import { tickProjectiles } from './systems/projectiles.ts';
 import { processCollisions } from './systems/collisions.ts';
 import { processDeaths, tickPickups, tickThorns } from './systems/pickups.ts';
@@ -85,6 +86,7 @@ export class GameInstance {
       boss: null,
       upgradeOptions: null,
       damageEvents: [],
+      levelUpCompensationEvents: [],
       stats: { killCount: 0, damageDealt: 0, damageTaken: 0, silverEarned: 0 },
       waveIndex: 0,
       altars: [],
@@ -163,6 +165,7 @@ export class GameInstance {
     state.projectiles = [];
     state.pickups = [];
     state.damageEvents = [];
+    state.levelUpCompensationEvents = [];
     state.boss = null;
     state.upgradeOptions = null;
     state.stats = { killCount: 0, damageDealt: 0, damageTaken: 0, silverEarned: 0 };
@@ -211,8 +214,9 @@ export class GameInstance {
       return false;
     }
 
-    // 清上一帧 damageEvents（client 在两帧之间读）
+    // 清上一帧事件（client 在两帧之间读）
     state.damageEvents = [];
+    state.levelUpCompensationEvents = [];
 
     state.gameTime += dt;
     state.tick++;
@@ -265,28 +269,32 @@ export class GameInstance {
 
     switch (option.kind) {
       case 'new_weapon':
-        if (option.weaponType && player.weapons.length < player.maxWeaponSlots) {
+        if (option.weaponType && player.weapons.length < player.activeWeaponSlots) {
           player.weapons.push({
             type: option.weaponType,
             level: 1,
             cooldownTimer: 0,
             evolved: false,
+            growth: emptyWeaponGrowth(),
           });
         }
         break;
       case 'weapon_upgrade':
         if (option.weaponType) {
           const weapon = player.weapons.find(w => w.type === option.weaponType);
-          if (weapon) weapon.level = option.newLevel;
+          // 新规则：level +1，并按选项稀有度缩放「本级→下一级」步进累加到 growth。
+          if (weapon && !weapon.evolved) applyWeaponUpgrade(weapon, option.rarity);
         }
         break;
       case 'tome':
         if (option.tomeType) {
           const existing = player.tomes.find(t => t.type === option.tomeType);
           if (existing) {
-            existing.level = option.newLevel;
+            applyTomeUpgrade(existing, option.rarity, option.newLevel);
           } else {
-            player.tomes.push({ type: option.tomeType!, level: option.newLevel });
+            const tome = { type: option.tomeType!, level: 0 };
+            applyTomeUpgrade(tome, option.rarity, option.newLevel);
+            player.tomes.push(tome);
           }
           player.passives = player.tomes;
           recomputePlayerStats(player, engine.config.character, getShopBonuses());
@@ -350,6 +358,7 @@ export class GameInstance {
     const victoryBonus = state.phase === 'victory' ? 100 : 0;
     const totalSilver = Math.round((baseSilver + victoryBonus + state.stats.silverEarned) * tierCfg.silverMultiplier);
 
+    recordWeaponsUsed(state.player.weapons.map(w => w.type));
     updateRunStats(
       state.stats.killCount,
       Math.floor(state.gameTime),
@@ -423,7 +432,7 @@ function makeEffects(engine: Engine): AiEffects {
       const player = engine.state.player;
       if (!player.alive || player.invincibleTimer > 0) return;
       const shieldTome = player.tomes.find(t => t.type === 'shield_tome');
-      const shieldReduction = shieldTome ? shieldTome.level * 0.05 : 0;
+      const shieldReduction = getTomePower(shieldTome) * 0.05;
       const dmg = Math.max(1, rawDamage - player.armor);
       const finalDmg = Math.max(1, Math.round(dmg * (1 - shieldReduction)));
       player.hp -= finalDmg;

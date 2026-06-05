@@ -19,6 +19,7 @@ import {
 } from '../config.ts';
 import { ENEMIES } from '../data/enemies.ts';
 import { spawnEnemy } from '../factories/spawnEnemy.ts';
+import { getTomePower } from '../tomeProgression.ts';
 import type { EnemyType } from '../types.ts';
 import type { Engine } from './types.ts';
 import { hasReadyBossTrigger } from './altars.ts';
@@ -64,13 +65,14 @@ export function tickSpawning(engine: Engine, dt: number): void {
 
   // Curse tome: 加快 spawn / 加大 group
   const curseTome = engine.state.player.tomes.find(t => t.type === 'curse_tome');
-  const curseSpawnMult = curseTome ? (1 - curseTome.level * 0.1) : 1.0;
+  const cursePower = getTomePower(curseTome);
+  const curseSpawnMult = 1 - cursePower * 0.1;
   let spawnInterval = wave.spawnInterval * Math.max(0.5, curseSpawnMult);
   if (isFinalSwarm) spawnInterval *= 0.5;
   engine.spawnTimer = spawnInterval;
 
   let groupSize = wave.groupSize[0] + Math.floor(Math.random() * (wave.groupSize[1] - wave.groupSize[0] + 1));
-  if (curseTome) groupSize = Math.round(groupSize * (1 + curseTome.level * 0.15));
+  if (cursePower > 0) groupSize = Math.round(groupSize * (1 + cursePower * 0.15));
   if (isFinalSwarm) groupSize = Math.round(groupSize * 1.5);
 
   const availableEnemies = isFinalSwarm

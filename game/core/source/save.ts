@@ -19,6 +19,8 @@ export interface SaveData {
     bossesDefeated: number;
     totalEvolutions: number;
     noDamageRuns: number;
+    /** 累计使用过的不同武器 type（跨局去重）。 */
+    uniqueWeaponsUsed: string[];
   };
 }
 
@@ -43,6 +45,7 @@ export function getDefaultSave(): SaveData {
       bossesDefeated: 0,
       totalEvolutions: 0,
       noDamageRuns: 0,
+      uniqueWeaponsUsed: [],
     },
   };
 }
@@ -57,6 +60,7 @@ export function loadSave(): SaveData {
     return {
       ...defaults,
       ...parsed,
+      extraWeaponSlots: Math.min(1, parsed.extraWeaponSlots ?? 0),
       stats: { ...defaults.stats, ...(parsed.stats ?? {}) },
     };
   } catch {
@@ -91,6 +95,20 @@ export function spendSilver(amount: number): boolean {
 export function getShopLevel(upgradeId: string): number {
   const save = loadSave();
   return save.shopLevels[upgradeId] ?? 0;
+}
+
+/** 记录本局装备过的武器 type，跨局累计去重（用于「7 把不同武器」任务）。 */
+export function recordWeaponsUsed(weaponTypes: string[]): void {
+  if (weaponTypes.length === 0) return;
+  const save = loadSave();
+  let changed = false;
+  for (const type of weaponTypes) {
+    if (!save.stats.uniqueWeaponsUsed.includes(type)) {
+      save.stats.uniqueWeaponsUsed.push(type);
+      changed = true;
+    }
+  }
+  if (changed) saveSave(save);
 }
 
 export function updateRunStats(killCount: number, survivalTime: number, level: number, victory: boolean, damageTaken: number): void {

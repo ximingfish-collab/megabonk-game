@@ -28,7 +28,7 @@ function makePlayer(overrides: Partial<PlayerState> = {}): PlayerState {
     weapons: [], tomes: [], passives: [],
     dashCooldown: 0, dashCooldownMax: 5, dashTimer: 0, invincibleTimer: 0,
     alive: true, character: 'megachad',
-    maxWeaponSlots: 2, comboCount: 0, comboTimer: 0,
+    maxWeaponSlots: 2, activeWeaponSlots: 2, gold: 0, comboCount: 0, comboTimer: 0,
     ...overrides,
   };
 }

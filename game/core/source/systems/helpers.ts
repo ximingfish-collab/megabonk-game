@@ -8,6 +8,7 @@
  *   - checkPlayerDeath / checkGameOver: 多个 damage / phase 路径触发
  */
 import { distanceBetween, normalizeDirection } from '../physics.ts';
+import { getTomePower } from '../tomeProgression.ts';
 import type { EnemyState, WeaponType } from '../types.ts';
 import type { Engine } from './types.ts';
 import { onBossDefeated } from './altars.ts';
@@ -82,7 +83,7 @@ export function applyKnockback(
 ): void {
   const knockbackTome = engine.state.player.tomes.find(t => t.type === 'knockback_tome');
   const baseForce = 1.5;
-  const tomeMultiplier = knockbackTome ? (1 + knockbackTome.level * 0.3) : 1.0;
+  const tomeMultiplier = 1 + getTomePower(knockbackTome) * 0.3;
   const force = baseForce * tomeMultiplier;
 
   const dir = normalizeDirection(enemy.x - fromX, enemy.z - fromZ);

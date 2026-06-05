@@ -13,6 +13,7 @@
  */
 import { StatBlock } from './StatBlock.ts';
 import { TOMES } from '../data/tomes.ts';
+import { getTomePower } from '../tomeProgression.ts';
 import {
   PLAYER_BASE_CRIT_DAMAGE,
   PLAYER_PICKUP_RADIUS,
@@ -27,6 +28,7 @@ export interface ShopBonuses {
   critChance?: number;
   armor?: number;
   pickupRadius?: number;
+  maxHp?: number;
   // 其它字段（hp / pickupRadiusFactor 等）由 GameInstance 自己读取，不在这里
 }
 
@@ -35,7 +37,8 @@ export interface ShopBonuses {
  * 原 recalculateTomeStats 行为一致）。
  *
  * **副作用**：写 `player.speed / damageMultiplier / attackSpeedMultiplier /
- * critChance / critDamage / armor / pickupRadius`. 不写 hp / level / xp / weapons / tomes.
+ * critChance / critDamage / armor / pickupRadius / maxHp / consumableDropMult`.
+ * 不写 level / xp / weapons / tomes，不治疗玩家。
  */
 export function recomputePlayerStats(
   player: PlayerState,
@@ -48,17 +51,19 @@ export function recomputePlayerStats(
   // ─── 1. base ───
   block.setBase('moveSpeed',     charCfg.speed       + (shop.speed       ?? 0));
   block.setBase('damageMult',    charCfg.damage      + (shop.damage      ?? 0));
+  block.setBase('maxHp',         charCfg.hp          + (shop.maxHp       ?? 0));
   block.setBase('attackSpeed',   1.0);
   block.setBase('critChance',    charCfg.critChance  + (shop.critChance  ?? 0));
   block.setBase('critDamage',    PLAYER_BASE_CRIT_DAMAGE);
   block.setBase('armor',         charCfg.armor       + (shop.armor       ?? 0));
   block.setBase('pickupRadius',  PLAYER_PICKUP_RADIUS + (shop.pickupRadius ?? 0));
+  block.setBase('consumableDropMult', 1.0);
 
   // ─── 2. tomes ───
   for (const tome of player.tomes) {
     const def = TOMES[tome.type];
     if (!def) continue;
-    for (const m of def.modifiers(tome.level)) {
+    for (const m of def.modifiers(getTomePower(tome))) {
       block.applyModifier(m);
     }
   }
@@ -71,4 +76,7 @@ export function recomputePlayerStats(
   player.critDamage            = block.getFinal('critDamage');
   player.armor                 = block.getFinal('armor');
   player.pickupRadius          = block.getFinal('pickupRadius');
+  player.maxHp                 = block.getFinal('maxHp');
+  player.hp                    = Math.min(player.hp, player.maxHp);
+  player.consumableDropMult    = block.getFinal('consumableDropMult');
 }

@@ -6,9 +6,12 @@ import {
   tickWeapons,
   getWeaponStats,
   checkWeaponEvolutions,
+  applyWeaponUpgrade,
+  emptyWeaponGrowth,
 } from '../weapons.ts';
 import { makeEngine, makePlayer } from './_fixtures.ts';
-import { WEAPON_STATS } from '../../config.ts';
+import { WEAPON_STATS, WEAPON_MAX_LEVEL } from '../../config.ts';
+import type { WeaponState } from '../../types.ts';
 
 describe('getWeaponStats', () => {
   it('lv 1 sword → 第一档 stats', () => {
@@ -36,6 +39,50 @@ describe('getWeaponStats', () => {
   it('未知 weapon → fallback bone_bouncer 第一档', () => {
     const stats = getWeaponStats({ type: 'unknown_weapon' as never, level: 1, cooldownTimer: 0, evolved: false });
     expect(stats).toEqual(WEAPON_STATS.bone_bouncer[0]);
+  });
+});
+
+describe('applyWeaponUpgrade (新规则: base + 稀有度缩放步进)', () => {
+  function freshSword(): WeaponState {
+    return { type: 'sword', level: 1, cooldownTimer: 0, evolved: false, growth: emptyWeaponGrowth() };
+  }
+
+  it('common 连续升级 → 数值与原配置表逐档一致', () => {
+    const w = freshSword();
+    for (let i = 0; i < 7; i++) applyWeaponUpgrade(w, 'common');
+    expect(w.level).toBe(8);
+    const stats = getWeaponStats(w);
+    // common ×1.0 累加 7 段步进 = 表第 8 档（含整数字段）
+    expect(stats.damage).toBe(WEAPON_STATS.sword[7].damage);
+    expect(stats.projectileCount).toBe(WEAPON_STATS.sword[7].projectileCount);
+    expect(stats.range).toBeCloseTo(WEAPON_STATS.sword[7].range, 5);
+  });
+
+  it('稀有度越高 → 同一步进数值增益越大', () => {
+    const common = freshSword();
+    const legendary = freshSword();
+    applyWeaponUpgrade(common, 'common');
+    applyWeaponUpgrade(legendary, 'legendary');
+    expect(getWeaponStats(legendary).damage).toBeGreaterThan(getWeaponStats(common).damage);
+  });
+
+  it('legendary 单次伤害增益 = common 的 2 倍步进', () => {
+    const base = WEAPON_STATS.sword[0].damage;
+    const common = freshSword();
+    const legendary = freshSword();
+    applyWeaponUpgrade(common, 'common');
+    applyWeaponUpgrade(legendary, 'legendary');
+    const commonGain = getWeaponStats(common).damage - base;
+    const legendaryGain = getWeaponStats(legendary).damage - base;
+    expect(legendaryGain).toBe(commonGain * 2);
+  });
+
+  it('超过表长后仍可成长（9/10 级），level 封顶 WEAPON_MAX_LEVEL', () => {
+    const w = freshSword();
+    for (let i = 0; i < 20; i++) applyWeaponUpgrade(w, 'common');
+    expect(w.level).toBe(WEAPON_MAX_LEVEL);
+    // 10 级伤害应高于 8 级（表末档）
+    expect(getWeaponStats(w).damage).toBeGreaterThan(WEAPON_STATS.sword[7].damage);
   });
 });
 
@@ -97,7 +144,7 @@ describe('checkWeaponEvolutions', () => {
     expect(player.weapons[0].evolved).toBe(false);
   });
 
-  it('level 8 + 对应 tome 满足 → evolved + level=9', () => {
+  it('level 8 + 对应 tome 满足 → evolved + level 封顶 WEAPON_MAX_LEVEL', () => {
     // bow 进化需要 precision_tome lv 3
     const player = makePlayer({
       weapons: [{ type: 'bow', level: 8, cooldownTimer: 0, evolved: false }],
@@ -106,7 +153,7 @@ describe('checkWeaponEvolutions', () => {
     const engine = makeEngine({ state: { ...makeEngine().state, player } });
     checkWeaponEvolutions(engine);
     expect(player.weapons[0].evolved).toBe(true);
-    expect(player.weapons[0].level).toBe(9);
+    expect(player.weapons[0].level).toBe(WEAPON_MAX_LEVEL);
   });
 
   it('level 8 但 tome 不够 → 不进化', () => {

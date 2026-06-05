@@ -36,6 +36,7 @@ export function tickTierTransition(engine: Engine): void {
   state.projectiles = [];
   state.pickups = [];
   state.damageEvents = [];
+  state.levelUpCompensationEvents = [];
   state.boss = null;
   state.upgradeOptions = null;
   state.waveIndex = 0;

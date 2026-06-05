@@ -10,9 +10,9 @@ import { TOME_MAX_LEVELS } from '../../config.ts';
 import type { TomeType } from '../../types.ts';
 
 describe('TOMES table', () => {
-  it('包含所有 10 种 tome', () => {
+  it('包含所有 12 种 tome', () => {
     const types: TomeType[] = [
-      'attack_speed_tome', 'luck_tome', 'thorns_tome', 'shield_tome',
+      'attack_speed_tome', 'life_tome', 'consumable_tome', 'luck_tome', 'thorns_tome', 'shield_tome',
       'xp_gain_tome', 'attraction_tome', 'curse_tome', 'precision_tome',
       'knockback_tome', 'speed_tome',
     ];
@@ -25,6 +25,7 @@ describe('TOMES table', () => {
   it('TOME_MAX_LEVELS_FROM_DATA 与 config.TOME_MAX_LEVELS 一致 (单一 source of truth 校验)', () => {
     for (const key of Object.keys(TOME_MAX_LEVELS) as TomeType[]) {
       expect(TOME_MAX_LEVELS_FROM_DATA[key]).toBe(TOME_MAX_LEVELS[key]);
+      expect(TOME_MAX_LEVELS[key]).toBe(8);
     }
   });
 
@@ -43,6 +44,20 @@ describe('attack_speed_tome modifiers', () => {
     const mods = TOMES.attack_speed_tome.modifiers(lv);
     expect(mods).toHaveLength(1);
     expect(mods[0]).toEqual({ kind: 'increased', stat: 'attackSpeed', value: lv * 0.10 });
+  });
+});
+
+describe('life_tome modifiers', () => {
+  it('power 2 输出 added maxHp = 30', () => {
+    const mods = TOMES.life_tome.modifiers(2);
+    expect(mods).toEqual([{ kind: 'added', stat: 'maxHp', value: 30 }]);
+  });
+});
+
+describe('consumable_tome modifiers', () => {
+  it('power 2 输出 increased consumableDropMult = 0.10', () => {
+    const mods = TOMES.consumable_tome.modifiers(2);
+    expect(mods).toEqual([{ kind: 'increased', stat: 'consumableDropMult', value: 0.10 }]);
   });
 });
 

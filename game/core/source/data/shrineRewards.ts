@@ -10,6 +10,7 @@
  * 新增奖励：在此数组末尾追加一行即可，systems/shrines.ts 与 GameInstance 自动接管。
  */
 import type { ShrineRewardType, UpgradeRarity, PlayerState, ShrineRewardOption } from '../types.ts';
+import { getTomePower } from '../tomeProgression.ts';
 
 export interface ShrineRewardDef {
   reward: ShrineRewardType;
@@ -79,7 +80,7 @@ export function rollShrineOptions(
   rng: () => number = Math.random,
 ): ShrineRewardOption[] {
   const luckLevel =
-    (player.tomes.find((t) => t.type === 'luck_tome')?.level ?? 0)
+    getTomePower(player.tomes.find((t) => t.type === 'luck_tome'))
     + Math.floor((player.luckBonus ?? 0) * 100); // 5% 累计 → +1 luck 等级
   const luckBoost = luckLevel * 5;
 
