@@ -6535,6 +6535,7 @@ function toggleGMPanel(): void {
     ['+火焰环 (Lv5)', () => gmGiveWeapon('flame_ring', 5)],
     ['给我所有武器', gmGiveAllWeapons],
     ['⚡测试闪电特效⚡', gmTestLightning],
+    ['🟩 切换碰撞盒可视化', gmToggleCollisionViz],
   ];
 
   for (const [label, fn] of buttons) {
