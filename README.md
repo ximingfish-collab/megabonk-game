@@ -4,6 +4,8 @@
 
 > 📘 **完整设计文档**：本地打开 [`docs/index.html`](./docs/index.html) 或阅读 [`docs/design.md`](./docs/design.md)
 > 🤝 **协作者必读**：[`docs/contract.md`](./docs/contract.md) — 框架契约（harness 强制）
+> 📐 **v0.5 策划草案**：见 `docs/index.html` 的「⚙️ 扩展设计总览」/「羁绊」/「遗物」/「消耗品」section（标 `new` 紫色徽章），实现进度跟踪见 [issue #11](https://github.com/Adios94/megabonk-game/issues/11)
+> 📐 **v0.5 策划草案**：见 `docs/index.html` 的「⚙️ 扩展设计总览」/「羁绊」/「遗物」/「消耗品」section（标 `new` 紫色徽章），实现进度跟踪见 [issue #11](https://github.com/Adios94/megabonk-game/issues/11)
 
 ## 快速开始
 
