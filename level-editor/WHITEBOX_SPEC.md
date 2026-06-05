@@ -162,11 +162,59 @@ spawn_chest    Empty   Pos(-15,15,0)
 3. 右侧：**Format = GLB**、**Include = Selected Objects**、**Transform → +Y Up ✅**、**Apply Modifiers ✅**、**Animation ❌**。
 4. 输出到 `public/models/levels/level_whitebox.glb`。
 
-> ⚡ **测试**：LevelLoader 已上线，开局会**自动加载** `public/models/levels/level_whitebox.glb`。
-> 把白盒导出成这个文件名 → 刷新浏览器 → 直接在游戏里跑你的关卡（控制台会打印 `[Level] Loaded ...` 统计）。
+> ⚡ **测试**：在 URL 加 `?level` 加载默认 whitebox（或 `?level=foo` 加载 `level_foo.glb`）。
+> 控制台会打印 `[Level] Loaded (mode) ...` 其中 mode = `two-file` / `visual-only` / `col-only`。
 > 文件不存在时自动回退到内置 Neon Crucible。
 > 当前已接入：`col_`（实体地面/盒子，盒外为虚空会掉落，**倾斜的 col_ 自动当斜坡**）+ 迈步/掉落/支撑面跟随 + `wall_`（横向遮挡）+ `climb_`（实体+攀爬）+ `ramp_`（可行走斜坡）+ `spawn_player`（出生）+ `spawn_boss`（Boss 出场点）+ `spawn_altar`（祭坛）+ `spawn_chest`（宝箱）+ 全场景白盒渲染。
 > 暂未接入：`spawn_enemy_*`（已解析+打印，敌人目前仍从地图边缘刷新）；怪物绕墙寻路尚未做（敌人直线追，但会沿斜坡/地形高度走）。
+
+### 6.1 双文件模式（推荐生产用）🆕
+
+为了让**视觉高模**（精致美术）和**碰撞低模**（精确碰撞）解耦，加载器支持「双文件」约定：
+
+```
+public/models/levels/
+├── level_${name}.glb        视觉高模（玩家看到的关卡）
+└── level_${name}_col.glb    碰撞低模（只含 col_/wall_/climb_/ramp_/spawn_*）
+```
+
+**加载策略**（`?level=${name}`）：
+
+| 文件状态 | mode | 视觉来源 | 碰撞来源 |
+|---|---|---|---|
+| 两个都在 | `two-file` | `level_${name}.glb` | `level_${name}_col.glb` |
+| 只有 visual | `visual-only` | `level_${name}.glb` | `level_${name}.glb`（同源解析） |
+| 只有 col | `col-only` | `level_${name}_col.glb` | `level_${name}_col.glb`（灰盒） |
+| 都不在 | — | 回退内置 Neon Crucible | 同左 |
+
+**双文件模式的好处：**
+- 视觉文件可以是任意精度的高模（不影响碰撞精度）。
+- 碰撞文件只含**几何意图明确的低模**（手工搭的方块/斜板），避免「自动从高模里推断碰撞」带来的误差（陡坡、旋转面对不齐 mesh 等）。
+- 两边相互独立 → 视觉迭代 / 碰撞调优互不干扰。
+
+**双文件模式约定：**
+- **碰撞文件里的所有几何**（`col_/wall_/climb_/ramp_`）会被解析；**视觉文件里的同名前缀会被忽略**（避免双源冲突）。
+- 出生点 `spawn_*` 也只从碰撞文件读 —— 出生点本质是逻辑，归碰撞侧。
+- 视觉文件可以**完全没有** `col_/wall_/climb_/ramp_/spawn_*`，纯 mesh art。
+- 命名约定 `_col` 后缀**不能改**，加载器会按这个名字探测。
+
+**白盒阶段**：单文件就够了（visual-only 模式），不用拆。
+**生产阶段**：建议拆双文件 —— 美术做高模时不用顾忌碰撞盒，关卡设计师改碰撞时不用碰美术。
+
+**双文件模式的性能成本：**
+
+| 阶段 | 单文件 | 双文件 | 差异 |
+|---|---|---|---|
+| HTTP 请求 | 1 | 2（并行） | 延迟 ≈ max(t1, t2)，**不相加** |
+| 下载流量 | visual | visual + col | col 是低模，通常 < 100 KB |
+| GLB 解析（CPU） | 1 次 | 2 次 | 多几毫秒，仅一次性 |
+| 常驻内存 | visual scene + LevelData | 同左 | col scene 解析后立即 `dispose()` 释放几何 / 材质 |
+| **运行期每帧** | — | — | **零差异** |
+
+> 运行期零成本：①碰撞数据已 flatten 成 `LevelData` 扁平数组，物理查询与 GLB 脱钩；
+> ② col scene 不进 render tree（不渲染 / 不 raycast / 不上 GPU）；
+> ③ 双文件模式下显式 dispose 释放 typed array。
+> 真正要担心的是 visual 高模本身（draw call / 顶点数）—— 那是单文件也有的问题。
 
 ### 导出前自检
 

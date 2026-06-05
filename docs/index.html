@@ -2650,6 +2650,44 @@ http://localhost:1513/?level
 http://localhost:1513/?level=foo</code></pre>
   <p>关卡命名约定见 <a href="https://github.com/Adios94/megabonk-game/blob/master/level-editor/WHITEBOX_SPEC.md">level-editor/WHITEBOX_SPEC.md</a>（前缀：<code>col_</code> / <code>wall_</code> / <code>climb_</code> / <code>ramp_</code> / <code>spawn_*</code>）。</p>
 
+  <h3>双文件模式：视觉高模 + 碰撞低模</h3>
+  <p>「自动从视觉 mesh 推断碰撞」会在陡斜面 / 旋转斜面 / 复杂高模上累积误差（玩家陷地 / 站不上去）。
+  解决思路对齐业界（Unity Mesh Collider / Unreal Per-Asset Collision / Godot CollisionShape3D）：
+  <strong>视觉与碰撞分离成两个 GLB</strong>，加载器按约定俱乐部。</p>
+  <pre><code>public/models/levels/
+├── level_${name}.glb        视觉高模（玩家看到的关卡）
+└── level_${name}_col.glb    碰撞低模（只含 col_/wall_/climb_/ramp_/spawn_*）</code></pre>
+  <table>
+    <tr><th>文件状态</th><th>mode</th><th>视觉来源</th><th>碰撞来源</th></tr>
+    <tr><td>两个都在</td><td><code>two-file</code></td><td><code>level_${name}.glb</code></td><td><code>level_${name}_col.glb</code></td></tr>
+    <tr><td>只有 visual</td><td><code>visual-only</code></td><td><code>level_${name}.glb</code></td><td>同源解析（向后兼容）</td></tr>
+    <tr><td>只有 col</td><td><code>col-only</code></td><td><code>level_${name}_col.glb</code></td><td>同上（纯灰盒）</td></tr>
+    <tr><td>都不在</td><td>—</td><td colspan="2">回退内置 Neon Crucible</td></tr>
+  </table>
+  <p>双文件模式下，视觉文件里的 <code>col_/wall_/climb_/ramp_/spawn_*</code> 会被<strong>忽略</strong>（避免双源冲突），
+  碰撞 100% 来自 <code>_col.glb</code>。控制台会打印 <code>[Level] Loaded (mode) ...</code> 提示当前模式。</p>
+  <p style="color: var(--dim); font-size: 13px;">白盒阶段单文件就够（visual-only）。生产阶段建议拆双文件 ——
+  美术做高模时不用顾忌碰撞，关卡设计师改碰撞时不用碰美术。</p>
+
+  <h4>双文件模式的性能成本</h4>
+  <table>
+    <tr><th>阶段</th><th>单文件</th><th>双文件</th><th>差异</th></tr>
+    <tr><td>HTTP 请求</td><td>1</td><td>2（<code>Promise.allSettled</code> 并行）</td><td>延迟 ≈ max(t1, t2)，<strong>不相加</strong></td></tr>
+    <tr><td>下载流量</td><td>visual</td><td>visual + col</td><td>col 是低模，通常 < 100 KB</td></tr>
+    <tr><td>GLB 解析（CPU）</td><td>1 次</td><td>2 次</td><td>多几毫秒，仅一次性</td></tr>
+    <tr><td>常驻内存</td><td>visual scene + LevelData</td><td>同左</td><td>col scene 解析后立即 <code>dispose()</code> 释放 BufferGeometry / Material</td></tr>
+    <tr><td><strong>运行期每帧</strong></td><td>—</td><td>—</td><td><strong>零差异</strong></td></tr>
+  </table>
+  <p>运行期零成本的理由：</p>
+  <ol>
+    <li>碰撞数据在加载时已 flatten 成 <code>LevelData</code> 的扁平 JS 数组（<code>collisionRects[]</code> / <code>walls[]</code> / <code>ramps[]</code> ...），
+    物理查询走的是这些 plain 数据，与 GLB 完全脱钩。</li>
+    <li>col scene 从不 <code>scene.add()</code> → 不参与渲染、不参与 raycast、不进视锥剔除、不上传 GPU。</li>
+    <li>双文件模式下解析完显式 <code>traverse + dispose()</code> 几何 / 材质，typed array 立即可回收（GLB 没碰过 GPU，所以无 GPU 端释放）。</li>
+  </ol>
+  <p style="color: var(--dim); font-size: 13px;">真正要担心的是 <strong>visual 高模本身</strong>（draw call / 顶点数 / 贴图）—— 那是单文件也有的问题，
+  与拆不拆碰撞无关。视觉做大了走 <code>InstancedMesh</code> 合批 / LOD 是另一条路线。</p>
+
   <h3>GM 调试：碰撞盒可视化</h3>
   <p>关卡设计师调白盒时可以打开 wireframe 叠加层，肉眼校对几何与 col_/wall_ 数据是否对齐：</p>
   <pre><code>// 浏览器控制台（先加 ?level 进游戏）
