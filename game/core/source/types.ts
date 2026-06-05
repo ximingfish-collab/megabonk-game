@@ -444,21 +444,28 @@ export interface WallBox {
 
 /**
  * 斜坡 —— 可**行走**上去的倾斜地面（区别于 climb_ 攀爬）。
- * 顶面沿 axis 轴从一端线性升高到另一端。
+ *
+ * 顶面是一个**旋转的矩形**，沿 slopeDir 方向从低端线性升到高端。
+ * 不再限制必须沿世界 X/Z 轴 —— 支持 Blender 里旋转过的斜坡。
+ *
+ * 中心 (cx, cz) 处高度 = (lowY + highY) / 2。
+ * 高端在 (cx, cz) + halfSlope × slopeDir。
+ * 低端在 (cx, cz) - halfSlope × slopeDir。
  */
 export interface RampVolume {
   cx: number;
   cz: number;
-  halfW: number;
-  halfD: number;
-  /** 坡度方向轴。 */
-  axis: 'x' | 'z';
+  /** 沿坡道方向的半长（中心到高/低端的距离）。 */
+  halfSlope: number;
+  /** 垂直于坡道方向的半宽。 */
+  halfPerp: number;
+  /** 上升方向单位向量（XZ 平面）。从中心沿这个方向走 halfSlope 到达 highY 端。 */
+  slopeDirX: number;
+  slopeDirZ: number;
   /** 低端顶面高度。 */
   lowY: number;
   /** 高端顶面高度。 */
   highY: number;
-  /** true = 沿 +axis 方向升高；false = 沿 -axis 升高。 */
-  ascendPositive: boolean;
 }
 
 /** 攀爬体。玩家可在 bottomY~topY 间攀爬；怪物可经此登高。 */

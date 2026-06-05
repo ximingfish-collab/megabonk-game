@@ -132,16 +132,21 @@ export function makeLevelGeometry(level?: LevelData): LevelGeometry {
 
 // ─── 竖直查询 ─────────────────────────────────────────────────────────────
 
-/** 斜坡在 (x,z) 处的顶面高度；不在 footprint 内返回 null。 */
+/**
+ * 斜坡在 (x,z) 处的顶面高度；不在 footprint 内返回 null。
+ *
+ * Footprint = 以 (cx,cz) 为中心、沿 slopeDir 半长 halfSlope、垂直方向半宽 halfPerp
+ * 的旋转矩形。把世界 (x,z) 投影到 slopeDir / 法向得到局部坐标后判定是否在矩形内。
+ */
 function rampHeightAt(ramp: RampVolume, x: number, z: number): number | null {
-  if (Math.abs(x - ramp.cx) > ramp.halfW || Math.abs(z - ramp.cz) > ramp.halfD) return null;
-  const isX = ramp.axis === 'x';
-  const coord = isX ? x : z;
-  const half = isX ? ramp.halfW : ramp.halfD;
-  const lo = (isX ? ramp.cx : ramp.cz) - half;
-  const run = half * 2;
-  let t = run > 0 ? (coord - lo) / run : 0; // 0..1 从 -axis 端到 +axis 端
-  if (!ramp.ascendPositive) t = 1 - t;
+  const dx = x - ramp.cx;
+  const dz = z - ramp.cz;
+  // 投影到 slopeDir（沿坡道方向） + 法向（slopeDir 旋转 90°）
+  const sCoord = dx * ramp.slopeDirX + dz * ramp.slopeDirZ;
+  const pCoord = dx * (-ramp.slopeDirZ) + dz * ramp.slopeDirX;
+  if (Math.abs(sCoord) > ramp.halfSlope || Math.abs(pCoord) > ramp.halfPerp) return null;
+  // t: 0 在低端 (-halfSlope)，1 在高端 (+halfSlope)
+  const t = ramp.halfSlope > 0 ? (sCoord + ramp.halfSlope) / (ramp.halfSlope * 2) : 0;
   return ramp.lowY + (ramp.highY - ramp.lowY) * t;
 }
 

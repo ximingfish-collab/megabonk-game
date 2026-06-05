@@ -717,19 +717,19 @@ const _vec = new THREE.Vector3();
  * 只看法线朝上（n.y>0.5）的三角面，取这些面顶点的最低/最高世界点。
  * 这样厚平台（顶面平）会判定为平，倾斜板会判定为斜坡。
  *
- * 同时返回 topBox —— 仅这些顶面顶点的轴对齐包围盒（用于计算 ramp 的真实
- * footprint，避免用 mesh 整体 AABB 让斜面插值偏移）。
+ * 返回：
+ *   - lo / hi: 顶面最低 / 最高顶点（世界坐标）
+ *   - topVerts: 所有顶面顶点的世界坐标拷贝（用于算旋转 footprint）
  */
 function analyzeTopSurface(node: THREE.Object3D): {
   sloped: boolean;
   lo: THREE.Vector3;
   hi: THREE.Vector3;
-  topBox: THREE.Box3;
+  topVerts: THREE.Vector3[];
 } {
   const lo = new THREE.Vector3(0, Infinity, 0);
   const hi = new THREE.Vector3(0, -Infinity, 0);
-  const topBox = new THREE.Box3();
-  topBox.makeEmpty();
+  const topVerts: THREE.Vector3[] = [];
   const a = new THREE.Vector3();
   const b = new THREE.Vector3();
   const c = new THREE.Vector3();
@@ -760,35 +760,58 @@ function analyzeTopSurface(node: THREE.Object3D): {
       for (const v of [a, b, c]) {
         if (v.y < lo.y) lo.copy(v);
         if (v.y > hi.y) hi.copy(v);
-        topBox.expandByPoint(v);
+        topVerts.push(v.clone());
       }
     }
   });
 
   const sloped =
     Number.isFinite(lo.y) && Number.isFinite(hi.y) && hi.y - lo.y > 0.3;
-  return { sloped, lo, hi, topBox };
+  return { sloped, lo, hi, topVerts };
 }
 
-/** 把分析结果写成 ramp（顶面斜）或 col 实体盒（顶面平）。 */
+/** 把分析结果写成 ramp（顶面斜，含旋转 footprint）或 col 实体盒（顶面平）。 */
 function pushColOrRamp(node: THREE.Object3D, box: THREE.Box3, data: LevelData): void {
   const surf = analyzeTopSurface(node);
-  if (surf.sloped && !surf.topBox.isEmpty()) {
-    // 用顶面顶点的真实 bbox 算 footprint，避免 mesh 多余几何（侧壁/底面）
-    // 把 ramp 的 AABB 撑大，导致斜面插值偏移、玩家贴墙时陷进斜面。
-    const tcx = (surf.topBox.min.x + surf.topBox.max.x) / 2;
-    const tcz = (surf.topBox.min.z + surf.topBox.max.z) / 2;
-    const thalfW = (surf.topBox.max.x - surf.topBox.min.x) / 2;
-    const thalfD = (surf.topBox.max.z - surf.topBox.min.z) / 2;
-    const axis: 'x' | 'z' =
-      Math.abs(surf.hi.x - surf.lo.x) >= Math.abs(surf.hi.z - surf.lo.z) ? 'x' : 'z';
+  if (surf.sloped && surf.topVerts.length > 0) {
+    // 1) 上升方向 = lo → hi 在 XZ 平面的投影，归一化
+    const dx = surf.hi.x - surf.lo.x;
+    const dz = surf.hi.z - surf.lo.z;
+    const slopeLen = Math.hypot(dx, dz);
+    let slopeDirX = 1, slopeDirZ = 0;
+    if (slopeLen > 1e-4) {
+      slopeDirX = dx / slopeLen;
+      slopeDirZ = dz / slopeLen;
+    }
+    // 2) 法向（slopeDir 旋转 90°）
+    const perpX = -slopeDirZ;
+    const perpZ = slopeDirX;
+    // 3) 把所有顶面顶点投影到 (slopeDir, perp)，找旋转矩形的 min/max
+    let minS = Infinity, maxS = -Infinity, minP = Infinity, maxP = -Infinity;
+    for (const v of surf.topVerts) {
+      const vx = v.x - surf.lo.x;
+      const vz = v.z - surf.lo.z;
+      const s = vx * slopeDirX + vz * slopeDirZ;
+      const p = vx * perpX + vz * perpZ;
+      if (s < minS) minS = s;
+      if (s > maxS) maxS = s;
+      if (p < minP) minP = p;
+      if (p > maxP) maxP = p;
+    }
+    const centerS = (minS + maxS) / 2;
+    const centerP = (minP + maxP) / 2;
+    const cx = surf.lo.x + centerS * slopeDirX + centerP * perpX;
+    const cz = surf.lo.z + centerS * slopeDirZ + centerP * perpZ;
     data.ramps.push({
-      cx: tcx, cz: tcz, halfW: thalfW, halfD: thalfD, axis,
+      cx, cz,
+      halfSlope: (maxS - minS) / 2,
+      halfPerp: (maxP - minP) / 2,
+      slopeDirX, slopeDirZ,
       lowY: surf.lo.y,
       highY: surf.hi.y,
-      ascendPositive: axis === 'x' ? surf.hi.x > surf.lo.x : surf.hi.z > surf.lo.z,
     });
   } else {
+    // 平顶 → 实体盒。位置/尺寸用 mesh 整体 AABB（已经传进来）。
     const cx = (box.min.x + box.max.x) / 2;
     const cz = (box.min.z + box.max.z) / 2;
     const halfW = (box.max.x - box.min.x) / 2;
@@ -2518,10 +2541,22 @@ export class GameScene {
       addBox(c.cx, (c.bottomY + c.topY) / 2, c.cz, c.halfW * 2, sy, c.halfD * 2, 0x33aaff, 0.25);
     }
 
-    // ramp_: 黄色（用包围盒近似——不画斜面，调试足够）
+    // ramp_: 黄色——按 slopeDir 旋转的盒子，对齐真实斜面 footprint
     for (const r of data.ramps ?? []) {
       const sy = Math.max(r.highY - r.lowY, 0.01);
-      addBox(r.cx, (r.lowY + r.highY) / 2, r.cz, r.halfW * 2, sy, r.halfD * 2, 0xffcc00, 0.20);
+      const cy = (r.lowY + r.highY) / 2;
+      const rotY = Math.atan2(-r.slopeDirZ, r.slopeDirX); // 对齐 local +X 到 slopeDir
+      const geo = new THREE.BoxGeometry(r.halfSlope * 2, sy, r.halfPerp * 2);
+      const fill = new THREE.Mesh(geo, fillMat(0xffcc00, 0.20));
+      fill.position.set(r.cx, cy, r.cz);
+      fill.rotation.y = rotY;
+      fill.renderOrder = 9999;
+      group.add(fill);
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat(0xffcc00));
+      edges.position.set(r.cx, cy, r.cz);
+      edges.rotation.y = rotY;
+      edges.renderOrder = 10000;
+      group.add(edges);
     }
 
     // spawn 点：品红色发光大球（半径 0.7，永远置顶）

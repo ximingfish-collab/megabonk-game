@@ -82,11 +82,12 @@ describe('collision', () => {
       expect(getTerrainHeightAt(geo, 4, 4)).toBe(3); // 外圈范围内但内圈外
     });
 
-    it('ramp 顶面线性插值（沿 x 轴）', () => {
+    it('ramp 顶面线性插值（沿 +X 上升）', () => {
       const geo = geoFor({
         ramps: [{
-          cx: 0, cz: 0, halfW: 5, halfD: 5,
-          axis: 'x', lowY: 0, highY: 4, ascendPositive: true,
+          cx: 0, cz: 0, halfSlope: 5, halfPerp: 5,
+          slopeDirX: 1, slopeDirZ: 0,
+          lowY: 0, highY: 4,
         }],
       });
       expect(getTerrainHeightAt(geo, -5, 0)).toBeCloseTo(0, 1); // 低端
@@ -94,15 +95,35 @@ describe('collision', () => {
       expect(getTerrainHeightAt(geo, 5, 0)).toBeCloseTo(4, 1);  // 高端
     });
 
-    it('ramp ascendPositive=false → 反向', () => {
+    it('ramp 反向（slopeDir = -X）→ 高度反向', () => {
       const geo = geoFor({
         ramps: [{
-          cx: 0, cz: 0, halfW: 5, halfD: 5,
-          axis: 'x', lowY: 0, highY: 4, ascendPositive: false,
+          cx: 0, cz: 0, halfSlope: 5, halfPerp: 5,
+          slopeDirX: -1, slopeDirZ: 0,
+          lowY: 0, highY: 4,
         }],
       });
       expect(getTerrainHeightAt(geo, -5, 0)).toBeCloseTo(4, 1);
       expect(getTerrainHeightAt(geo, 5, 0)).toBeCloseTo(0, 1);
+    });
+
+    it('ramp 旋转 45° → 沿对角线上升', () => {
+      const k = Math.SQRT1_2; // = √2/2
+      const geo = geoFor({
+        ramps: [{
+          cx: 0, cz: 0, halfSlope: 5, halfPerp: 2,
+          slopeDirX: k, slopeDirZ: k, // 沿 (+X+Z) 对角
+          lowY: 0, highY: 4,
+        }],
+      });
+      // 对角终点 (5*k, 5*k) ≈ (3.54, 3.54) → 高端 → 4
+      expect(getTerrainHeightAt(geo, 5 * k, 5 * k)).toBeCloseTo(4, 1);
+      // 对角中点 → 2
+      expect(getTerrainHeightAt(geo, 0, 0)).toBeCloseTo(2, 1);
+      // 对角起点 → 0
+      expect(getTerrainHeightAt(geo, -5 * k, -5 * k)).toBeCloseTo(0, 1);
+      // 法向（perp 方向）超出 halfPerp → 不在 footprint
+      expect(getTerrainHeightAt(geo, -3 * k, 3 * k)).toBe(0); // 软虚空保底
     });
   });
 
