@@ -2650,6 +2650,25 @@ http://localhost:1513/?level
 http://localhost:1513/?level=foo</code></pre>
   <p>关卡命名约定见 <a href="https://github.com/Adios94/megabonk-game/blob/master/level-editor/WHITEBOX_SPEC.md">level-editor/WHITEBOX_SPEC.md</a>（前缀：<code>col_</code> / <code>wall_</code> / <code>climb_</code> / <code>ramp_</code> / <code>spawn_*</code>）。</p>
 
+  <h3>双文件模式：视觉高模 + 碰撞低模</h3>
+  <p>「自动从视觉 mesh 推断碰撞」会在陡斜面 / 旋转斜面 / 复杂高模上累积误差（玩家陷地 / 站不上去）。
+  解决思路对齐业界（Unity Mesh Collider / Unreal Per-Asset Collision / Godot CollisionShape3D）：
+  <strong>视觉与碰撞分离成两个 GLB</strong>，加载器按约定俱乐部。</p>
+  <pre><code>public/models/levels/
+├── level_${name}.glb        视觉高模（玩家看到的关卡）
+└── level_${name}_col.glb    碰撞低模（只含 col_/wall_/climb_/ramp_/spawn_*）</code></pre>
+  <table>
+    <tr><th>文件状态</th><th>mode</th><th>视觉来源</th><th>碰撞来源</th></tr>
+    <tr><td>两个都在</td><td><code>two-file</code></td><td><code>level_${name}.glb</code></td><td><code>level_${name}_col.glb</code></td></tr>
+    <tr><td>只有 visual</td><td><code>visual-only</code></td><td><code>level_${name}.glb</code></td><td>同源解析（向后兼容）</td></tr>
+    <tr><td>只有 col</td><td><code>col-only</code></td><td><code>level_${name}_col.glb</code></td><td>同上（纯灰盒）</td></tr>
+    <tr><td>都不在</td><td>—</td><td colspan="2">回退内置 Neon Crucible</td></tr>
+  </table>
+  <p>双文件模式下，视觉文件里的 <code>col_/wall_/climb_/ramp_/spawn_*</code> 会被<strong>忽略</strong>（避免双源冲突），
+  碰撞 100% 来自 <code>_col.glb</code>。控制台会打印 <code>[Level] Loaded (mode) ...</code> 提示当前模式。</p>
+  <p style="color: var(--dim); font-size: 13px;">白盒阶段单文件就够（visual-only）。生产阶段建议拆双文件 ——
+  美术做高模时不用顾忌碰撞，关卡设计师改碰撞时不用碰美术。</p>
+
   <h3>GM 调试：碰撞盒可视化</h3>
   <p>关卡设计师调白盒时可以打开 wireframe 叠加层，肉眼校对几何与 col_/wall_ 数据是否对齐：</p>
   <pre><code>// 浏览器控制台（先加 ?level 进游戏）

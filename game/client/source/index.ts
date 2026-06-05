@@ -703,8 +703,18 @@ async function loadModels(): Promise<void> {
 //     climb_* → 攀爬体（同 wall_）
 //     spawn_player / spawn_boss / spawn_altar / spawn_chest / spawn_enemy_*
 //     其它    → 视觉模型（直接随场景渲染）
+//
+// === 双文件模式（推荐生产用）===
+//   /models/levels/level_${name}.glb         视觉高模（玩家看到的关卡）
+//   /models/levels/level_${name}_col.glb     碰撞低模（只含 col_/wall_/climb_/ramp_/spawn_*）
+//
+//   - 双文件都存在 → 视觉用 visual 文件，碰撞 100% 来自 col 文件（视觉文件里的 col_*
+//     prefix 会被忽略，避免双源冲突）
+//   - 只有 visual  → 单文件模式（向后兼容），从 visual 同时解析视觉 + 碰撞
+//   - 只有 col     → 灰盒/纯碰撞测试，col 同时充当视觉
+//   - 都不在       → 回退到内置 Neon Crucible
 
-const DEFAULT_LEVEL_PATH = '/models/levels/level_whitebox.glb';
+const DEFAULT_LEVEL_NAME = 'whitebox';
 
 /** 已加载的关卡（数据 + 用于渲染的场景）。null = 用内置硬编码 arena。 */
 let loadedLevel: { data: LevelData; scene: THREE.Object3D } | null = null;
@@ -899,33 +909,62 @@ function parseLevelGltf(root: THREE.Object3D): LevelData {
 }
 
 /**
- * 尝试加载关卡 glb。文件不存在（404）则静默回退到内置 arena。
- * 白盒迭代：把导出的关卡丢到 public/models/levels/level_whitebox.glb 即可。
+ * 尝试加载关卡 glb。支持「双文件模式」：
+ *   - level_${name}.glb       视觉高模（必须，缺则尝试只用 col）
+ *   - level_${name}_col.glb   碰撞低模（可选；存在则碰撞数据 100% 来自这里）
+ *
+ * 任一文件 404 都会被静默捕获，并按可用文件降级。两个都没有 → 回退到内置 arena。
+ *
+ * 白盒迭代单文件：把导出的关卡丢到 public/models/levels/level_whitebox.glb 即可。
+ * 生产双文件：再导出一个低模到 level_whitebox_col.glb；视觉文件里的 col_/wall_/climb_/ramp_
+ * 不必清理（双文件模式下会被忽略），但建议清理掉避免迷惑。
  */
-async function tryLoadLevel(path: string = DEFAULT_LEVEL_PATH): Promise<void> {
-  try {
-    const gltf = await gltfLoader.loadAsync(path);
-    const scene = gltf.scene;
-    scene.name = 'LoadedLevel';
-    convertToToonMaterials(scene);
-    scene.traverse((child) => {
-      if ((child as THREE.Mesh).isMesh) {
-        const mesh = child as THREE.Mesh;
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-      }
-    });
-    const data = parseLevelGltf(scene);
-    loadedLevel = { data, scene };
-    console.log(
-      `[Level] Loaded ${path}: ${data.collisionRects.length} col, ${data.walls.length} wall, ` +
+async function tryLoadLevel(name: string = DEFAULT_LEVEL_NAME): Promise<void> {
+  const visualPath = `/models/levels/level_${name}.glb`;
+  const colPath = `/models/levels/level_${name}_col.glb`;
+
+  const [visualResult, colResult] = await Promise.allSettled([
+    gltfLoader.loadAsync(visualPath),
+    gltfLoader.loadAsync(colPath),
+  ]);
+
+  const visualScene =
+    visualResult.status === 'fulfilled' ? visualResult.value.scene : null;
+  const colScene = colResult.status === 'fulfilled' ? colResult.value.scene : null;
+
+  if (!visualScene && !colScene) {
+    loadedLevel = null;
+    console.log(`[Level] No level at ${visualPath} (or ${colPath}) — using built-in arena.`);
+    return;
+  }
+
+  // 决定视觉源 / 碰撞源：
+  //   两个都在 → visual 渲染，col 解析（双源分离）
+  //   只有 visual → 都用 visual（单文件兼容模式）
+  //   只有 col → 都用 col（纯灰盒）
+  const renderScene = visualScene ?? colScene!;
+  const colSource = colScene ?? visualScene!;
+
+  renderScene.name = 'LoadedLevel';
+  convertToToonMaterials(renderScene);
+  renderScene.traverse((child) => {
+    if ((child as THREE.Mesh).isMesh) {
+      const mesh = child as THREE.Mesh;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+    }
+  });
+
+  const data = parseLevelGltf(colSource);
+  loadedLevel = { data, scene: renderScene };
+
+  const mode = visualScene && colScene ? 'two-file' : visualScene ? 'visual-only' : 'col-only';
+  console.log(
+    `[Level] Loaded (${mode}) ${visualScene ? visualPath : ''}${visualScene && colScene ? ' + ' : ''}${colScene ? colPath : ''}: ` +
+      `${data.collisionRects.length} col, ${data.walls.length} wall, ` +
       `${data.climbVolumes.length} climb, ${data.ramps.length} ramp, ${data.chestSpawns.length} chest, ` +
       `player=${!!data.spawnPoints.player} boss=${!!data.spawnPoints.boss}`,
-    );
-  } catch {
-    loadedLevel = null;
-    console.log(`[Level] No level at ${path} — using built-in arena.`);
-  }
+  );
 }
 
 // OBJ geometry cache for pickups/projectiles
@@ -6388,11 +6427,12 @@ async function main(): Promise<void> {
   await loadModels();
   // 关卡白盒默认不自动加载（PR #7 引入了「数据驱动关卡」，但物理 / boss / 投射物
   // 还没完全适配虚空语义，强制加载会暴露多处 bug）。
-  // 想用关卡：URL 加 `?level` 加载默认 whitebox，或 `?level=foo` 加载 level_foo.glb。
+  // 想用关卡：URL 加 `?level` 加载默认 whitebox，或 `?level=foo` 加载 level_foo.glb
+  // （会同时探测 level_foo_col.glb 作为碰撞低模 —— 双文件模式见 tryLoadLevel 注释）。
   const levelParam = new URLSearchParams(location.search).get('level');
   if (levelParam !== null) {
-    const name = levelParam || 'whitebox';
-    await tryLoadLevel(`/models/levels/level_${name}.glb`);
+    const name = levelParam || DEFAULT_LEVEL_NAME;
+    await tryLoadLevel(name);
   }
 
   showMainMenu();
