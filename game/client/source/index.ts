@@ -958,6 +958,20 @@ async function tryLoadLevel(name: string = DEFAULT_LEVEL_NAME): Promise<void> {
   const data = parseLevelGltf(colSource);
   loadedLevel = { data, scene: renderScene };
 
+  // 双文件模式下：col scene 解析完已无用，显式 dispose 释放 BufferGeometry / Material
+  // 持有的 typed array，避免等 GC（renderer 还没碰过它，所以没有 GPU 端可释放的）。
+  if (visualScene && colScene) {
+    colScene.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (mesh.isMesh) {
+        mesh.geometry?.dispose();
+        const mat = mesh.material;
+        if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+        else mat?.dispose();
+      }
+    });
+  }
+
   const mode = visualScene && colScene ? 'two-file' : visualScene ? 'visual-only' : 'col-only';
   console.log(
     `[Level] Loaded (${mode}) ${visualScene ? visualPath : ''}${visualScene && colScene ? ' + ' : ''}${colScene ? colPath : ''}: ` +
