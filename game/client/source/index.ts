@@ -2453,53 +2453,82 @@ export class GameScene {
     const group = new THREE.Group();
     group.name = 'CollisionDebug';
 
-    const wireMat = (color: number, opacity: number) =>
-      new THREE.MeshBasicMaterial({ color, wireframe: true, transparent: true, opacity, depthWrite: false });
+    // 加色实心 fill（占据体积感，加色让重叠处更亮）
+    const fillMat = (color: number, opacity: number) =>
+      new THREE.MeshBasicMaterial({
+        color, transparent: true, opacity,
+        depthWrite: false, depthTest: false, // 永远置顶（debug overlay）
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+      });
 
-    // col_: 绿色 wireframe 盒子（顶面在 height，底面 baseY，缺省 baseY=-1 表示厚 1）
+    // 高亮 wireframe 边缘（用 EdgesGeometry，比 wireframe:true 干净）
+    const edgeMat = (color: number) =>
+      new THREE.LineBasicMaterial({
+        color, transparent: true, opacity: 0.95,
+        depthWrite: false, depthTest: false,
+      });
+
+    // 给一个 box 加一组 fill + edge，自动放进 group 并提高 renderOrder。
+    const addBox = (
+      cx: number, cy: number, cz: number,
+      sx: number, sy: number, sz: number,
+      color: number, fillOpacity: number,
+    ) => {
+      const geo = new THREE.BoxGeometry(sx, sy, sz);
+      const fill = new THREE.Mesh(geo, fillMat(color, fillOpacity));
+      fill.position.set(cx, cy, cz);
+      fill.renderOrder = 9999;
+      group.add(fill);
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat(color));
+      edges.position.set(cx, cy, cz);
+      edges.renderOrder = 10000;
+      group.add(edges);
+    };
+
+    // col_: 绿色（顶面 = 可走面；baseY 缺省 = height - 1 即视觉厚 1 单位）
     for (const r of data.collisionRects) {
       const baseY = r.baseY ?? r.height - 1;
-      const height = Math.max(r.height - baseY, 0.01);
-      const geo = new THREE.BoxGeometry(r.halfW * 2, height, r.halfD * 2);
-      const mesh = new THREE.Mesh(geo, wireMat(0x00ff00, 0.55));
-      mesh.position.set(r.cx, (baseY + r.height) / 2, r.cz);
-      group.add(mesh);
+      const sy = Math.max(r.height - baseY, 0.01);
+      addBox(r.cx, (baseY + r.height) / 2, r.cz, r.halfW * 2, sy, r.halfD * 2, 0x00ff44, 0.18);
     }
 
-    // wall_: 红色
+    // wall_: 红色（亮一点的 fill 凸显挡墙）
     for (const w of data.walls ?? []) {
-      const height = Math.max(w.topY - w.bottomY, 0.01);
-      const geo = new THREE.BoxGeometry(w.halfW * 2, height, w.halfD * 2);
-      const mesh = new THREE.Mesh(geo, wireMat(0xff3344, 0.6));
-      mesh.position.set(w.cx, (w.bottomY + w.topY) / 2, w.cz);
-      group.add(mesh);
+      const sy = Math.max(w.topY - w.bottomY, 0.01);
+      addBox(w.cx, (w.bottomY + w.topY) / 2, w.cz, w.halfW * 2, sy, w.halfD * 2, 0xff3355, 0.28);
     }
 
     // climb_: 蓝色
     for (const c of data.climbVolumes ?? []) {
-      const height = Math.max(c.topY - c.bottomY, 0.01);
-      const geo = new THREE.BoxGeometry(c.halfW * 2, height, c.halfD * 2);
-      const mesh = new THREE.Mesh(geo, wireMat(0x3399ff, 0.6));
-      mesh.position.set(c.cx, (c.bottomY + c.topY) / 2, c.cz);
-      group.add(mesh);
+      const sy = Math.max(c.topY - c.bottomY, 0.01);
+      addBox(c.cx, (c.bottomY + c.topY) / 2, c.cz, c.halfW * 2, sy, c.halfD * 2, 0x33aaff, 0.25);
     }
 
-    // ramp_: 黄色（用包围盒近似——不精确画斜面，调试足够）
+    // ramp_: 黄色（用包围盒近似——不画斜面，调试足够）
     for (const r of data.ramps ?? []) {
-      const height = Math.max(r.highY - r.lowY, 0.01);
-      const geo = new THREE.BoxGeometry(r.halfW * 2, height, r.halfD * 2);
-      const mesh = new THREE.Mesh(geo, wireMat(0xffcc00, 0.55));
-      mesh.position.set(r.cx, (r.lowY + r.highY) / 2, r.cz);
-      group.add(mesh);
+      const sy = Math.max(r.highY - r.lowY, 0.01);
+      addBox(r.cx, (r.lowY + r.highY) / 2, r.cz, r.halfW * 2, sy, r.halfD * 2, 0xffcc00, 0.20);
     }
 
-    // spawn 点：品红色小球
-    const spawnMat = new THREE.MeshBasicMaterial({ color: 0xff33ff, depthWrite: false });
+    // spawn 点：品红色发光大球（半径 0.7，永远置顶）
+    const spawnFillMat = new THREE.MeshBasicMaterial({
+      color: 0xff33ff, transparent: true, opacity: 0.9,
+      depthWrite: false, depthTest: false,
+      blending: THREE.AdditiveBlending,
+    });
     const markSpawn = (x: number, z: number, label: string) => {
-      const ball = new THREE.Mesh(new THREE.SphereGeometry(0.4, 12, 8), spawnMat);
-      ball.position.set(x, 0.4, z);
+      const ball = new THREE.Mesh(new THREE.SphereGeometry(0.7, 16, 12), spawnFillMat);
+      ball.position.set(x, 0.7, z);
       ball.name = `Spawn_${label}`;
+      ball.renderOrder = 10001;
       group.add(ball);
+      // 顶上加一根细立柱（高 5 单位）让远处也能看见
+      const pillarGeo = new THREE.CylinderGeometry(0.06, 0.06, 5, 8);
+      const pillar = new THREE.Mesh(pillarGeo, spawnFillMat);
+      pillar.position.set(x, 2.5, z);
+      pillar.renderOrder = 10001;
+      group.add(pillar);
     };
     if (data.spawnPoints?.player) markSpawn(data.spawnPoints.player.x, data.spawnPoints.player.z, 'player');
     if (data.spawnPoints?.boss) markSpawn(data.spawnPoints.boss.x, data.spawnPoints.boss.z, 'boss');
