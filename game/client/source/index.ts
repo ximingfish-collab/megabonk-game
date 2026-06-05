@@ -716,14 +716,20 @@ const _vec = new THREE.Vector3();
  * 分析一个物体「朝上的表面」是平的还是斜的。
  * 只看法线朝上（n.y>0.5）的三角面，取这些面顶点的最低/最高世界点。
  * 这样厚平台（顶面平）会判定为平，倾斜板会判定为斜坡。
+ *
+ * 同时返回 topBox —— 仅这些顶面顶点的轴对齐包围盒（用于计算 ramp 的真实
+ * footprint，避免用 mesh 整体 AABB 让斜面插值偏移）。
  */
 function analyzeTopSurface(node: THREE.Object3D): {
   sloped: boolean;
   lo: THREE.Vector3;
   hi: THREE.Vector3;
+  topBox: THREE.Box3;
 } {
   const lo = new THREE.Vector3(0, Infinity, 0);
   const hi = new THREE.Vector3(0, -Infinity, 0);
+  const topBox = new THREE.Box3();
+  topBox.makeEmpty();
   const a = new THREE.Vector3();
   const b = new THREE.Vector3();
   const c = new THREE.Vector3();
@@ -754,32 +760,39 @@ function analyzeTopSurface(node: THREE.Object3D): {
       for (const v of [a, b, c]) {
         if (v.y < lo.y) lo.copy(v);
         if (v.y > hi.y) hi.copy(v);
+        topBox.expandByPoint(v);
       }
     }
   });
 
   const sloped =
     Number.isFinite(lo.y) && Number.isFinite(hi.y) && hi.y - lo.y > 0.3;
-  return { sloped, lo, hi };
+  return { sloped, lo, hi, topBox };
 }
 
 /** 把分析结果写成 ramp（顶面斜）或 col 实体盒（顶面平）。 */
 function pushColOrRamp(node: THREE.Object3D, box: THREE.Box3, data: LevelData): void {
-  const cx = (box.min.x + box.max.x) / 2;
-  const cz = (box.min.z + box.max.z) / 2;
-  const halfW = (box.max.x - box.min.x) / 2;
-  const halfD = (box.max.z - box.min.z) / 2;
   const surf = analyzeTopSurface(node);
-  if (surf.sloped) {
+  if (surf.sloped && !surf.topBox.isEmpty()) {
+    // 用顶面顶点的真实 bbox 算 footprint，避免 mesh 多余几何（侧壁/底面）
+    // 把 ramp 的 AABB 撑大，导致斜面插值偏移、玩家贴墙时陷进斜面。
+    const tcx = (surf.topBox.min.x + surf.topBox.max.x) / 2;
+    const tcz = (surf.topBox.min.z + surf.topBox.max.z) / 2;
+    const thalfW = (surf.topBox.max.x - surf.topBox.min.x) / 2;
+    const thalfD = (surf.topBox.max.z - surf.topBox.min.z) / 2;
     const axis: 'x' | 'z' =
       Math.abs(surf.hi.x - surf.lo.x) >= Math.abs(surf.hi.z - surf.lo.z) ? 'x' : 'z';
     data.ramps.push({
-      cx, cz, halfW, halfD, axis,
+      cx: tcx, cz: tcz, halfW: thalfW, halfD: thalfD, axis,
       lowY: surf.lo.y,
       highY: surf.hi.y,
       ascendPositive: axis === 'x' ? surf.hi.x > surf.lo.x : surf.hi.z > surf.lo.z,
     });
   } else {
+    const cx = (box.min.x + box.max.x) / 2;
+    const cz = (box.min.z + box.max.z) / 2;
+    const halfW = (box.max.x - box.min.x) / 2;
+    const halfD = (box.max.z - box.min.z) / 2;
     data.collisionRects.push({
       cx, cz, halfW, halfD,
       height: box.max.y, // 平顶面 = 可站立高度
