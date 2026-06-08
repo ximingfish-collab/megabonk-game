@@ -5,4 +5,4 @@ dist
 .kubee
 level-editor/loulnet-assets/
 .claude/settings.local.json
-.cursor/
+.cursor/settings.local.json

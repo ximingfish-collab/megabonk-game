@@ -757,11 +757,11 @@
   </div>
 
   <div class="note bad" style="margin-top: 20px;">
-    <b>修改契约的唯一流程：</b>开 Issue → 标题以 <code>[CONTRACT]</code> 开头 → Maintainer 评审 → 同步修改 <code>docs/contract.md</code> + 本页 + <code>.claude/hooks/guard-contract.sh</code>。
+    <b>修改契约的唯一流程：</b>开 Issue → 标题以 <code>[CONTRACT]</code> 开头 → Maintainer 评审 → 同步修改 <code>docs/contract.md</code> + 本页 + <code>scripts/harness/guard-contract.sh</code>。
   </div>
 
   <h2>一、🔒 锁定文件（绝对不得修改）</h2>
-  <p>通过 <code>.claude/hooks/guard-contract.sh</code> 在 Claude Code <code>PreToolUse</code> hook 强制阻断。Edit / Write / MultiEdit 命中以下文件会被 <code>exit 2</code> 直接拒绝。</p>
+  <p>通过 <code>scripts/harness/guard-contract.sh</code> 在 Claude Code / Cursor <code>preToolUse</code> hook 强制阻断。Write / StrReplace（及 Claude 的 Edit / MultiEdit）命中以下文件会被 <code>exit 2</code> 直接拒绝。</p>
   <div class="grid cols-2">
     <div class="card">
       <h4>构建与模板基础设施</h4>
@@ -792,7 +792,7 @@
   </div>
 
   <h2>二、📐 锁定签名（文件可改，但导出契约不变）</h2>
-  <p>这些文件允许重构（必然会动），但<b>导出名称、签名、类型形状</b>必须保留。通过 <code>.claude/skills/check-contract</code> skill 手动校验。</p>
+  <p>这些文件允许重构（必然会动），但<b>导出名称、签名、类型形状</b>必须保留。通过 <code>scripts/harness/check-contract.sh</code>（Claude / Cursor skill 共用）手动校验。</p>
 
   <div class="card">
     <h4>1. <code>@minigame/core</code> 公开 API（<code>game/core/source/index.ts</code>）</h4>
@@ -912,8 +912,9 @@ export {
       <tr><th>路径</th><th>作用</th></tr>
       <tr><td><code>docs/contract.md</code></td><td>本契约的 markdown 源（与本页同步）</td></tr>
       <tr><td><code>.claude/settings.json</code></td><td>项目级 harness 配置（hook 注册）</td></tr>
-      <tr><td><code>.claude/hooks/guard-contract.sh</code></td><td>PreToolUse 守卫脚本</td></tr>
-      <tr><td><code>.claude/skills/check-contract/SKILL.md</code></td><td>校验 skill</td></tr>
+      <tr><td><code>scripts/harness/</code></td><td>共享 harness 脚本</td></tr>
+      <tr><td><code>.cursor/hooks.json</code></td><td>Cursor hook 注册</td></tr>
+      <tr><td><code>.cursor/rules/</code></td><td>Cursor 项目规则</td></tr>
       <tr><td><code>CLAUDE.md</code> / <code>AGENTS.md</code></td><td>AI agent 入口（指向本页）</td></tr>
     </table>
   </div>

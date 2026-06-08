@@ -14,7 +14,7 @@ pnpm install            # 安装依赖
 pnpm dev                # 启动开发服务器 (http://localhost:15173)
 pnpm build              # 生产构建
 npx tsc --noEmit        # 类型检查（提交前必跑）
-bash .claude/skills/check-contract/check.sh   # 框架契约校验
+bash scripts/harness/check-contract.sh        # 框架契约校验
 ```
 
 ## 技术栈
@@ -150,7 +150,7 @@ t('hud.level', { level: '5' })
 ```bash
 npx tsc --noEmit                              # 类型检查
 pnpm build                                    # 生产构建
-bash .claude/skills/check-contract/check.sh   # 框架契约校验
+bash scripts/harness/check-contract.sh        # 框架契约校验
 ```
 
 ## License

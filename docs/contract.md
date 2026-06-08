@@ -14,7 +14,7 @@
 
 ## 一、🔒 锁定文件清单（绝对不得修改）
 
-通过 Claude Code harness `PreToolUse` hook 强制阻断。如需修改，必须先在团队层达成共识、临时禁用 `.claude/settings.json` 中的 `guard-contract` hook 后再操作，并在 PR 中说明原因。
+通过 agent harness `preToolUse` hook 强制阻断（Claude Code `.claude/settings.json` + Cursor `.cursor/hooks.json`）。如需修改，必须先在团队层达成共识、临时禁用 `guard-contract` hook 后再操作，并在 PR 中说明原因。
 
 ### 1. 构建与模板基础设施
 
@@ -60,7 +60,7 @@
 
 这些文件**允许**修改内部实现（重构必然触碰），但**导出名称、签名、类型形状**必须保留。
 
-通过 `.claude/skills/check-contract` skill 手动校验，CI 中也建议跑一次。
+通过 `scripts/harness/check-contract.sh`（Claude / Cursor skill 共用）手动校验，CI 中也建议跑一次。
 
 ### 1. `@minigame/core` 公开 API（`game/core/source/index.ts`）
 
@@ -205,7 +205,7 @@ export interface GameState {
 
 | 违反 | 后果 |
 |---|---|
-| 改了锁定文件 | Claude Code hook 直接拒绝 Edit/Write 请求 |
+| 改了锁定文件 | agent hook 直接拒绝 Write / StrReplace 请求 |
 | 改了锁定签名 | `pnpm build` 类型检查失败 / client 编译失败 |
 | 改了 `i18n/` 必需键 | 运行时 `t()` 返回 key 字符串，UI 显示异常 |
 | 改了 `template.yml` `kubee.json` | KUBEE 模板分发链路中断 |
@@ -222,8 +222,8 @@ export interface GameState {
 3. 同步修改：
    - 本文档 `docs/contract.md`
    - `docs/index.html`（自动从 markdown 重生成）
-   - `.claude/hooks/guard-contract.sh`（如锁定文件清单变化）
-   - `.claude/skills/check-contract/`（如锁定签名变化）
+   - `scripts/harness/guard-contract.sh`（如锁定文件清单变化）
+   - `scripts/harness/check-contract.sh`（如锁定签名变化）
 4. PR 标题以 `chore(contract):` 开头，Maintainer 强制 review
 
 ---
@@ -234,11 +234,12 @@ export interface GameState {
 |---|---|
 | `docs/contract.md` | 本文档（人读） |
 | `docs/index.html` | 网页版文档站，已嵌入本文档 |
-| `.claude/settings.json` | 项目级 harness 配置（hook 注册） |
-| `.claude/hooks/guard-contract.sh` | PreToolUse hook 守卫脚本 |
-| `.claude/skills/check-contract/SKILL.md` | 校验 skill |
+| `scripts/harness/` | 共享 harness 脚本（guard / trunk-sync / check-contract） |
+| `.claude/settings.json` | Claude Code harness 配置 |
+| `.cursor/hooks.json` | Cursor harness 配置 |
+| `.cursor/rules/` | Cursor 项目规则 |
 | `CLAUDE.md` | AI agent 项目入口（指向本文档） |
-| `AGENTS.md` | 同上，多 agent 兼容入口 |
+| `AGENTS.md` | 多 agent 兼容入口（Claude Code + Cursor） |
 
 ---
 

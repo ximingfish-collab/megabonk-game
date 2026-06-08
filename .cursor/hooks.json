@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "command": ".cursor/hooks/guard-contract.sh",
+        "matcher": "Write|StrReplace",
+        "timeout": 10
+      }
+    ],
+    "sessionStart": [
+      {
+        "command": ".cursor/hooks/check-trunk-sync.sh",
+        "timeout": 8
+      }
+    ]
+  }
+}

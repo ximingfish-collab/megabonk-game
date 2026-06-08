@@ -1,7 +1,7 @@
 # MegaBonk · Three.js 3D Roguelike Survivor
 
 > **AI / 协作者必读：开始任何代码修改之前，先阅读 [`docs/contract.md`](./docs/contract.md)。**
-> 项目对一组结构性文件设有硬契约，违反会被 Claude Code harness 直接阻断（PreToolUse hook）。
+> 项目对一组结构性文件设有硬契约，违反会被 agent harness 直接阻断（Claude Code / Cursor preToolUse hook）。
 
 ## 项目定位
 
@@ -25,7 +25,7 @@
 ## 改动前的检查清单
 
 1. 我要改的文件在锁定列表里吗？→ 在 → **停手**，开 Issue 走流程
-2. 我要改 `@minigame/core` 公开导出吗？→ 是 → 改完跑 `bash .claude/skills/check-contract/check.sh`
+2. 我要改 `@minigame/core` 公开导出吗？→ 是 → 改完跑 `bash scripts/harness/check-contract.sh`
 3. 我要改 `i18n/*.json` 吗？→ 是 → en.json + zh.json 必须同步
 4. 我要新增依赖吗？→ 可以，但用 `pnpm add` 加在对应 workspace 包
 
@@ -42,10 +42,10 @@ npx tsc --noEmit
 pnpm build
 
 # 框架契约校验
-bash .claude/skills/check-contract/check.sh
+bash scripts/harness/check-contract.sh
 ```
 
-或在 Claude Code 里调用 skill：`/check-contract`
+或在 Claude Code 里调用 skill：`/check-contract`；在 Cursor 里调用 skill：`check-contract`
 
 ## 当前重构状态
 
@@ -74,7 +74,11 @@ game/core/source/
 | `docs/contract.md` | 框架契约（markdown 源） |
 | `docs/index.html` | 文档站，含契约可视化版 |
 | `.claude/settings.json` | 项目级 harness 配置（hook 注册） |
-| `.claude/hooks/guard-contract.sh` | PreToolUse 守卫脚本 |
-| `.claude/skills/check-contract/` | 契约校验 skill |
+| `scripts/harness/` | 共享 harness 脚本（guard / trunk-sync / check-contract） |
+| `.claude/hooks/guard-contract.sh` | Claude Code PreToolUse 守卫（wrapper） |
+| `.claude/skills/check-contract/` | Claude Code 契约校验 skill |
+| `.cursor/hooks.json` | Cursor hook 注册 |
+| `.cursor/rules/` | Cursor 项目规则 |
+| `.cursor/skills/check-contract/` | Cursor 契约校验 skill |
 | `KUBEE.md` | 模板原始说明（保留作为参考） |
 | `CONTRIBUTING.md` | 协作流程 |

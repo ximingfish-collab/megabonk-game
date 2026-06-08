@@ -6,7 +6,7 @@
  *
  * 重构期间这些测试必须始终通过。失败 = 公开 API 漂移 = 框架契约被破坏。
  *
- * 静态检查：bash .claude/skills/check-contract/check.sh
+ * 静态检查：bash scripts/harness/check-contract.sh
  * 运行检查：pnpm --filter @minigame/core exec vitest run
  *
  * 详见 docs/contract.md 第二章 "锁定签名"。
