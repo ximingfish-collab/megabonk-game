@@ -22,6 +22,9 @@ import {
   SHOP_UPGRADES,
   QUESTS,
   TIER_CONFIGS,
+  CHEST_INTERACT_RADIUS,
+  RELICS,
+  getChestGoldCost,
   loadSave,
   purchaseUpgrade,
   getUpgradeCost,
@@ -38,10 +41,13 @@ import {
   type EnemyType,
   type ProjectileState,
   type PickupState,
+  type GoldMoteState,
   type PickupType,
   type BossState,
   type DamageEvent,
   type LevelUpCompensationEvent,
+  type ChestOpenEvent,
+  type PendingChestReward,
   type UpgradeOption,
   type GamePhase,
   type UpgradeRarity,
@@ -52,6 +58,7 @@ import {
   type ShrineState,
   type ShrineRewardOption,
   type LevelData,
+  type RelicId,
 } from '@minigame/core';
 import { PlatformInput } from '@minigame/platform';
 import { installThreeHighDpi } from '@minigame/render-adapter';
@@ -181,6 +188,10 @@ export class LocalGameSession {
     this.game.selectShrineReward(id);
   }
 
+  selectChestReward(keep: boolean): void {
+    this.game.selectChestReward(keep);
+  }
+
   getRenderState(): GameState {
     return this.game.getState();
   }
@@ -255,6 +266,7 @@ const PICKUP_COLORS: Record<string, number> = {
   xp_blue: 0x22aaff,
   xp_purple: 0xcc44ff,
   xp_orange: 0xffaa00,
+  gold: 0xffcc33,
   silver: 0xeeeeee,
   health: 0xff2222,
   health_small: 0xff6666,
@@ -428,6 +440,33 @@ function setSilverBadgeAmount(badge: HTMLDivElement, count: number, prefix = '')
   if (amount) amount.textContent = `${prefix}${count}`;
 }
 
+function createGoldBadge(count: number): HTMLDivElement {
+  const badge = document.createElement('div');
+  badge.dataset.goldBadge = '1';
+  badge.style.cssText = `
+    display:inline-flex;align-items:center;gap:6px;
+    background:rgba(84,54,10,0.86);border:1px solid rgba(255,204,51,0.55);
+    border-radius:9999px;box-sizing:border-box;padding:5px 12px;
+    color:#ffe28a;font-size:15px;font-weight:bold;line-height:1;
+    text-shadow:0 1px 3px rgba(0,0,0,0.85);
+    box-shadow:0 0 12px rgba(255,190,40,0.18);
+  `;
+  const icon = document.createElement('span');
+  icon.textContent = '🪙';
+  icon.style.cssText = 'font-size:17px;line-height:1;';
+  const amount = document.createElement('span');
+  amount.className = 'gold-badge-amount';
+  amount.textContent = String(count);
+  badge.appendChild(icon);
+  badge.appendChild(amount);
+  return badge;
+}
+
+function setGoldBadgeAmount(badge: HTMLDivElement, count: number): void {
+  const amount = badge.querySelector('.gold-badge-amount');
+  if (amount) amount.textContent = String(count);
+}
+
 const I18N_DEVTOOLS_ID = '__i18n_devtools__';
 
 /** Reposition i18n dev language button (package default is bottom-right). */
@@ -521,6 +560,34 @@ function brightenWeaponMaterials(root: THREE.Object3D): void {
       return newMat;
     });
     mesh.material = lifted.length === 1 ? lifted[0] : lifted;
+  });
+}
+
+function applyChestGoldMaterials(root: THREE.Object3D): void {
+  let meshIndex = 0;
+  root.traverse((child) => {
+    if (!(child as THREE.Mesh).isMesh) return;
+    const mesh = child as THREE.Mesh;
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    const lifted = mats.map((mat, matIndex) => {
+      const source = mat as THREE.MeshToonMaterial;
+      const sourceColor = source.color ?? new THREE.Color(0x8a4a20);
+      const isMetal = meshIndex % 3 === 0 || matIndex > 0 || sourceColor.r > sourceColor.g;
+      const color = isMetal ? new THREE.Color(0xffc44d) : new THREE.Color(0x9a5528);
+      const emissive = isMetal ? new THREE.Color(0x7a4a10) : new THREE.Color(0x261006);
+      const chestMat = new THREE.MeshToonMaterial({
+        color,
+        emissive,
+        gradientMap: toonGradientMap,
+        side: source.side ?? THREE.FrontSide,
+        transparent: source.transparent ?? false,
+        opacity: source.opacity ?? 1,
+      });
+      chestMat.name = `ChestReadable_${meshIndex}_${matIndex}`;
+      return chestMat;
+    });
+    mesh.material = lifted.length === 1 ? lifted[0] : lifted;
+    meshIndex++;
   });
 }
 
@@ -995,7 +1062,6 @@ let crystal4Geometry: THREE.BufferGeometry | null = null;
 let crystal5Geometry: THREE.BufferGeometry | null = null;
 let heartGeometry: THREE.BufferGeometry | null = null;
 let boneGeometry: THREE.BufferGeometry | null = null;
-let coinGeometry: THREE.BufferGeometry | null = null;
 let axeModel: THREE.Group | null = null; // Full model with materials
 let swordModel: THREE.Group | null = null;
 let katanaModel: THREE.Group | null = null;
@@ -1046,7 +1112,7 @@ async function loadObjItems(): Promise<void> {
     }
   };
 
-  [crystalGeometry, heartGeometry, boneGeometry, crystal2Geometry, crystal3Geometry, crystal4Geometry, crystal5Geometry, coinGeometry] = await Promise.all([
+  [crystalGeometry, heartGeometry, boneGeometry, crystal2Geometry, crystal3Geometry, crystal4Geometry, crystal5Geometry] = await Promise.all([
     loadAndNormalize('/models/items/Crystal1.obj', 0.4),
     loadAndNormalize('/models/items/Heart.obj', 0.5),
     loadAndNormalize('/models/items/Bone.obj', 0.5),
@@ -1054,7 +1120,6 @@ async function loadObjItems(): Promise<void> {
     loadAndNormalize('/models/items/Crystal3.obj', 0.4),
     loadAndNormalize('/models/items/Crystal4.obj', 0.4),
     loadAndNormalize('/models/items/Crystal5.obj', 0.4),
-    loadAndNormalize('/models/items/Coin.obj', 0.3),
   ]);
 
   // Helper: load full model with materials (MTL + OBJ)
@@ -1159,6 +1224,7 @@ async function loadObjItems(): Promise<void> {
     const chestClosed = await closedObjLoader.loadAsync('/models/items/Chest_Closed.obj') as THREE.Group;
     chestClosed.name = 'ChestClosed';
     convertToToonMaterials(chestClosed);
+    applyChestGoldMaterials(chestClosed);
     chestClosedObj = chestClosed;
 
     const openMtl = await mtlLoader.loadAsync('/models/items/Chest_Open.mtl');
@@ -1168,6 +1234,7 @@ async function loadObjItems(): Promise<void> {
     const chestOpen = await openObjLoader.loadAsync('/models/items/Chest_Open.obj') as THREE.Group;
     chestOpen.name = 'ChestOpen';
     convertToToonMaterials(chestOpen);
+    applyChestGoldMaterials(chestOpen);
     chestOpenObj = chestOpen;
 
     console.log('[OBJ] Loaded chest models with materials');
@@ -1270,6 +1337,8 @@ export class GameScene {
 
   // Chest rendering
   private chestObjects: Map<number, THREE.Object3D> = new Map();
+  private chestRewardPanel: HTMLDivElement | null = null;
+  private chestRewardPanelKey: string | null = null;
 
   // InstancedMeshes
   // Enemy rendering — individual cloned models (preserves full materials)
@@ -1283,6 +1352,8 @@ export class GameScene {
   private axeObjects: Map<number, THREE.Object3D> = new Map(); // axe projectile id → cloned model
   private weaponObjects: Map<number, THREE.Object3D> = new Map(); // other weapon projectiles → cloned model
   private pickupMesh!: THREE.InstancedMesh;
+  private goldMoteTexture!: THREE.Texture;
+  private goldMoteSprites: Map<number, THREE.Sprite> = new Map();
 
   // VFX Particle System
   private readonly MAX_PARTICLES = 500;
@@ -1318,9 +1389,11 @@ export class GameScene {
   private levelLabel!: HTMLDivElement;
   private timerLabel!: HTMLDivElement;
   private killLabel!: HTMLDivElement;
+  private goldLabel!: HTMLDivElement;
   private silverLabel!: HTMLDivElement;
   private weaponSlotsContainer!: HTMLDivElement;
   private tomesSlotsContainer!: HTMLDivElement;
+  private relicSlotsContainer!: HTMLDivElement;
   private bossHpContainer!: HTMLDivElement;
   private bossHpBarInner!: HTMLDivElement;
   private bossNameLabel!: HTMLDivElement;
@@ -1338,6 +1411,7 @@ export class GameScene {
   private finalSwarmBorder: HTMLDivElement | null = null;
   private lastXp = 0;
   private xpFlashTimer = 0;
+  private seenChestOpenEvents = new Set<string>();
 
   // State
   private isPaused = false;
@@ -1466,6 +1540,7 @@ export class GameScene {
     this.setupEnemyMeshes();
     this.setupProjectileMesh();
     this.setupPickupMesh();
+    this.setupGoldMoteMesh();
     this.setupVFX();
     this.setupHUD();
     this.setupDamageNumbers();
@@ -1503,6 +1578,7 @@ export class GameScene {
     this.upgradePanel?.remove();
     this.gameOverPanel?.remove();
     this.shrinePanel?.remove();
+    this.chestRewardPanel?.remove();
     this.shrineIndicator?.remove();
     this.finalSwarmLabel?.remove();
     this.finalSwarmBorder?.remove();
@@ -2149,6 +2225,42 @@ export class GameScene {
     this.scene.add(this.pickupMesh);
   }
 
+  private setupGoldMoteMesh(): void {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d')!;
+    ctx.clearRect(0, 0, 64, 64);
+
+    const coin = ctx.createRadialGradient(24, 20, 4, 32, 32, 28);
+    coin.addColorStop(0.0, '#fff28a');
+    coin.addColorStop(0.34, '#ffd21a');
+    coin.addColorStop(0.72, '#e79800');
+    coin.addColorStop(1.0, '#9a5a00');
+    ctx.fillStyle = coin;
+    ctx.beginPath();
+    ctx.arc(32, 32, 25, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = '#ffe066';
+    ctx.stroke();
+
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#a86400';
+    ctx.beginPath();
+    ctx.arc(32, 32, 15, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(255,255,210,0.85)';
+    ctx.beginPath();
+    ctx.ellipse(25, 22, 8, 4, -0.65, 0, Math.PI * 2);
+    ctx.fill();
+
+    this.goldMoteTexture = new THREE.CanvasTexture(canvas);
+    this.goldMoteTexture.colorSpace = THREE.SRGBColorSpace;
+  }
+
   private setupVFX(): void {
     // Pre-allocate particle pool
     for (let i = 0; i < this.MAX_PARTICLES; i++) {
@@ -2416,6 +2528,11 @@ export class GameScene {
     this.tierBadge.style.cssText = 'position:absolute;top:12px;left:16px;color:#ffffff;font-size:11px;font-weight:bold;background:rgba(40,40,60,0.8);padding:3px 8px;border-radius:4px;border:1px solid #555;';
     this.hudContainer.appendChild(this.tierBadge);
 
+    // Gold this run (used to open chests)
+    this.goldLabel = createGoldBadge(0);
+    this.goldLabel.style.cssText += 'position:absolute;top:40px;left:16px;';
+    this.hudContainer.appendChild(this.goldLabel);
+
     // Weapon slots container (bottom-left)
     this.weaponSlotsContainer = document.createElement('div');
     this.weaponSlotsContainer.style.cssText = 'position:absolute;bottom:70px;left:12px;display:flex;gap:4px;flex-wrap:wrap;max-width:240px;';
@@ -2425,6 +2542,11 @@ export class GameScene {
     this.tomesSlotsContainer = document.createElement('div');
     this.tomesSlotsContainer.style.cssText = 'position:absolute;bottom:70px;right:12px;display:flex;gap:3px;flex-wrap:wrap;max-width:180px;justify-content:flex-end;';
     this.hudContainer.appendChild(this.tomesSlotsContainer);
+
+    // Relic stacks (bottom-center above level / XP)
+    this.relicSlotsContainer = document.createElement('div');
+    this.relicSlotsContainer.style.cssText = 'position:absolute;bottom:70px;left:50%;transform:translateX(-50%);display:flex;gap:6px;flex-wrap:wrap;max-width:min(420px,70vw);justify-content:center;align-items:center;';
+    this.hudContainer.appendChild(this.relicSlotsContainer);
 
     // Boss HP bar (top-center, hidden by default)
     this.bossHpContainer = document.createElement('div');
@@ -2691,6 +2813,7 @@ export class GameScene {
     this.renderEnemies(state.enemies);
     this.renderProjectiles(state.projectiles);
     this.renderPickups(state.pickups);
+    this.renderGoldMotes(state.goldMotes ?? []);
     this.renderBoss(state.boss);
     this.renderTeleporters(state.altars);
     this.renderChests(state.chests);
@@ -3699,6 +3822,7 @@ export class GameScene {
     let count = 0;
     const time = performance.now() * 0.004; // Faster spin
     for (const pickup of pickups) {
+      if (count >= MAX_PICKUPS) break;
       // Larger bobbing amplitude (0.3) for more visual pop
       const bob = Math.sin(time * 1.5 + pickup.id) * 0.3;
       this._dummy.position.set(pickup.x, 0.4 + bob, pickup.z);
@@ -3721,6 +3845,40 @@ export class GameScene {
     this.pickupMesh.count = count;
     this.pickupMesh.instanceMatrix.needsUpdate = true;
     if (this.pickupMesh.instanceColor) this.pickupMesh.instanceColor.needsUpdate = true;
+  }
+
+  private renderGoldMotes(goldMotes: GoldMoteState[]): void {
+    const time = performance.now() * 0.004;
+    const active = new Set<number>();
+    for (const mote of goldMotes) {
+      active.add(mote.id);
+      let sprite = this.goldMoteSprites.get(mote.id);
+      if (!sprite) {
+        const mat = new THREE.SpriteMaterial({
+          map: this.goldMoteTexture,
+          color: 0xffffff,
+          transparent: true,
+          opacity: 1,
+          depthWrite: false,
+          depthTest: true,
+          toneMapped: false,
+        });
+        sprite = new THREE.Sprite(mat);
+        sprite.name = `GoldMote_${mote.id}`;
+        this.scene.add(sprite);
+        this.goldMoteSprites.set(mote.id, sprite);
+      }
+      const pulse = 0.85 + Math.sin(time * 9 + mote.id) * 0.25;
+      sprite.position.set(mote.x, mote.y, mote.z);
+      sprite.scale.set(0.36 * pulse, 0.36 * pulse, 0.36 * pulse);
+      sprite.material.rotation = time * 5 + mote.id;
+    }
+    for (const [id, sprite] of this.goldMoteSprites) {
+      if (active.has(id)) continue;
+      this.scene.remove(sprite);
+      sprite.material.dispose();
+      this.goldMoteSprites.delete(id);
+    }
   }
 
   private renderBoss(boss: BossState | null): void {
@@ -3988,6 +4146,7 @@ export class GameScene {
     xp_blue: [0.2, 0.7, 1.0],
     xp_purple: [0.8, 0.3, 1.0],
     xp_orange: [1.0, 0.7, 0.0],
+    gold: [1.0, 0.8, 0.15],
     silver: [0.9, 0.9, 0.9],
   };
 
@@ -4186,6 +4345,149 @@ export class GameScene {
     }
   }
 
+  private playChestOpenFx(evt: ChestOpenEvent): void {
+    this.emitCompensationBurst(evt.x, evt.y, evt.z, 'gold');
+    this.triggerScreenFlash(RARITY_COLORS[evt.rarity] ?? '#ffcc00', 0.18);
+    if (this.goldLabel) {
+      this.goldLabel.style.transition = 'transform 0.15s';
+      this.goldLabel.style.transform = 'scale(1.2)';
+      setTimeout(() => {
+        if (this.goldLabel) this.goldLabel.style.transform = 'scale(1)';
+      }, 180);
+    }
+  }
+
+  private handleChestRewardPhaseChange(state: GameState): void {
+    const reward = state.pendingChestReward;
+    if (state.phase === 'chest_reward' && reward) {
+      const key = `${reward.chestId}:${reward.relicId}`;
+      if (!this.chestRewardPanel || this.chestRewardPanelKey !== key) {
+        this.hideChestRewardPanel();
+        this.showChestRewardPanel(reward);
+      }
+      return;
+    }
+    if (this.chestRewardPanel) this.hideChestRewardPanel();
+  }
+
+  private showChestRewardPanel(reward: PendingChestReward): void {
+    const relic = RELICS[reward.relicId];
+    if (!relic) return;
+
+    const overlay = document.createElement('div');
+    this.chestRewardPanel = overlay;
+    this.chestRewardPanelKey = `${reward.chestId}:${reward.relicId}`;
+    overlay.style.cssText = `
+      position:fixed;inset:0;z-index:320;pointer-events:auto;
+      display:flex;align-items:center;justify-content:center;
+      background:radial-gradient(circle at 50% 45%, rgba(255,220,120,0.16), rgba(0,0,0,0.78) 62%);
+      font-family:Arial,sans-serif;
+    `;
+
+    const card = document.createElement('div');
+    card.style.cssText = `
+      width:230px;min-height:250px;padding:22px 18px;box-sizing:border-box;
+      background:rgba(12,12,28,0.96);border:3px solid #aaaaaa;border-radius:18px;
+      box-shadow:0 0 34px rgba(255,255,255,0.18), inset 0 0 20px rgba(255,255,255,0.06);
+      display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
+      transform:scale(0.8) rotate(-2deg);opacity:0;
+      transition:transform 0.22s cubic-bezier(0.2,1.5,0.4,1), opacity 0.18s ease-out, border-color 0.08s;
+    `;
+
+    const rarity = document.createElement('div');
+    rarity.style.cssText = 'font-size:11px;text-transform:uppercase;letter-spacing:2px;font-weight:bold;margin-bottom:10px;color:#aaaaaa;';
+    rarity.textContent = '???';
+
+    const icon = document.createElement('div');
+    icon.style.cssText = 'font-size:58px;line-height:1;margin:8px 0 12px;text-shadow:0 0 18px rgba(255,255,255,0.28);';
+    icon.textContent = '?';
+
+    const name = document.createElement('div');
+    name.style.cssText = 'color:#ffffff;font-size:22px;font-weight:bold;text-shadow:0 2px 8px rgba(0,0,0,0.9);';
+    name.textContent = '遗物';
+
+    const desc = document.createElement('div');
+    desc.style.cssText = 'color:#cfd3ff;font-size:13px;line-height:1.45;margin-top:12px;min-height:36px;';
+    desc.textContent = `消耗 ${reward.cost} 金币`;
+
+    const buttonRow = document.createElement('div');
+    buttonRow.style.cssText = 'display:none;gap:12px;margin-top:18px;';
+
+    const discardBtn = document.createElement('button');
+    discardBtn.type = 'button';
+    discardBtn.textContent = '丢弃';
+    discardBtn.style.cssText = `
+      padding:9px 18px;border-radius:999px;border:1px solid rgba(255,255,255,0.35);
+      background:rgba(40,40,52,0.95);color:#ddd;font-weight:bold;cursor:pointer;
+    `;
+    discardBtn.addEventListener('click', () => {
+      this.session.selectChestReward(false);
+      this.hideChestRewardPanel();
+    });
+
+    const keepBtn = document.createElement('button');
+    keepBtn.type = 'button';
+    keepBtn.textContent = '留下';
+    keepBtn.style.cssText = `
+      padding:9px 18px;border-radius:999px;border:1px solid #ffd35a;
+      background:linear-gradient(180deg,#ffd35a,#b87800);color:#241200;font-weight:bold;cursor:pointer;
+      box-shadow:0 0 18px rgba(255,180,0,0.35);
+    `;
+    keepBtn.addEventListener('click', () => {
+      this.session.selectChestReward(true);
+      this.hideChestRewardPanel();
+    });
+
+    buttonRow.appendChild(discardBtn);
+    buttonRow.appendChild(keepBtn);
+
+    card.appendChild(rarity);
+    card.appendChild(icon);
+    card.appendChild(name);
+    card.appendChild(desc);
+    card.appendChild(buttonRow);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    requestAnimationFrame(() => {
+      card.style.opacity = '1';
+      card.style.transform = 'scale(1) rotate(0deg)';
+    });
+
+    const rarities = ['common', 'uncommon', 'rare', 'legendary'] as const;
+    let flashes = 0;
+    const flashTimer = window.setInterval(() => {
+      const r = rarities[flashes % rarities.length];
+      const color = RARITY_COLORS[r] ?? '#aaaaaa';
+      card.style.borderColor = color;
+      card.style.boxShadow = `0 0 32px ${color}88, inset 0 0 20px ${color}22`;
+      rarity.style.color = color;
+      rarity.textContent = r.toUpperCase();
+      icon.textContent = '?';
+      flashes++;
+      if (flashes >= 9) {
+        window.clearInterval(flashTimer);
+        const finalColor = RARITY_COLORS[reward.rarity] ?? '#aaaaaa';
+        card.style.borderColor = finalColor;
+        card.style.boxShadow = `0 0 42px ${finalColor}aa, inset 0 0 24px ${finalColor}22`;
+        rarity.style.color = finalColor;
+        rarity.textContent = reward.rarity.toUpperCase();
+        icon.textContent = relic.emoji;
+        name.textContent = relic.name;
+        desc.textContent = relic.description;
+        card.style.transform = 'scale(1.12) rotate(0deg)';
+        setTimeout(() => { card.style.transform = 'scale(1) rotate(0deg)'; }, 140);
+        buttonRow.style.display = 'flex';
+      }
+    }, 70);
+  }
+
+  private hideChestRewardPanel(): void {
+    this.chestRewardPanel?.remove();
+    this.chestRewardPanel = null;
+    this.chestRewardPanelKey = null;
+  }
+
   private spawnCompensationFloatText(evt: LevelUpCompensationEvent): void {
     const el = this.damageNums[this.damageNumIndex];
     this.damageNumIndex = (this.damageNumIndex + 1) % DAMAGE_NUM_POOL_SIZE;
@@ -4306,6 +4608,54 @@ export class GameScene {
     }
   }
 
+  private createReadableChestObject(): THREE.Object3D {
+    const group = new THREE.Group();
+
+    const bodyMat = new THREE.MeshToonMaterial({
+      color: 0x7a3f20,
+      emissive: 0x1a0804,
+      gradientMap: toonGradientMap,
+    });
+    const lidMat = new THREE.MeshToonMaterial({
+      color: 0x9a5528,
+      emissive: 0x221006,
+      gradientMap: toonGradientMap,
+    });
+    const trimMat = new THREE.MeshToonMaterial({
+      color: 0xd99a2b,
+      emissive: 0x3a2406,
+      gradientMap: toonGradientMap,
+    });
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.55, 0.75), bodyMat);
+    body.position.y = 0.3;
+    group.add(body);
+
+    const lid = new THREE.Mesh(new THREE.BoxGeometry(1.16, 0.24, 0.82), lidMat);
+    lid.position.y = 0.72;
+    group.add(lid);
+
+    const frontBand = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.08, 0.04), trimMat);
+    frontBand.position.set(0, 0.52, -0.42);
+    group.add(frontBand);
+
+    const lidBand = new THREE.Mesh(new THREE.BoxGeometry(1.18, 0.06, 0.86), trimMat);
+    lidBand.position.set(0, 0.86, 0);
+    group.add(lidBand);
+
+    for (const x of [-0.38, 0.38]) {
+      const strap = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.82, 0.04), trimMat);
+      strap.position.set(x, 0.52, -0.43);
+      group.add(strap);
+    }
+
+    const lock = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.06), trimMat);
+    lock.position.set(0, 0.42, -0.46);
+    group.add(lock);
+
+    return group;
+  }
+
   private renderChests(chests: ChestState[]): void {
     for (const chest of chests) {
       let obj = this.chestObjects.get(chest.id);
@@ -4321,24 +4671,7 @@ export class GameScene {
       }
 
       if (!obj) {
-        // Use loaded chest model
-        if (chestClosedObj) {
-          obj = cloneSkeleton(chestClosedObj) as THREE.Object3D;
-        } else {
-          // Fallback: brown+gold box
-          const group = new THREE.Group();
-          const bodyGeo = new THREE.BoxGeometry(1.0, 0.6, 0.7);
-          const bodyMat = new THREE.MeshToonMaterial({ color: 0x6B3A2A, gradientMap: toonGradientMap });
-          const body = new THREE.Mesh(bodyGeo, bodyMat);
-          body.position.y = 0.3;
-          group.add(body);
-          const lidGeo = new THREE.BoxGeometry(1.05, 0.25, 0.75);
-          const lidMat = new THREE.MeshToonMaterial({ color: 0xDAA520, gradientMap: toonGradientMap });
-          const lid = new THREE.Mesh(lidGeo, lidMat);
-          lid.position.y = 0.72;
-          group.add(lid);
-          obj = group;
-        }
+        obj = this.createReadableChestObject();
         obj.name = `Chest_${chest.id}`;
         // Normalize to ~1.2 units
         const box = new THREE.Box3().setFromObject(obj);
@@ -4982,6 +5315,7 @@ export class GameScene {
 
     // Silver this run
     setSilverBadgeAmount(this.silverLabel, state.stats.silverEarned);
+    setGoldBadgeAmount(this.goldLabel, p.gold);
 
     // --- Weapon Icons Bar (bottom-left) ---
     this.weaponSlotsContainer.innerHTML = '';
@@ -5028,6 +5362,31 @@ export class GameScene {
       this.tomesSlotsContainer.appendChild(slot);
     }
 
+    // --- Relic Icons Bar (bottom-center) ---
+    this.relicSlotsContainer.innerHTML = '';
+    for (const [id, count] of Object.entries(p.relicStacks ?? {}) as Array<[RelicId, number]>) {
+      if (!count) continue;
+      const relic = RELICS[id];
+      if (!relic) continue;
+      const borderColor = RARITY_COLORS[relic.rarity] ?? '#aaaaaa';
+      const slot = document.createElement('div');
+      slot.title = `${relic.name} x${count}\n${relic.description}`;
+      slot.style.cssText = `
+        width:34px;height:34px;background:rgba(10,10,22,0.78);border:1px solid ${borderColor};
+        border-radius:8px;position:relative;display:flex;align-items:center;justify-content:center;
+        flex-shrink:0;box-shadow:0 0 10px ${borderColor}40;
+      `;
+      const icon = document.createElement('span');
+      icon.style.cssText = 'font-size:17px;';
+      icon.textContent = relic.emoji;
+      slot.appendChild(icon);
+      const stack = document.createElement('span');
+      stack.style.cssText = 'position:absolute;right:-4px;bottom:-5px;min-width:15px;height:15px;padding:0 3px;border-radius:999px;background:rgba(0,0,0,0.82);border:1px solid rgba(255,255,255,0.35);color:#fff;font-size:9px;font-weight:bold;display:flex;align-items:center;justify-content:center;text-shadow:0 1px 2px #000;';
+      stack.textContent = String(count);
+      slot.appendChild(stack);
+      this.relicSlotsContainer.appendChild(slot);
+    }
+
     // --- Boss HP Bar ---
     if (state.boss && state.boss.hp > 0) {
       this.bossHpContainer.style.display = 'block';
@@ -5046,11 +5405,29 @@ export class GameScene {
     }
 
     // --- Altar / Portal Indicator ---
-    // 显示距离最近的祭坛（或玩家在交互半径里时的 prompt）。
+    // 显示距离最近的祭坛 / 宝箱（或玩家在交互半径里时的 prompt）。
     // 跳过终态：boss_active（Boss 战中无意义）/ portal_used（即将被消费）。
+    const nearestChest = state.chests
+      .filter(c => !c.opened)
+      .map(c => ({ chest: c, dist: Math.hypot(c.x - p.x, c.z - p.z) }))
+      .sort((a, b) => a.dist - b.dist)[0] ?? null;
+    const chestCost = getChestGoldCost(p.level);
+    const chestInRange = nearestChest != null && nearestChest.dist <= CHEST_INTERACT_RADIUS;
     const visibleAltar = state.altars.find(a => a.phase !== 'boss_active' && a.phase !== 'portal_used');
-    if (visibleAltar) {
+    if (chestInRange && nearestChest) {
       this.teleporterIndicator.style.display = 'block';
+      const canAfford = p.gold >= chestCost;
+      this.teleporterIndicator.style.color = canAfford ? '#ffdd66' : '#999999';
+      this.teleporterIndicator.style.textShadow = canAfford
+        ? '0 0 8px #ffcc33,0 1px 3px rgba(0,0,0,0.8)'
+        : '0 1px 3px rgba(0,0,0,0.8)';
+      this.teleporterIndicator.textContent = canAfford
+        ? `🎁 [E] 开启宝箱 - ${chestCost} 金币`
+        : `🎁 金币不足 ${p.gold}/${chestCost}`;
+    } else if (visibleAltar) {
+      this.teleporterIndicator.style.display = 'block';
+      this.teleporterIndicator.style.color = '#00ccff';
+      this.teleporterIndicator.style.textShadow = '0 0 8px #00ccff,0 1px 3px rgba(0,0,0,0.8)';
       const dx = visibleAltar.x - p.x;
       const dz = visibleAltar.z - p.z;
       const dist = Math.round(Math.sqrt(dx * dx + dz * dz));
@@ -5076,22 +5453,34 @@ export class GameScene {
           break;
         }
       }
+    } else if (nearestChest) {
+      this.teleporterIndicator.style.display = 'block';
+      this.teleporterIndicator.style.color = '#ffdd66';
+      this.teleporterIndicator.style.textShadow = '0 0 8px #ffcc33,0 1px 3px rgba(0,0,0,0.8)';
+      this.teleporterIndicator.textContent = `🎁 宝箱: ${Math.round(nearestChest.dist)}m`;
     } else {
       this.teleporterIndicator.style.display = 'none';
     }
 
-    // --- 移动端交互按钮：仅在玩家位于祭坛 / 传送门交互半径内时显示 ---
+    // --- 移动端交互按钮：仅在玩家位于祭坛 / 传送门 / 宝箱交互半径内时显示 ---
     const altarInRange = state.altars.find(a =>
       (a.phase === 'ready' || a.phase === 'portal_ready')
       && Math.hypot(a.x - p.x, a.z - p.z) <= 2.0
     );
     // 简易移动端判定：能 hover 的设备视作 PC，不显示按钮（避免 PC 用户看到双重 UI）
     const isMobile = !window.matchMedia('(hover: hover)').matches;
-    if (altarInRange && isMobile) {
+    if ((altarInRange || chestInRange) && isMobile) {
       this.interactBtn.style.display = 'block';
-      this.interactBtn.textContent = altarInRange.phase === 'portal_ready'
-        ? t('altar.prompt.enterPortal')
-        : t('altar.prompt.summon');
+      if (chestInRange) {
+        const canAfford = p.gold >= chestCost;
+        this.interactBtn.style.background = canAfford ? 'rgba(210,145,24,0.88)' : 'rgba(80,80,80,0.82)';
+        this.interactBtn.textContent = canAfford ? `开启宝箱 ${chestCost}` : `金币不足 ${p.gold}/${chestCost}`;
+      } else if (altarInRange) {
+        this.interactBtn.style.background = 'rgba(170,68,255,0.85)';
+        this.interactBtn.textContent = altarInRange.phase === 'portal_ready'
+          ? t('altar.prompt.enterPortal')
+          : t('altar.prompt.summon');
+      }
     } else {
       this.interactBtn.style.display = 'none';
     }
@@ -5155,6 +5544,15 @@ export class GameScene {
     // 空池升级补偿特效（银币/金币）
     for (const evt of state.levelUpCompensationEvents) {
       this.playCompensationLevelUpFx(evt);
+    }
+
+    // 宝箱开启揭示特效（事件在下一次 core tick 会清空，render loop 内用 key 防重复）
+    for (const evt of state.chestOpenEvents ?? []) {
+      const key = `${state.tick}:${evt.chestId}:${evt.relicId}`;
+      if (this.seenChestOpenEvents.has(key)) continue;
+      this.seenChestOpenEvents.add(key);
+      if (this.seenChestOpenEvents.size > 80) this.seenChestOpenEvents.clear();
+      this.playChestOpenFx(evt);
     }
 
     // === Combo HUD (#6) ===
@@ -5244,6 +5642,7 @@ export class GameScene {
     }
     // Charge Shrine 4 选 1 panel
     this.handleShrinePhaseChange(state);
+    this.handleChestRewardPhaseChange(state);
   }
 
   private showUpgradePanel(options: UpgradeOption[]): void {

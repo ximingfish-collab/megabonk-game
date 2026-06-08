@@ -57,7 +57,8 @@ import { processCollisions } from './systems/collisions.ts';
 import { processDeaths, tickPickups, tickThorns } from './systems/pickups.ts';
 import { tickSpawning, checkBossSpawn } from './systems/spawning.ts';
 import { tickAltars, generateAltars } from './systems/altars.ts';
-import { tickChests, generateChests } from './systems/chests.ts';
+import { tickChests, generateChests, nextChestId, nextChestRespawnDelay } from './systems/chests.ts';
+import { grantRelic } from './systems/relics.ts';
 import { tickOvertime } from './systems/overtime.ts';
 import { tickTierTransition } from './systems/tierTransition.ts';
 import { tickShrines, generateShrines, applyShrineReward } from './systems/shrines.ts';
@@ -83,10 +84,13 @@ export class GameInstance {
       enemies: [],
       projectiles: [],
       pickups: [],
+      goldMotes: [],
       boss: null,
       upgradeOptions: null,
       damageEvents: [],
       levelUpCompensationEvents: [],
+      chestOpenEvents: [],
+      pendingChestReward: null,
       stats: { killCount: 0, damageDealt: 0, damageTaken: 0, silverEarned: 0 },
       waveIndex: 0,
       altars: [],
@@ -110,7 +114,9 @@ export class GameInstance {
       nextEnemyId: 1,
       nextProjectileId: 1,
       nextPickupId: 1,
+      nextChestId: 1,
       spawnTimer: 1.0,
+      chestRespawnTimer: nextChestRespawnDelay(),
       aiGroup: 0,
       miniBossTimer: 0,
       landingTimer: 0,
@@ -164,8 +170,11 @@ export class GameInstance {
     state.enemies = [];
     state.projectiles = [];
     state.pickups = [];
+    state.goldMotes = [];
     state.damageEvents = [];
     state.levelUpCompensationEvents = [];
+    state.chestOpenEvents = [];
+    state.pendingChestReward = null;
     state.boss = null;
     state.upgradeOptions = null;
     state.stats = { killCount: 0, damageDealt: 0, damageTaken: 0, silverEarned: 0 };
@@ -174,13 +183,16 @@ export class GameInstance {
     state.shrines = generateShrines(config);
     state.activeShrineId = null;
     state.chests = generateChests(config);
+    engine.nextChestId = nextChestId(state.chests);
     state.character = config.character;
     state.finalSwarm = false;
     state.player = createInitialPlayer(config);
     engine.nextEnemyId = 1;
     engine.nextProjectileId = 1;
     engine.nextPickupId = 1;
+    engine.nextChestId = nextChestId(state.chests);
     engine.spawnTimer = 1.0;
+    engine.chestRespawnTimer = nextChestRespawnDelay();
     engine.aiGroup = 0;
     engine.landingTimer = 0;
     engine.miniBossTimer = 0;
@@ -198,6 +210,8 @@ export class GameInstance {
     if (state.phase === 'level_up') return false;
     // shrine_reward phase: 玩家在 4 选 1 选项面板，game logic 全部暂停（等同 level_up）
     if (state.phase === 'shrine_reward') return false;
+    // chest_reward phase: 宝箱已消耗，等待玩家留下/丢弃遗物，game logic 暂停。
+    if (state.phase === 'chest_reward') return false;
 
     const dt = TICK_INTERVAL_MS / 1000;
 
@@ -217,6 +231,7 @@ export class GameInstance {
     // 清上一帧事件（client 在两帧之间读）
     state.damageEvents = [];
     state.levelUpCompensationEvents = [];
+    state.chestOpenEvents = [];
 
     state.gameTime += dt;
     state.tick++;
@@ -235,7 +250,8 @@ export class GameInstance {
     tickSpawning(engine, dt);
     tickAltars(engine, dt);
     tickShrines(engine, dt);
-    tickChests(engine);
+    tickChests(engine, dt);
+    if ((state.phase as GameState['phase']) === 'chest_reward') return false;
     checkBossSpawn(engine);
     if (state.boss && state.phase === 'boss_fight') {
       tickBossAi(state.boss, makeAiContext(engine, dt));
@@ -334,6 +350,20 @@ export class GameInstance {
     shrine.options = null;
     state.activeShrineId = null;
     state.phase = state.boss ? 'boss_fight' : 'playing';
+  }
+
+  selectChestReward(keep: boolean): void {
+    const { engine } = this;
+    const { state } = engine;
+    if (state.phase !== 'chest_reward' || !state.pendingChestReward) return;
+
+    const reward = state.pendingChestReward;
+    if (keep) {
+      grantRelic(engine, reward.relicId);
+    }
+
+    state.pendingChestReward = null;
+    state.phase = reward.returnPhase;
   }
 
   pause(): void {
@@ -435,10 +465,14 @@ function makeEffects(engine: Engine): AiEffects {
       const shieldReduction = getTomePower(shieldTome) * 0.05;
       const dmg = Math.max(1, rawDamage - player.armor);
       const finalDmg = Math.max(1, Math.round(dmg * (1 - shieldReduction)));
-      player.hp -= finalDmg;
+      const shield = player.shield ?? 0;
+      const absorbed = Math.min(shield, finalDmg);
+      if (absorbed > 0) player.shield = shield - absorbed;
+      const hpDamage = finalDmg - absorbed;
+      if (hpDamage > 0) player.hp -= hpDamage;
       player.invincibleTimer = PLAYER_INVINCIBLE_DURATION;
-      engine.state.stats.damageTaken += finalDmg;
-      addDamageEvent(engine, player.x, 1.5, player.z, finalDmg, false, true);
+      engine.state.stats.damageTaken += hpDamage;
+      addDamageEvent(engine, player.x, 1.5, player.z, hpDamage, false, true);
       if (player.hp <= 0) checkPlayerDeath(engine);
     },
   };

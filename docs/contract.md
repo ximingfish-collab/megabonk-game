@@ -130,12 +130,12 @@ export interface GameState {
 
 - `game/core/source/` 下**除 `index.ts` 之外的所有文件**
 - 已落地的子目录（方案 A 重构产出）：
-  - `data/` — 数据驱动配置（weapons / enemies / tomes）
+  - `data/` — 数据驱动配置（weapons / enemies / tomes / relics）
   - `behaviors/` — 武器行为注册表（sweepArc / forwardArrow / orbitingAxe / spreadShot / bouncingShot / lightningChain / flameAura）
   - `ai/` — 敌人 brain (chase/ranged/charge/dive) + modifier (necromancer) + boss phase script (skeletonKing)
   - `factories/` — `spawnEnemy` 工厂 (4 mode: wave/miniBoss/necromancerSummon/bossSummon)
   - `stats/` — 4 层 stat 管线 (PoE 风格 base/added/increased/more) + tag superset-AND
-  - `systems/` — 每帧 dispatch 的纯函数（player / projectiles / collisions / pickups / spawning / weapons / teleporters / aiSystem / bossAi / terrain / helpers）
+  - `systems/` — 每帧 dispatch 的纯函数（player / projectiles / collisions / pickups / relics / chests / spawning / weapons / teleporters / aiSystem / bossAi / terrain / helpers）
   - `world.ts` — miniplex World instance
 - `GameInstance.ts` **内部实现**（保持类签名即可，目前是薄 facade ~350 行）
 - `game/client/source/index.ts` 内部渲染逻辑（保持 `bootGameClient` 导出即可）

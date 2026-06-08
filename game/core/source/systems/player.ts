@@ -89,6 +89,7 @@ export function createInitialPlayer(config: GameConfig): PlayerState {
     maxWeaponSlots,
     activeWeaponSlots: computeActiveWeaponSlots(startLevel, maxWeaponSlots),
     gold: 0,
+    relicStacks: {},
     comboCount: 0, comboTimer: 0,
     // Shrine bonuses (默认值；charge shrine 奖励会累计到这些字段上)
     shield: 0,
@@ -328,6 +329,16 @@ export function tickTimers(engine: Engine, dt: number): void {
   const player = engine.state.player;
   if (player.dashCooldown > 0) player.dashCooldown = Math.max(0, player.dashCooldown - dt);
   if (player.invincibleTimer > 0) player.invincibleTimer = Math.max(0, player.invincibleTimer - dt);
+
+  const hpRegenRate = player.hpRegenRate ?? 0;
+  if (hpRegenRate > 0 && player.hp < player.maxHp) {
+    player.hpRegenAccum = (player.hpRegenAccum ?? 0) + hpRegenRate * dt;
+    const heal = Math.floor(player.hpRegenAccum);
+    if (heal > 0) {
+      player.hp = Math.min(player.maxHp, player.hp + heal);
+      player.hpRegenAccum -= heal;
+    }
+  }
 
   if (player.comboTimer > 0) {
     player.comboTimer -= dt;

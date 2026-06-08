@@ -98,6 +98,21 @@ export interface TomeState {
 // Legacy alias
 export type PassiveState = TomeState;
 
+// --- Relics ---
+export type RelicRarity = 'common' | 'uncommon' | 'rare' | 'legendary';
+
+export type RelicId =
+  | 'keen_lens'
+  | 'small_shield_charm'
+  | 'blood_fang'
+  | 'pact_coin'
+  | 'arsenal_badge'
+  | 'elite_writ'
+  | 'regen_core'
+  | 'magazine_expander'
+  | 'hourglass'
+  | 'iron_heart';
+
 // --- Player ---
 export interface PlayerState {
   x: number;
@@ -141,6 +156,8 @@ export interface PlayerState {
   activeWeaponSlots: number;
   /** 局内金币（宝箱 / 空池补偿等）。 */
   gold: number;
+  /** 已获得遗物层数。同 ID 可无限叠加。 */
+  relicStacks: Partial<Record<RelicId, number>>;
   comboCount: number;
   comboTimer: number;
   // --- Shrine bonuses (累积来自 Charge Shrine 的奖励) ---
@@ -308,13 +325,37 @@ export interface PickupState {
   attracted: boolean;
 }
 
+export interface GoldMoteState {
+  id: number;
+  x: number;
+  y: number;
+  z: number;
+  value: number;
+  lifetime: number;
+}
+
 // --- Chest ---
 export interface ChestState {
   id: number;
   x: number;
   z: number;
   opened: boolean;
-  reward: number; // silver amount
+  relicId?: RelicId;
+  relicRarity?: RelicRarity;
+}
+
+export interface ChestOpenEvent {
+  chestId: number;
+  x: number;
+  y: number;
+  z: number;
+  cost: number;
+  relicId: RelicId;
+  rarity: RelicRarity;
+}
+
+export interface PendingChestReward extends ChestOpenEvent {
+  returnPhase: GamePhase;
 }
 
 // --- Altar (formerly Teleporter) ---
@@ -408,7 +449,7 @@ export interface DamageEvent {
 }
 
 // --- Game State ---
-export type GamePhase = 'menu' | 'playing' | 'level_up' | 'shrine_reward' | 'boss_intro' | 'boss_fight' | 'portal_open' | 'victory' | 'defeat' | 'paused';
+export type GamePhase = 'menu' | 'playing' | 'level_up' | 'shrine_reward' | 'chest_reward' | 'boss_intro' | 'boss_fight' | 'portal_open' | 'victory' | 'defeat' | 'paused';
 
 export interface GameStats {
   killCount: number;
@@ -434,12 +475,17 @@ export interface GameState {
   enemies: EnemyState[];
   projectiles: ProjectileState[];
   pickups: PickupState[];
+  goldMotes: GoldMoteState[];
   chests: ChestState[];
   boss: BossState | null;
   upgradeOptions: UpgradeOption[] | null;
   damageEvents: DamageEvent[];
   /** 空池升级补偿事件（client 读完后由 tick 清空）。 */
   levelUpCompensationEvents: LevelUpCompensationEvent[];
+  /** 宝箱开启事件（client 读完后由 tick 清空，用于揭示动画）。 */
+  chestOpenEvents: ChestOpenEvent[];
+  /** 已消耗金币和宝箱、等待玩家留下/丢弃的遗物。 */
+  pendingChestReward: PendingChestReward | null;
   stats: GameStats;
   waveIndex: number;
   /**

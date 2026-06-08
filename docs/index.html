@@ -1034,7 +1034,7 @@ export {
 
   <div class="timeline-wrap">
     <div class="timeline">
-      <div class="tl-marker" style="left: 0%"><span class="lbl">0s</span><span class="ev">骷髅步兵<br>祭坛 + 宝箱已生成</span></div>
+      <div class="tl-marker" style="left: 0%"><span class="lbl">0s</span><span class="ev">骷髅步兵<br>祭坛 + 6 宝箱已生成</span></div>
       <div class="tl-marker" style="left: 11.1%"><span class="lbl">60s</span><span class="ev">+ 僵尸<br>5% 精英</span></div>
       <div class="tl-marker" style="left: 33.3%"><span class="lbl">180s</span><span class="ev">+ 弓手<br>Mini-Boss 启动</span></div>
       <div class="tl-marker" style="left: 55.5%"><span class="lbl">300s</span><span class="ev">15% 精英</span></div>
@@ -1518,7 +1518,7 @@ actualTargetCount = floor(storedTargetCount)
   <h3>⑤ 银币结算（局末）</h3>
   <pre><code>baseSilver  = floor(killCount × 0.5 + level × 5)
 victoryBonus = phase === 'victory' ? 100 : 0
-runSilver   = silverEarned                        // 局内拾取/宝箱/任务
+runSilver   = silverEarned                        // 局内精英拾取/空池/任务
 totalSilver = round((baseSilver + victoryBonus + runSilver) × tier.silverMultiplier)</code></pre>
 </section>
 
@@ -1691,10 +1691,10 @@ portal_used    终态；tier 推进流程消费它（清场 + 重生新祭坛）
   <p>玩家在 <code>portal_ready</code> 阶段按 <code>[E]</code> → 祭坛切到 <code>portal_used</code> → <code>tickTierTransition</code> 在本帧末尾消费它：</p>
   <ul>
     <li><code>config.tier++</code>（最高 3，已是 3 时只重置时间）</li>
-    <li>清场：<code>enemies / projectiles / pickups / boss / damageEvents / waveIndex / finalSwarm / overtimeSeconds = 0</code></li>
+    <li>清场：<code>enemies / projectiles / pickups / goldMotes / boss / damageEvents / waveIndex / finalSwarm / overtimeSeconds = 0</code></li>
     <li><code>gameTime = 0</code>（进入新一关的"常规生存期"）</li>
-    <li>重新生成祭坛 + 宝箱</li>
-    <li><b>保留</b>：玩家 HP / 武器 / 典籍 / 等级 / XP / silver</li>
+    <li>重新生成祭坛 + 6 宝箱（<code>generateChests</code>）</li>
+    <li><b>保留</b>：玩家 HP / 武器 / 典籍 / 等级 / XP / 金币 / 遗物层数（<code>relicStacks</code>）/ silver</li>
     <li><code>phase = 'playing'</code></li>
   </ul>
 
@@ -1717,12 +1717,13 @@ portal_used    终态；tier 推进流程消费它（清场 + 重生新祭坛）
   <h3>银币来源（关卡内）</h3>
   <table>
     <tr><th>来源</th><th>数额</th></tr>
-    <tr><td>银币拾取</td><td><code>pickup.value</code></td></tr>
+    <tr><td>精英击杀银币拾取</td><td>固定 <code>5</code>（<code>pickup.type = silver</code>）</td></tr>
     <tr><td>幸运典籍每级附赠</td><td>+ luckTome.level / 拾取</td></tr>
-    <tr><td>宝箱（4 个 / 局）</td><td>50 ~ 200 随机</td></tr>
+    <tr><td>空升级池</td><td>50% 概率 roll 银币（见 <a href="#" data-tab="xp">经验 / 升级</a>）</td></tr>
     <tr><td>击败 Boss</td><td>+50（即时进 <code>stats.silverEarned</code>）</td></tr>
     <tr><td>任务 q26 / q27 / q29</td><td>100 / 250 / 1000</td></tr>
   </table>
+  <p style="color:var(--dim);font-size:13px;">注：宝箱已改为消耗<strong>金币</strong>抽取遗物，不再产出银币。开局 6 个宝箱，场上未开启宝箱上限 6，开启后 30～60s 补刷。</p>
 
   <h3>存档结构 <code>save.ts</code></h3>
   <pre><code>interface SaveData {
@@ -1893,7 +1894,7 @@ luck 来源 = luck_tome.level + floor(player.luckBonus * 100)</code></pre>
 <!-- ============= EXTENSION OVERVIEW ============= -->
 <section id="ext-overview">
   <h2>扩展设计总览 <span class="badge-new">new</span></h2>
-  <p class="sub">相较当前已落地代码的<strong>策划草案 v0.4（ximing 修订）</strong> — 尚未实现，供战斗设计与程序对齐。</p>
+  <p class="sub">相较当前已落地代码的<strong>策划草案 v0.4（ximing 修订）</strong> — 部分模块已落地（金币 / 宝箱 / 遗物），其余供战斗设计与程序对齐。</p>
 
   <div class="hero">
     <h1>构筑扩展 v0.4</h1>
@@ -1907,7 +1908,7 @@ luck 来源 = luck_tome.level + floor(player.luckBonus * 100)</code></pre>
   </div>
 
   <div class="note" style="border-left: 4px solid var(--accent-2); background: var(--accent-2-soft); padding: 12px 16px; border-radius: 8px; margin-bottom: 24px;">
-    <b>状态：</b>设计文档 only。v0.4 核心变更：<strong>取消升级自动加血/加 maxHp</strong>、<strong>用羁绊激活替代 21 条双武融合</strong>、<strong>宝箱改消耗金币</strong>、<strong>空池 roll 金币/银币</strong>。
+    <b>状态：</b>混合文档。<strong>已落地</strong>：金币击杀掉落（<code>goldMotes</code>）、宝箱金币开箱 + <code>chest_reward</code> 留下/丢弃、10 个可叠层遗物（<code>relicStacks</code>）、空池 roll 金币/银币。<strong>仍为草案</strong>：100 级曲线、羁绊激活、消耗品、槽位拆分、天赋转模等 — 见各页标注。
   </div>
 
   <h3>机制分类（策划填表用）</h3>
@@ -1917,7 +1918,7 @@ luck 来源 = luck_tome.level + floor(player.luckBonus * 100)</code></pre>
     <tr><td><strong>伤害提升类</strong></td><td>全局伤害、暴击、攻速、羁绊增伤</td><td><code>precision_tome</code>、<code>attack_speed_tome</code>、羁绊、遗物、消耗品</td></tr>
     <tr><td><strong>削弱敌方类</strong></td><td>毒气持续伤、强减速、攻击减慢、击退、诅咒（敌加速但多经验）</td><td>新武器（毒气弹/麻痹枪）、<code>knockback_tome</code>、<code>curse_tome</code>、羁绊感官机制</td></tr>
     <tr><td><strong>速度类</strong></td><td>移速、冲刺相关、灼地轨迹</td><td><code>speed_tome</code>、羁绊、消耗品、灼地靴</td></tr>
-    <tr><td><strong>资源类</strong></td><td>金币、银币、经验、拾取半径</td><td>击杀掉落、空池 roll、宝箱、<code>attraction_tome</code>、<code>xp_gain_tome</code>、<code>luck_tome</code></td></tr>
+    <tr><td><strong>资源类</strong></td><td>金币、银币、经验、拾取半径</td><td>击杀金币 mote、精英银币拾取、空池 roll、宝箱<strong>消耗</strong>金币、<code>attraction_tome</code>、<code>xp_gain_tome</code>、<code>luck_tome</code></td></tr>
     <tr><td><strong>槽位与构筑类</strong></td><td>局外 max 槽、局内 active 槽、武器/典籍/羁绊</td><td><code>save.extraWeaponSlots</code>、等级解锁、升级 3 选 1</td></tr>
     <tr><td><strong>遗物类</strong></td><td>不占武器槽；<strong>同 ID 可叠加</strong>；机制可更激进</td><td>金币开箱、击杀间接增益</td></tr>
     <tr><td><strong>消耗品类</strong></td><td>怪物概率掉落；拾荒典籍提高掉落概率</td><td><code>consumable_tome</code>、精英/Mini-Boss 掉落、地图消耗品点</td></tr>
@@ -1942,8 +1943,8 @@ luck 来源 = luck_tome.level + floor(player.luckBonus * 100)</code></pre>
       <p><a href="#" data-tab="ext-bonds">→ 详见</a></p>
     </div>
     <div class="card">
-      <h4>遗物 · 金币 · 宝箱</h4>
-      <p>遗物<strong>不占武器槽</strong>，<strong>同 ID 可叠加</strong>（重复开箱同种遗物 → 层数 +1，效果累加）。击杀掉<strong>金币</strong>。开箱需<strong>消耗金币</strong>，费用随玩家等级增长。</p>
+      <h4>遗物 · 金币 · 宝箱 <span class="badge-new">已实现</span></h4>
+      <p>遗物<strong>不占武器槽</strong>，<strong>同 ID 可叠加</strong>。击杀生成<strong>金币 mote</strong>自动飞向玩家。开箱按等级曲线扣金币并进入 <code>chest_reward</code>；只有<strong>留下</strong>才写入 <code>relicStacks</code> 并生效。</p>
       <p><a href="#" data-tab="ext-relics">→ 详见</a></p>
     </div>
     <div class="card">
@@ -1971,21 +1972,22 @@ luck 来源 = luck_tome.level + floor(player.luckBonus * 100)</code></pre>
     <tr><td>选项池空 → 静默升级</td><td>roll <strong>金币或银币</strong></td></tr>
     <tr><td>旧武器进化 + 典籍门槛</td><td><strong>删除</strong>；统一改为羁绊激活（减少融合配方数量）</td></tr>
     <tr><td>21 条 <code>weapon_fusion</code></td><td>改为 <code>bond_activate</code> / <code>bond_upgrade</code></td></tr>
-    <tr><td>宝箱免费开 → 银币</td><td>消耗<strong>金币</strong> → roll 遗物（可叠层）</td></tr>
-    <tr><td>仅精英掉银币</td><td>全怪物掉金币 + 保留银币来源</td></tr>
+    <tr><td>宝箱免费开 → 银币</td><td><strong>已实现</strong>：消耗金币 → <code>chest_reward</code> 抽遗物 → 留下才 <code>grantRelic</code>，丢弃不生效</td></tr>
+    <tr><td>仅精英掉银币</td><td><strong>已实现</strong>：全怪物掉金币 mote + 精英仍掉银币拾取</td></tr>
     <tr><td>5/10/20/30 级开槽 = maxWeaponSlots</td><td>局外 max + 局内 active 分离</td></tr>
   </table>
 
   <h3>系统关系</h3>
-  <pre><code>击杀 → XP + 金币掉落（按怪物等级）
-         ↓
+  <pre><code>击杀 → XP pickup + goldMote（按 tier / 精英 / Mini-Boss；契约硬币每层 +1）
+         ↓ goldMote 自动飞向玩家 → player.gold
   level++（上限 100，无自动治疗）
          ↓
   buildAvailableOptions → 有选项？→ 3 选 1（upgrade / new_weapon / tome / bond_activate / bond_upgrade）
          ↓ 无
   roll 金币 or 银币（50/50，数量随 level 缩放）
 
-  宝箱 ──→ 消耗 gold ──→ 遗物 roll（同 ID 叠层，效果累加）
+  宝箱 ──→ 消耗 gold（只随等级定价）──→ chest_reward 暂停 ──→ 留下：grantRelic / 丢弃：不记录
+         ↓ 场上未开 &lt; 6 时 30～60s 补刷 1 个
   怪物 ──→ 概率掉落消耗品（consumable_tome 提高掉落率）
 
   羁绊 ──→ 条件满足 → bond_activate/upgrade；T1 数值 → T2 机制 → T3 升格
@@ -1996,8 +1998,8 @@ luck 来源 = luck_tome.level + floor(player.luckBonus * 100)</code></pre>
   <ol>
     <li>100 级 + 移除升级治疗 + 空池 roll 金币/银币 + 槽位拆分</li>
     <li><code>life_tome</code> / <code>consumable_tome</code></li>
-    <li>金币掉落 + 宝箱改金币消耗</li>
-    <li>遗物（可叠加、不占槽）</li>
+    <li><s>金币掉落 + 宝箱改金币消耗</s> ✅ 已落地</li>
+    <li><s>遗物（可叠加、不占槽）</s> ✅ 已落地（10 件 + emoji HUD）</li>
     <li>消耗品掉落 + 使用</li>
     <li>羁绊 v0.5d（9 条 · T1 激活瞬时 / T2 机制 / T3 升格）+ 羁绊激活选项（替代融合）</li>
     <li>选角解锁 + 天赋转模</li>
@@ -2282,55 +2284,71 @@ on bond_upgrade 2→3:
 <!-- ============= EXT RELICS ============= -->
 <section id="ext-relics">
   <h2>遗物 · 宝箱 · 金币 <span class="badge-new">new</span></h2>
-  <p class="sub">v0.4：遗物<strong>不占武器槽</strong>；<strong>同 ID 可无限叠加</strong>（无种类上限、无替换 UI）。开箱消耗<strong>金币</strong>，费用随玩家等级增长。</p>
+  <p class="sub">v0.4 设计 + <strong>当前代码已落地</strong>：遗物<strong>不占武器槽</strong>；<strong>同 ID 可无限叠加</strong>（无种类上限、无替换 UI）。开箱消耗<strong>金币</strong>，费用只随玩家等级平滑增长，不按本关已开启宝箱数加税。</p>
 
-  <div class="note bad">
-    <b>当前代码：</b>宝箱（<code>systems/chests.ts</code>）免费开 → 仅银币。v0.4 改为 <code>player.gold</code> 支付 + 遗物 roll；击杀需新增金币掉落。
+  <div class="note">
+    <b>当前实现：</b>击杀生成 <code>GameState.goldMotes[]</code>（Canvas 金币 sprite，自动飞向玩家到账，<strong>不是</strong> <code>pickups</code> 里的 gold 拾取物）。靠近未开启宝箱按交互键 → 立刻扣金币、<code>chest.opened = true</code>、<code>phase = chest_reward</code>（主循环暂停，等同 <code>level_up</code>）。客户端播放稀有度闪烁动画后弹出<strong>留下 / 丢弃</strong>；<code>GameInstance.selectChestReward(keep)</code> 仅在 <code>keep === true</code> 时调用 <code>grantRelic</code> 写入 <code>player.relicStacks</code>。丢弃不记录、不生效，但金币已扣、宝箱已开。
   </div>
+
+  <h3>代码落点</h3>
+  <table>
+    <tr><th>路径</th><th>职责</th></tr>
+    <tr><td><code>data/relics.ts</code></td><td>10 件遗物表（<code>RELICS</code>）、稀有度权重、<code>rollRelic</code>（未拥有优先 + 重复降权）</td></tr>
+    <tr><td><code>systems/relics.ts</code></td><td><code>getChestGoldCost</code> / <code>rollRelicForPlayer</code> / <code>grantRelic</code>；击杀/伤害钩子（<strong>无</strong> <code>tickRelics</code>）</td></tr>
+    <tr><td><code>systems/chests.ts</code></td><td><code>generateChests</code> / <code>tickChests</code>（交互开箱 + 补刷）</td></tr>
+    <tr><td><code>systems/pickups.ts</code></td><td><code>spawnGoldMoteFromEnemy</code> / <code>tickGoldMotes</code>；精英仍掉银币 <code>pickup</code></td></tr>
+    <tr><td><code>GameInstance.ts</code></td><td><code>chest_reward</code> 阶段跳过 tick；<code>selectChestReward</code></td></tr>
+    <tr><td><code>client/source/index.ts</code></td><td>金币 HUD、遗物 emoji 槽（XP 条上方）、宝箱交互文案、开箱奖励面板</td></tr>
+  </table>
 
   <h3>叠加规则</h3>
   <table>
     <tr><th>项</th><th>说明</th></tr>
-    <tr><td>数据结构</td><td><code>player.relicStacks: Record&lt;relicId, number&gt;</code>；开箱命中已有 ID 则 <code>count++</code></td></tr>
-    <tr><td>数值效果</td><td>线性叠加（如 3 层锐眼透镜 → 暴击率 +9%）</td></tr>
-    <tr><td>触发 / 机制效果</td><td>按层数增强：概率独立 roll、CD 不叠、或每层 +固定幅度（见下表备注）</td></tr>
-    <tr><td>击杀收益</td><td>如契约硬币：每层让击杀敌人额外 +1 金币，避免金币开箱形成过强正反馈</td></tr>
-    <tr><td>上限</td><td><strong>无种类上限、无总层数硬 cap</strong>；个别 Legendary 的内置效果上限仍按单件描述（如 overtime 全伤 +36% 为每层独立计时或取 max，数值待定）</td></tr>
+    <tr><td>数据结构</td><td><code>player.relicStacks: Partial&lt;Record&lt;RelicId, number&gt;&gt;</code>；<strong>留下</strong>时 <code>grantRelic</code> → <code>relicStacks[id]++</code></td></tr>
+    <tr><td>抽取保护</td><td>先按玩家等级 / 幸运 roll 稀有度；同稀有度内优先抽<strong>未拥有</strong>遗物。该稀有度全部拥有后才允许重复，权重 <code>1 / (stacks + 1)²</code></td></tr>
+    <tr><td>数值效果</td><td>线性叠加（如 3 层锐眼透镜 → 暴击率 +9%）；在 <code>grantRelic</code> 或事件钩子中应用</td></tr>
+    <tr><td>触发 / 机制效果</td><td>事件驱动：<code>applyRelicKillEffects</code>（嗜血牙）、<code>getRelicDamageMultiplier</code>（武库徽章/时间沙漏）、<code>applyRelicTargetDamage</code>（精英猎令）</td></tr>
+    <tr><td>击杀收益</td><td>契约硬币：每层击杀额外 +1 金币（计入 goldMote <code>value</code>）</td></tr>
+    <tr><td>上限</td><td><strong>无种类上限、无总层数硬 cap</strong></td></tr>
   </table>
 
   <h3>金币经济</h3>
   <table>
     <tr><th>来源</th><th>规则</th></tr>
-    <tr><td>普通怪击杀</td><td><code>gold += floor(1 + enemyTier × 0.4 + rand(0..2))</code></td></tr>
-    <tr><td>精英击杀</td><td>×3～5 倍 + 保底 +3</td></tr>
-    <tr><td>Mini-Boss</td><td>固定 15～25 + 等级缩放</td></tr>
+    <tr><td>普通怪击杀</td><td>生成 goldMote：<code>floor(1 + tier × 0.4 + rand(0..2))</code> + 契约硬币层数</td></tr>
+    <tr><td>精英击杀</td><td>×3～5 倍 + 保底 +3（仍生成 goldMote；<strong>另</strong>掉银币 pickup <code>value=5</code>）</td></tr>
+    <tr><td>Mini-Boss</td><td><code>round(15 + rand(0..10) + level × 0.2)</code></td></tr>
+    <tr><td>到账方式</td><td><code>tickGoldMotes</code>：mote 加速飞向玩家，距离 &lt; 0.45 或寿命耗尽 → <code>player.gold += value</code></td></tr>
     <tr><td>空升级池</td><td>50% 概率 roll 金币（见 <a href="#" data-tab="xp">经验 / 升级</a>）</td></tr>
-    <tr><td>银币</td><td>保留：空池 50%、精英、结算；与金币并行，不互相替代</td></tr>
+    <tr><td>银币</td><td>并行经济：空池 50%、精英拾取、Boss/任务/结算；与金币不互相替代</td></tr>
   </table>
 
   <h3>宝箱（金币消耗）</h3>
   <table>
     <tr><th>项</th><th>说明</th></tr>
-    <tr><td>费用</td><td><code>cost = floor(35 × (1 + player.level × 0.08))</code>（比旧草案更陡，防止遗物滚雪球过快）</td></tr>
-    <tr><td>交互</td><td>靠近 + 确认；<code>gold &lt; cost</code> 时 UI 灰显</td></tr>
-    <tr><td>产出</td><td>按稀有度权重 roll 1 种遗物 → 对应 <code>relicStacks[id]++</code>；已拥有则<strong>叠层</strong>而非替换</td></tr>
+    <tr><td>初始数量</td><td>开局 / tier 切换 <code>generateChests</code> → <strong>6</strong> 个（<code>CHEST_COUNT</code>）；有关卡 <code>chestSpawns</code> 时优先用手摆点</td></tr>
+    <tr><td>补刷</td><td>场上未开启宝箱 &lt; <code>CHEST_MAX_ACTIVE</code>（6）时，每 30～60s 在玩家 12～35 单位外补 1 个</td></tr>
+    <tr><td>费用</td><td><code>cost = floor(35 + level × 3 + pow(level, 1.25) × 0.75)</code>；只随玩家等级增长，不包含「已开启宝箱数」递增项</td></tr>
+    <tr><td>交互</td><td>距离 &lt; <code>CHEST_INTERACT_RADIUS</code>（2.5）+ <code>interact</code>；<code>gold &lt; cost</code> 时按钮灰显；足够时立刻扣费并进入 <code>chest_reward</code></td></tr>
+    <tr><td>产出</td><td><code>rollRelicForPlayer</code> → 写入 <code>pendingChestReward</code>；<strong>留下</strong> → <code>grantRelic</code>；<strong>丢弃</strong> → 不记录</td></tr>
     <tr><td>金币不足</td><td>无法开启；无「遗物栏满」fallback（因为无上限）</td></tr>
+    <tr><td>视觉</td><td>客户端 procedural 暖棕木箱 + 金边；已开启宝箱保留在列表中（<code>opened: true</code>）</td></tr>
   </table>
 
   <h3>10 个遗物（v0.5 · 可叠层）</h3>
-  <p>同 ID 重复获得 → 层数 +1，<strong>每层增量相同</strong>（无「首层 / 叠层」两套规则）。效果尽量简短。</p>
+  <p>同 ID 重复获得 → 层数 +1，<strong>每层增量相同</strong>。HUD 以 emoji 显示（定义于 <code>data/relics.ts</code>）。</p>
   <table>
-    <tr><th>ID</th><th>名称</th><th>稀有度</th><th>每层效果（× 层数）</th></tr>
-    <tr><td>R01</td><td>锐眼透镜</td><td><span class="pill">Common</span></td><td>暴击率 +3%</td></tr>
-    <tr><td>R02</td><td>小盾护符</td><td><span class="pill">Common</span></td><td>护盾值 +2，最大护盾值 +5</td></tr>
-    <tr><td>R03</td><td>嗜血牙</td><td><span class="pill">Uncommon</span></td><td>击杀回 2 HP（精英 +6）</td></tr>
-    <tr><td>R04</td><td>契约硬币</td><td><span class="pill">Common</span></td><td>击杀敌人额外 +1 金币</td></tr>
-    <tr><td>R05</td><td>武库徽章</td><td><span class="pill">Rare</span></td><td>每把 Lv10 武器全局伤害 +4%</td></tr>
-    <tr><td>R06</td><td>精英猎令</td><td><span class="pill">Uncommon</span></td><td>对精英伤害 +10%</td></tr>
-    <tr><td>R07</td><td>再生核心</td><td><span class="pill">Uncommon</span></td><td>hpRegen +0.5/s</td></tr>
-    <tr><td>R08</td><td>弹匣扩槽</td><td><span class="pill">Rare</span></td><td>projectileBonus +1（待定）</td></tr>
-    <tr><td>R09</td><td>时间沙漏</td><td><span class="pill">Legendary</span></td><td>overtime 内全伤 +0.12%/s（按层累加）</td></tr>
-    <tr><td>R10</td><td>铁心</td><td><span class="pill">Legendary</span></td><td>maxHp +12%；护甲 +2</td></tr>
+    <tr><th>ID</th><th>代码 ID</th><th>名称</th><th>emoji</th><th>稀有度</th><th>每层效果（× 层数）</th></tr>
+    <tr><td>R01</td><td><code>keen_lens</code></td><td>锐眼透镜</td><td>🔍</td><td><span class="pill">Common</span></td><td>暴击率 +3%</td></tr>
+    <tr><td>R02</td><td><code>small_shield_charm</code></td><td>小盾护符</td><td>🔰</td><td><span class="pill">Common</span></td><td>护盾值 +2，最大护盾值 +5</td></tr>
+    <tr><td>R03</td><td><code>blood_fang</code></td><td>嗜血牙</td><td>🦷</td><td><span class="pill">Uncommon</span></td><td>击杀回 2 HP（精英 +6）</td></tr>
+    <tr><td>R04</td><td><code>pact_coin</code></td><td>契约硬币</td><td>🪙</td><td><span class="pill">Common</span></td><td>击杀敌人额外 +1 金币</td></tr>
+    <tr><td>R05</td><td><code>arsenal_badge</code></td><td>武库徽章</td><td>🎖️</td><td><span class="pill">Rare</span></td><td>每把 Lv10 武器全局伤害 +4%</td></tr>
+    <tr><td>R06</td><td><code>elite_writ</code></td><td>精英猎令</td><td>📜</td><td><span class="pill">Uncommon</span></td><td>对精英伤害 +10%</td></tr>
+    <tr><td>R07</td><td><code>regen_core</code></td><td>再生核心</td><td>💚</td><td><span class="pill">Uncommon</span></td><td>hpRegen +0.5/s</td></tr>
+    <tr><td>R08</td><td><code>magazine_expander</code></td><td>弹匣扩槽</td><td>🧰</td><td><span class="pill">Rare</span></td><td>projectileBonus +1</td></tr>
+    <tr><td>R09</td><td><code>hourglass</code></td><td>时间沙漏</td><td>⏳</td><td><span class="pill">Legendary</span></td><td>overtime 内全伤 +0.12%/s（按层累加）</td></tr>
+    <tr><td>R10</td><td><code>iron_heart</code></td><td>铁心</td><td>🫀</td><td><span class="pill">Legendary</span></td><td>maxHp +12%；护甲 +2</td></tr>
   </table>
 
   <h3>稀有度权重 — 按玩家等级</h3>
@@ -2452,6 +2470,7 @@ player.consumableDropMult?: number       // consumable_tome</code></pre>
 │   ├── weapons.ts            ← WeaponDef + WEAPONS table
 │   ├── enemies.ts            ← EnemyDef + ENEMIES table (单一 source of truth)
 │   ├── tomes.ts              ← TomeDef + TOMES table (Phase 5)
+│   ├── relics.ts             ← RelicDef + RELICS table + rollRelic / rollRelicRarity
 │   └── shrineRewards.ts      ← Charge Shrine 奖励池 + rollShrineOptions
 │
 ├── stats/                    ← 4 层 stat 管线 (Phase 1)
@@ -2486,10 +2505,11 @@ player.consumableDropMult?: number       // consumable_tome</code></pre>
     ├── player.ts             ← createInitialPlayer / tickPlayerMovement / tickDash / tickTimers / tickLevelUp
     ├── projectiles.ts        ← tickProjectiles (移动 / 寿命 / 出界)
     ├── collisions.ts         ← processCollisions (4 类碰撞)
-    ├── pickups.ts            ← processDeaths / tickPickups / tickThorns
+    ├── pickups.ts            ← processDeaths / tickPickups / tickGoldMotes / tickThorns
+    ├── relics.ts             ← getChestGoldCost / grantRelic / rollRelicForPlayer + 击杀/伤害钩子
     ├── spawning.ts           ← tickSpawning / checkBossSpawn (波次 + mini-boss + final swarm)
     ├── altars.ts             ← tickAltars / generateAltars / onBossDefeated / consumePortalUsed (5 阶段状态机)
-    ├── chests.ts             ← tickChests / generateChests
+    ├── chests.ts             ← tickChests / generateChests / 补刷 (CHEST_MAX_ACTIVE=6)
     ├── teleporters.ts        ← @deprecated re-export shim → altars.ts + chests.ts
     ├── overtime.ts           ← tickOvertime (gameTime ≥ 540 累加 overtimeSeconds)
     ├── tierTransition.ts     ← tickTierTransition (portal_used → tier++ + 重置场景)
@@ -2514,7 +2534,8 @@ tickLevelUp(engine);               // xp ≥ xpToNext → 进 level_up phase
 tickSpawning(engine, dt);          // wave + mini-boss + final swarm
 tickAltars(engine, dt);            // 祭坛 / 传送门状态机（按 [E] 召唤 / 进入）
 tickShrines(engine, dt);           // 充能神殿状态机 / charging→ready→consumed
-tickChests(engine);
+tickChests(engine, dt);            // 交互开箱 → chest_reward 时本帧后续逻辑跳过
+if (phase === 'chest_reward') return false;
 checkBossSpawn(engine);            // 仅当祭坛 boss_active 时 spawn
 if (state.boss && phase === 'boss_fight') tickBossAi(state.boss, ctx);
 tickThorns(engine);

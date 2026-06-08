@@ -9,6 +9,7 @@ import { WEAPON_STATS, WEAPON_EVOLUTIONS, WEAPON_MAX_LEVEL } from '../config.ts'
 import type { WeaponLevelStats } from '../config.ts';
 import { tryFireWeaponEcs } from './weaponFiring.ts';
 import { loadSave, saveSave } from '../save.ts';
+import { getRelicDamageMultiplier } from './relics.ts';
 import type { WeaponState, WeaponGrowth, UpgradeRarity } from '../types.ts';
 import type { Engine } from './types.ts';
 
@@ -75,13 +76,23 @@ export function tickWeapons(engine: Engine, dt: number): void {
   for (const weapon of player.weapons) {
     weapon.cooldownTimer -= dt * player.attackSpeedMultiplier;
     if (weapon.cooldownTimer <= 0) {
-      const stats = getWeaponStats(weapon);
+      const baseStats = getWeaponStats(weapon);
+      const stats = {
+        ...baseStats,
+        projectileCount: baseStats.projectileCount + Math.max(0, player.projectileBonus ?? 0),
+      };
       weapon.cooldownTimer = stats.cooldown;
-      tryFireWeaponEcs(
-        engine.world, weapon, stats,
-        player, engine.state.enemies, engine.state.boss,
-        engine.effects,
-      );
+      const baseDamageMultiplier = player.damageMultiplier;
+      player.damageMultiplier = baseDamageMultiplier * getRelicDamageMultiplier(engine);
+      try {
+        tryFireWeaponEcs(
+          engine.world, weapon, stats,
+          player, engine.state.enemies, engine.state.boss,
+          engine.effects,
+        );
+      } finally {
+        player.damageMultiplier = baseDamageMultiplier;
+      }
     }
   }
 }
