@@ -21,6 +21,7 @@ import {
   findEnemyById,
   findNearestEnemyExcluding,
 } from './helpers.ts';
+import { applyRelicTargetDamage } from './relics.ts';
 import type { Engine } from './types.ts';
 
 export function processCollisions(engine: Engine): void {
@@ -69,10 +70,11 @@ export function processCollisions(engine: Engine): void {
       const enemy = findEnemyById(engine, id);
       if (!enemy || enemy.hp <= 0) continue;
 
-      enemy.hp -= proj.damage;
+      const damage = applyRelicTargetDamage(engine, proj.damage, enemy);
+      enemy.hp -= damage;
       enemy.hitFlashTimer = 0.15;
-      engine.state.stats.damageDealt += proj.damage;
-      addDamageEvent(engine, enemy.x, 1.0, enemy.z, proj.damage, false, false, proj.weaponType);
+      engine.state.stats.damageDealt += damage;
+      addDamageEvent(engine, enemy.x, 1.0, enemy.z, damage, false, false, proj.weaponType);
       proj.hitEnemyIds.push(id);
 
       applyKnockback(engine, enemy, proj.x, proj.z);
@@ -118,11 +120,11 @@ export function processCollisions(engine: Engine): void {
       const dist = distanceBetween(player.x, player.z, enemy.x, enemy.z);
       if (dist < 1.2) {
         const damage = computePlayerHitDamage(engine, enemy.damage);
-        player.hp -= damage;
+        const hpDamage = applyShieldAbsorb(player, damage);
         player.invincibleTimer = PLAYER_INVINCIBLE_DURATION;
         enemy.attackCooldown = enemy.attackCooldownMax;
-        engine.state.stats.damageTaken += damage;
-        addDamageEvent(engine, player.x, 1.5, player.z, damage, false, true);
+        engine.state.stats.damageTaken += hpDamage;
+        addDamageEvent(engine, player.x, 1.5, player.z, hpDamage, false, true);
         if (player.hp <= 0) checkPlayerDeath(engine);
         break;
       }
@@ -135,11 +137,11 @@ export function processCollisions(engine: Engine): void {
     if (dist < 2.0 && engine.state.boss.attackCooldown <= 0) {
       const bossDmg = getBossMeleeDamage(engine.state.boss);
       const damage = computePlayerHitDamage(engine, bossDmg);
-      player.hp -= damage;
+      const hpDamage = applyShieldAbsorb(player, damage);
       player.invincibleTimer = PLAYER_INVINCIBLE_DURATION;
       engine.state.boss.attackCooldown = 2.0;
-      engine.state.stats.damageTaken += damage;
-      addDamageEvent(engine, player.x, 1.5, player.z, damage, false, true);
+      engine.state.stats.damageTaken += hpDamage;
+      addDamageEvent(engine, player.x, 1.5, player.z, hpDamage, false, true);
       if (player.hp <= 0) checkPlayerDeath(engine);
     }
   }
@@ -154,10 +156,10 @@ export function processCollisions(engine: Engine): void {
       const yDist = Math.abs(proj.y - 0.5);
       if (dist < proj.radius + 0.5 && yDist < 1.5) {
         const damage = computePlayerHitDamage(engine, proj.damage);
-        player.hp -= damage;
+        const hpDamage = applyShieldAbsorb(player, damage);
         player.invincibleTimer = PLAYER_INVINCIBLE_DURATION;
-        engine.state.stats.damageTaken += damage;
-        addDamageEvent(engine, player.x, 1.5, player.z, damage, false, true);
+        engine.state.stats.damageTaken += hpDamage;
+        addDamageEvent(engine, player.x, 1.5, player.z, hpDamage, false, true);
         engine.state.projectiles.splice(i, 1);
         if (player.hp <= 0) checkPlayerDeath(engine);
         break;
@@ -184,4 +186,18 @@ function computePlayerHitDamage(engine: Engine, raw: number): number {
   const shieldReduction = getTomePower(shieldTome) * 0.05;
   const afterArmor = Math.max(1, raw - player.armor);
   return Math.max(1, Math.round(afterArmor * (1 - shieldReduction)));
+}
+
+function applyShieldAbsorb(player: Engine['state']['player'], damage: number): number {
+  const shield = player.shield ?? 0;
+  if (shield <= 0) {
+    player.hp -= damage;
+    return damage;
+  }
+
+  const absorbed = Math.min(shield, damage);
+  player.shield = shield - absorbed;
+  const hpDamage = damage - absorbed;
+  if (hpDamage > 0) player.hp -= hpDamage;
+  return hpDamage;
 }

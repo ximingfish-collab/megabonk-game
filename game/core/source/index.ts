@@ -8,6 +8,8 @@ export type {
   PassiveState,
   TomeType,
   TomeState,
+  RelicId,
+  RelicRarity,
   CharacterType,
   CharacterConfig,
   PlayerState,
@@ -17,6 +19,7 @@ export type {
   ProjectileState,
   PickupType,
   PickupState,
+  GoldMoteState,
   AltarPhase,
   AltarState,
   TeleporterPhase,
@@ -34,6 +37,8 @@ export type {
   BossState,
   DamageEvent,
   LevelUpCompensationEvent,
+  ChestOpenEvent,
+  PendingChestReward,
   GamePhase,
   GameStats,
   GameState,
@@ -85,6 +90,7 @@ export {
   DEFAULT_GAME_CONFIG,
   WEAPON_EVOLUTIONS,
   TIER_CONFIGS,
+  CHEST_INTERACT_RADIUS,
 } from './config.ts';
 
 export type { WaveConfig, WeaponLevelStats, WeaponEvolution, TierConfig } from './config.ts';
@@ -93,6 +99,9 @@ export type { WaveConfig, WeaponLevelStats, WeaponEvolution, TierConfig } from '
 // 外部 API 不变 (re-export legacy 别名 + 新 ENEMIES/EnemyDef 同时暴露)。
 export { ENEMIES, ENEMY_CONFIGS } from './data/enemies.ts';
 export type { EnemyDef, EnemyConfig, EnemyModifierId } from './data/enemies.ts';
+export { RELICS, ALL_RELIC_IDS, getRelicStack } from './data/relics.ts';
+export type { RelicDef } from './data/relics.ts';
+export { getChestGoldCost } from './systems/relics.ts';
 
 export { applyMovement3D, distanceBetween, normalizeDirection } from './physics.ts';
 export { SpatialHash } from './spatial-hash.ts';

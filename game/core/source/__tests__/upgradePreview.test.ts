@@ -16,7 +16,7 @@ function makePlayer(weapons: PlayerState['weapons']): PlayerState {
     weapons, tomes: [], passives: [],
     dashCooldown: 0, dashCooldownMax: 5, dashTimer: 0, invincibleTimer: 0,
     alive: true, character: 'megachad',
-    maxWeaponSlots: 5, activeWeaponSlots: 2, gold: 0,
+    maxWeaponSlots: 5, activeWeaponSlots: 2, gold: 0, relicStacks: {},
     comboCount: 0, comboTimer: 0,
   };
 }

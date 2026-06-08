@@ -32,6 +32,16 @@ describe('processDeaths', () => {
     expect(xpPickup).toBeDefined();
   });
 
+  it('死敌不生成 gold pickup，而是在死亡点生成 gold mote', () => {
+    const engine = makeEngine();
+    engine.state.enemies = [makeEnemy(1, 'skeleton_soldier', 5, 5, { hp: 0 })];
+    processDeaths(engine);
+    expect(engine.state.pickups.some(p => (p.type as string) === 'gold')).toBe(false);
+    expect(engine.state.goldMotes).toHaveLength(1);
+    expect(engine.state.goldMotes[0].x).toBe(5);
+    expect(engine.state.goldMotes[0].z).toBe(5);
+  });
+
   it('Elite enemy 多掉 1 个 silver', () => {
     const engine = makeEngine();
     engine.state.enemies = [
@@ -94,6 +104,18 @@ describe('tickPickups: 拾取吸附 + collect', () => {
     });
     tickPickups(engine, 0.01);
     expect(engine.state.stats.silverEarned).toBe(7);
+  });
+
+  it('Gold mote 自动飞向玩家并到账', () => {
+    const player = makePlayer({ x: 0, z: 0, gold: 2 });
+    const engine = makeEngine({ state: { ...makeEngine().state, player } });
+    engine.state.goldMotes.push({
+      id: 1, x: 0.2, y: 0.7, z: 0,
+      value: 6, lifetime: 1.5,
+    });
+    tickPickups(engine, 0.01);
+    expect(player.gold).toBe(8);
+    expect(engine.state.goldMotes).toHaveLength(0);
   });
 
   it('Health pickup 治疗到 maxHp', () => {

@@ -13,6 +13,7 @@
  */
 import { StatBlock } from './StatBlock.ts';
 import { TOMES } from '../data/tomes.ts';
+import { getRelicStack } from '../data/relics.ts';
 import { getTomePower } from '../tomeProgression.ts';
 import {
   PLAYER_BASE_CRIT_DAMAGE,
@@ -66,6 +67,17 @@ export function recomputePlayerStats(
     for (const m of def.modifiers(getTomePower(tome))) {
       block.applyModifier(m);
     }
+  }
+
+  const keenLens = getRelicStack(player, 'keen_lens');
+  if (keenLens > 0) {
+    block.applyModifier({ kind: 'added', stat: 'critChance', value: 0.03 * keenLens });
+  }
+
+  const ironHeart = getRelicStack(player, 'iron_heart');
+  if (ironHeart > 0) {
+    block.applyModifier({ kind: 'increased', stat: 'maxHp', value: 0.12 * ironHeart });
+    block.applyModifier({ kind: 'added', stat: 'armor', value: 2 * ironHeart });
   }
 
   // ─── 3. finalize → 写回 player ───
