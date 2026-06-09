@@ -275,6 +275,76 @@ const PICKUP_COLORS: Record<string, number> = {
   health_small: 0xff6666,
 };
 
+const MAX_CONSUMABLE_PICKUPS = 50;
+
+const CONSUMABLE_COLORS: Record<string, number> = {
+  wild_berry: 0xcc44aa,
+  hot_soup: 0xff8844,
+  mint_candy: 0x66ddff,
+  hard_bread: 0xddbb88,
+  energy_bar: 0xffcc33,
+  magnet: 0x4488ff,
+  iron_meal: 0x8899aa,
+  rage_potion: 0xff3344,
+  prophecy_book: 0xaa66ff,
+  craftsman_hammer: 0xffaa44,
+};
+
+const CONSUMABLE_EMOJI: Record<string, string> = {
+  wild_berry: '🫐',
+  hot_soup: '🍲',
+  mint_candy: '🍬',
+  hard_bread: '🥖',
+  energy_bar: '🍫',
+  magnet: '🧲',
+  iron_meal: '🍱',
+  rage_potion: '💢',
+  prophecy_book: '📖',
+  craftsman_hammer: '🔨',
+};
+
+const consumableEmojiTextureCache = new Map<string, THREE.Texture>();
+
+function getConsumableEmojiTexture(consumableId: string): THREE.Texture {
+  const cached = consumableEmojiTextureCache.get(consumableId);
+  if (cached) return cached;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, 128, 128);
+
+  const glow = CONSUMABLE_COLORS[consumableId] ?? 0xcc66ff;
+  const r = ((glow >> 16) & 0xff);
+  const g = ((glow >> 8) & 0xff);
+  const b = (glow & 0xff);
+  const grad = ctx.createRadialGradient(64, 64, 10, 64, 64, 58);
+  grad.addColorStop(0, `rgba(${r},${g},${b},0.55)`);
+  grad.addColorStop(0.55, `rgba(${r},${g},${b},0.22)`);
+  grad.addColorStop(1, 'rgba(20,10,40,0.05)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(64, 64, 56, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = `rgba(${r},${g},${b},0.75)`;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(64, 64, 54, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.font = '68px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(CONSUMABLE_EMOJI[consumableId] ?? '✨', 64, 66);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  consumableEmojiTextureCache.set(consumableId, texture);
+  return texture;
+}
+
 const RARITY_COLORS: Record<string, string> = {
   common: '#aaaaaa',
   uncommon: '#44cc44',
@@ -1386,6 +1456,7 @@ export class GameScene {
   private axeObjects: Map<number, THREE.Object3D> = new Map(); // axe projectile id → cloned model
   private weaponObjects: Map<number, THREE.Object3D> = new Map(); // other weapon projectiles → cloned model
   private pickupMesh!: THREE.InstancedMesh;
+  private consumableSprites: Map<number, THREE.Sprite> = new Map();
   private goldMoteTexture!: THREE.Texture;
   private goldMoteSprites: Map<number, THREE.Sprite> = new Map();
 
@@ -1425,6 +1496,7 @@ export class GameScene {
   private killLabel!: HTMLDivElement;
   private goldLabel!: HTMLDivElement;
   private silverLabel!: HTMLDivElement;
+  private consumableLabel!: HTMLDivElement;
   private weaponSlotsContainer!: HTMLDivElement;
   private tomesSlotsContainer!: HTMLDivElement;
   private relicSlotsContainer!: HTMLDivElement;
@@ -2550,20 +2622,26 @@ export class GameScene {
     this.levelLabel.style.cssText = 'position:absolute;bottom:42px;left:50%;transform:translateX(-50%);color:#ffcc00;font-size:18px;font-weight:bold;text-shadow:0 0 8px rgba(255,200,0,0.4),0 1px 3px rgba(0,0,0,0.8);transition:color 0.3s;';
     this.hudContainer.appendChild(this.levelLabel);
 
-    // Timer (top-right, pill background)
+    // Top-right HUD column — flex stack avoids silver badge overlapping consumable row
+    const rightHudStack = document.createElement('div');
+    rightHudStack.style.cssText = 'position:absolute;top:12px;right:16px;display:flex;flex-direction:column;align-items:flex-end;gap:8px;pointer-events:none;';
+
     this.timerLabel = document.createElement('div');
-    this.timerLabel.style.cssText = 'position:absolute;top:12px;right:16px;color:#ffffff;font-size:clamp(10px, 2.5vw, 18px);font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.8);background:rgba(20,20,40,0.7);padding:4px 12px;border-radius:12px;';
-    this.hudContainer.appendChild(this.timerLabel);
+    this.timerLabel.style.cssText = 'color:#ffffff;font-size:clamp(10px, 2.5vw, 18px);font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.8);background:rgba(20,20,40,0.7);padding:4px 12px;border-radius:12px;';
+    rightHudStack.appendChild(this.timerLabel);
 
-    // Kill count (below timer)
     this.killLabel = document.createElement('div');
-    this.killLabel.style.cssText = 'position:absolute;top:42px;right:16px;color:#cccccc;font-size:clamp(10px, 2.5vw, 14px);text-shadow:0 1px 3px rgba(0,0,0,0.8);';
-    this.hudContainer.appendChild(this.killLabel);
+    this.killLabel.style.cssText = 'color:#cccccc;font-size:clamp(10px, 2.5vw, 14px);text-shadow:0 1px 3px rgba(0,0,0,0.8);';
+    rightHudStack.appendChild(this.killLabel);
 
-    // Silver earned this run (below kills)
     this.silverLabel = createSilverBadge(0);
-    this.silverLabel.style.cssText += 'position:absolute;top:62px;right:16px;';
-    this.hudContainer.appendChild(this.silverLabel);
+    rightHudStack.appendChild(this.silverLabel);
+
+    this.consumableLabel = document.createElement('div');
+    this.consumableLabel.style.cssText = 'display:none;flex-direction:column;align-items:flex-end;gap:2px;background:rgba(20,20,40,0.82);padding:6px 12px;border-radius:12px;border:1px solid rgba(180,120,255,0.4);color:#e8d8ff;font-size:clamp(11px,2.8vw,13px);font-weight:600;text-shadow:0 1px 3px rgba(0,0,0,0.8);max-width:min(260px,48vw);';
+    rightHudStack.appendChild(this.consumableLabel);
+
+    this.hudContainer.appendChild(rightHudStack);
 
     // Tier badge (top-left small)
     this.tierBadge = document.createElement('div');
@@ -2857,6 +2935,7 @@ export class GameScene {
     this.renderEnemies(state.enemies);
     this.renderProjectiles(state.projectiles);
     this.renderPickups(state.pickups);
+    this.renderConsumablePickups(state.consumablePickups ?? []);
     this.renderGoldMotes(state.goldMotes ?? []);
     this.renderBoss(state.boss);
     this.renderTeleporters(state.altars);
@@ -3859,6 +3938,49 @@ export class GameScene {
         this.scene.remove(obj);
         this.weaponObjects.delete(id);
       }
+    }
+  }
+
+  private renderConsumablePickups(pickups: NonNullable<GameState['consumablePickups']>): void {
+    const time = performance.now() * 0.004;
+    const active = new Set<number>();
+    for (const pickup of pickups) {
+      if (active.size >= MAX_CONSUMABLE_PICKUPS) break;
+      active.add(pickup.id);
+
+      let sprite = this.consumableSprites.get(pickup.id);
+      const texture = getConsumableEmojiTexture(pickup.consumableId);
+      if (!sprite) {
+        const mat = new THREE.SpriteMaterial({
+          map: texture,
+          color: 0xffffff,
+          transparent: true,
+          opacity: 1,
+          depthWrite: false,
+          depthTest: true,
+          toneMapped: false,
+        });
+        sprite = new THREE.Sprite(mat);
+        sprite.name = `Consumable_${pickup.id}`;
+        this.scene.add(sprite);
+        this.consumableSprites.set(pickup.id, sprite);
+      } else if (sprite.material.map !== texture) {
+        sprite.material.map = texture;
+        sprite.material.needsUpdate = true;
+      }
+
+      const bob = Math.sin(time * 1.8 + pickup.id) * 0.22;
+      const baseScale = pickup.attracted ? 0.62 : 0.72;
+      const pulse = baseScale + Math.sin(time * 5 + pickup.id) * (pickup.attracted ? 0.08 : 0.05);
+      sprite.position.set(pickup.x, 0.75 + bob, pickup.z);
+      sprite.scale.set(pulse, pulse, pulse);
+    }
+
+    for (const [id, sprite] of this.consumableSprites) {
+      if (active.has(id)) continue;
+      this.scene.remove(sprite);
+      sprite.material.dispose();
+      this.consumableSprites.delete(id);
     }
   }
 
@@ -5331,6 +5453,29 @@ export class GameScene {
     setSilverBadgeAmount(this.silverLabel, state.stats.silverEarned);
     setGoldBadgeAmount(this.goldLabel, p.gold);
 
+    // Active consumable buff (below silver)
+    const active = p.activeConsumable;
+    if (active) {
+      const emoji = CONSUMABLE_EMOJI[active.id] ?? '✨';
+      const name = t(`consumable.${active.id}`);
+      const desc = t(`consumable.${active.id}_desc`);
+      const timerText = active.remaining < 0
+        ? t('consumable.pending')
+        : t('consumable.timer', { seconds: String(Math.ceil(active.remaining)) });
+      this.consumableLabel.style.display = 'flex';
+      this.consumableLabel.innerHTML = `
+        <div style="display:flex;align-items:center;gap:6px;width:100%;justify-content:flex-end;">
+          <span style="font-size:18px;line-height:1;flex-shrink:0;">${emoji}</span>
+          <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</span>
+          <span style="opacity:0.85;font-size:11px;flex-shrink:0;">${timerText}</span>
+        </div>
+        <div style="font-size:10px;font-weight:500;opacity:0.88;color:#d8c8ff;text-align:right;line-height:1.3;max-width:100%;">${desc}</div>
+      `;
+    } else {
+      this.consumableLabel.style.display = 'none';
+      this.consumableLabel.innerHTML = '';
+    }
+
     // --- Weapon Icons Bar (bottom-left) ---
     this.weaponSlotsContainer.innerHTML = '';
     for (const weapon of p.weapons) {
@@ -5425,7 +5570,8 @@ export class GameScene {
       .filter(c => !c.opened)
       .map(c => ({ chest: c, dist: Math.hypot(c.x - p.x, c.z - p.z) }))
       .sort((a, b) => a.dist - b.dist)[0] ?? null;
-    const chestCost = getChestGoldCost(p.level);
+    const openedChestCount = state.chests.filter(c => c.opened).length;
+    const chestCost = getChestGoldCost(p.level, openedChestCount);
     const chestInRange = nearestChest != null && nearestChest.dist <= CHEST_INTERACT_RADIUS;
     const visibleAltar = state.altars.find(a => a.phase !== 'boss_active' && a.phase !== 'portal_used');
     if (chestInRange && nearestChest) {

@@ -16,13 +16,15 @@ describe('xpForLevel', () => {
 describe('computeActiveWeaponSlots', () => {
   it('局内等级解锁最高 5 槽（无局外奖励）', () => {
     expect(computeActiveWeaponSlots(1, 5)).toBe(1);
-    expect(computeActiveWeaponSlots(10, 5)).toBe(2);
-    expect(computeActiveWeaponSlots(40, 5)).toBe(5);
+    expect(computeActiveWeaponSlots(4, 5)).toBe(1);
+    expect(computeActiveWeaponSlots(5, 5)).toBe(2);
+    expect(computeActiveWeaponSlots(10, 5)).toBe(3);
+    expect(computeActiveWeaponSlots(30, 5)).toBe(5);
     expect(computeActiveWeaponSlots(50, 5)).toBe(5);
   });
 
   it('局外 +1 槽任务后 50 级解锁第 6 槽', () => {
-    expect(computeActiveWeaponSlots(40, 6)).toBe(5);
+    expect(computeActiveWeaponSlots(30, 6)).toBe(5);
     expect(computeActiveWeaponSlots(50, 6)).toBe(6);
   });
 });

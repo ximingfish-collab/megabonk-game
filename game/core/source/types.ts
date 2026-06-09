@@ -130,6 +130,26 @@ export interface PlayerState {
   maxHp: number;
   /** 消耗品掉落倍率（base 1.0，consumable_tome 等来源会提高）。 */
   consumableDropMult?: number;
+  /** 当前生效的消耗品（timed / one_shot 待触发）；新拾取覆盖旧。 */
+  activeConsumable?: ActiveConsumableState | null;
+  /** F04 硬面包：下一次受伤归零。 */
+  nextHitNullify?: boolean;
+  /** F09 预言之书：下一次升级选项保底稀有度。 */
+  nextLevelUpReroll?: boolean;
+  /** F10 匠神锤：下一次武器升级额外 +N 级。 */
+  nextWeaponUpgradeBonus?: number;
+  /** F06 磁铁：仅扩大 XP 宝石拾取半径（默认 1）。 */
+  xpPickupRadiusMult?: number;
+  /** timed 消耗品派生：移速倍率（默认 1）。 */
+  consumableSpeedMult?: number;
+  /** timed 消耗品派生：攻速倍率（默认 1）。 */
+  consumableAttackSpeedMult?: number;
+  /** timed 消耗品派生：额外护甲（默认 0）。 */
+  consumableArmorBonus?: number;
+  /** timed 消耗品派生：伤害倍率（默认 1）。 */
+  consumableDamageMult?: number;
+  /** timed 消耗品派生：受伤倍率（默认 1，狂怒药 +10%）。 */
+  consumableDamageTakenMult?: number;
   level: number;
   xp: number;
   xpToNext: number;
@@ -311,6 +331,35 @@ export interface ProjectileState {
   gravityStrength?: number;
 }
 
+// --- Consumables ---
+export type ConsumableId =
+  | 'wild_berry'
+  | 'hot_soup'
+  | 'mint_candy'
+  | 'hard_bread'
+  | 'energy_bar'
+  | 'magnet'
+  | 'iron_meal'
+  | 'rage_potion'
+  | 'prophecy_book'
+  | 'craftsman_hammer';
+
+export interface ActiveConsumableState {
+  id: ConsumableId;
+  /** timed 剩余秒数；-1 表示 one_shot 待触发。 */
+  remaining: number;
+}
+
+export interface ConsumablePickupState {
+  id: number;
+  consumableId: ConsumableId;
+  x: number;
+  y: number;
+  z: number;
+  lifetime: number;
+  attracted: boolean;
+}
+
 // --- Pickups ---
 export type PickupType = 'xp_green' | 'xp_blue' | 'xp_purple' | 'xp_orange' | 'silver' | 'health' | 'health_small';
 
@@ -475,6 +524,7 @@ export interface GameState {
   enemies: EnemyState[];
   projectiles: ProjectileState[];
   pickups: PickupState[];
+  consumablePickups: ConsumablePickupState[];
   goldMotes: GoldMoteState[];
   chests: ChestState[];
   boss: BossState | null;

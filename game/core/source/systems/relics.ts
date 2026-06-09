@@ -7,13 +7,16 @@ export const CHEST_GOLD_COST_BASE = 35;
 export const CHEST_GOLD_COST_PER_LEVEL = 3;
 export const CHEST_GOLD_COST_LEVEL_POWER = 1.25;
 export const CHEST_GOLD_COST_POWER_SCALE = 0.75;
+export const CHEST_GOLD_COST_PER_OPENED = 20;
 
-export function getChestGoldCost(playerLevel: number): number {
+export function getChestGoldCost(playerLevel: number, openedChestCount = 0): number {
   const level = Math.max(1, playerLevel);
+  const opened = Math.max(0, openedChestCount);
   return Math.floor(
     CHEST_GOLD_COST_BASE
     + level * CHEST_GOLD_COST_PER_LEVEL
-    + Math.pow(level, CHEST_GOLD_COST_LEVEL_POWER) * CHEST_GOLD_COST_POWER_SCALE,
+    + Math.pow(level, CHEST_GOLD_COST_LEVEL_POWER) * CHEST_GOLD_COST_POWER_SCALE
+    + opened * CHEST_GOLD_COST_PER_OPENED,
   );
 }
 

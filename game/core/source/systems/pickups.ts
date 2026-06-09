@@ -23,6 +23,7 @@ import { ENEMIES } from '../data/enemies.ts';
 import { getShopBonuses } from '../shop.ts';
 import { getTomePower } from '../tomeProgression.ts';
 import { applyRelicKillEffects, getRelicBonusGoldOnKill, rollGoldForEnemy } from './relics.ts';
+import { getXpPickupRadius, isXpPickupType, spawnConsumablesFromEnemy } from './consumables.ts';
 import type { EnemyState, PickupState, PickupType } from '../types.ts';
 import type { Engine } from './types.ts';
 
@@ -32,6 +33,7 @@ export function processDeaths(engine: Engine): void {
     const enemy = enemies[i];
     if (enemy.hp <= 0) {
       spawnPickupFromEnemy(engine, enemy);
+      spawnConsumablesFromEnemy(engine, enemy);
       applyRelicKillEffects(engine, enemy);
       spawnGoldMoteFromEnemy(engine, enemy);
       engine.state.stats.killCount++;
@@ -136,13 +138,18 @@ export function tickPickups(engine: Engine, dt: number): void {
     }
 
     const dist = distanceBetween(player.x, player.z, pickup.x, pickup.z);
-    if (dist < player.pickupRadius) {
+    const attractRadius = isXpPickupType(pickup.type)
+      ? getXpPickupRadius(player)
+      : player.pickupRadius;
+    if (dist < attractRadius) {
       pickup.attracted = true;
     }
 
     if (pickup.attracted) {
       // 加速吸附：起步慢, 越靠近越快
-      const maxDist = player.pickupRadius;
+      const maxDist = isXpPickupType(pickup.type)
+        ? getXpPickupRadius(player)
+        : player.pickupRadius;
       const t = Math.max(0, 1 - dist / maxDist);
       const attractSpeed = PICKUP_ATTRACT_SPEED * (0.3 + t * t * 2.0);
 

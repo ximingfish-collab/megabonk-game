@@ -37,7 +37,7 @@ import { getShopBonuses } from './shop.ts';
 import { checkQuestCompletion } from './quests.ts';
 import { spawnEnemy } from './factories/spawnEnemy.ts';
 import { recomputePlayerStats } from './stats/recomputePlayerStats.ts';
-import { applyTomeUpgrade, getTomePower } from './tomeProgression.ts';
+import { applyTomeUpgrade } from './tomeProgression.ts';
 import { tickEnemyAi } from './systems/aiSystem.ts';
 import { tickBossAi } from './systems/bossAi.ts';
 
@@ -55,6 +55,7 @@ import { tickWeapons, checkWeaponEvolutions, applyWeaponUpgrade, emptyWeaponGrow
 import { tickProjectiles } from './systems/projectiles.ts';
 import { processCollisions } from './systems/collisions.ts';
 import { processDeaths, tickPickups, tickThorns } from './systems/pickups.ts';
+import { applyPlayerHit, tickConsumableEffects, tickConsumablePickups } from './systems/consumables.ts';
 import { tickSpawning, checkBossSpawn } from './systems/spawning.ts';
 import { tickAltars, generateAltars } from './systems/altars.ts';
 import { tickChests, generateChests, nextChestId, nextChestRespawnDelay } from './systems/chests.ts';
@@ -62,10 +63,7 @@ import { grantRelic } from './systems/relics.ts';
 import { tickOvertime } from './systems/overtime.ts';
 import { tickTierTransition } from './systems/tierTransition.ts';
 import { tickShrines, generateShrines, applyShrineReward } from './systems/shrines.ts';
-import { addDamageEvent, applyKnockback, checkPlayerDeath, checkGameOver } from './systems/helpers.ts';
-import {
-  PLAYER_INVINCIBLE_DURATION,
-} from './config.ts';
+import { addDamageEvent, applyKnockback, checkGameOver } from './systems/helpers.ts';
 
 export class GameInstance {
   private engine: Engine;
@@ -84,6 +82,7 @@ export class GameInstance {
       enemies: [],
       projectiles: [],
       pickups: [],
+      consumablePickups: [],
       goldMotes: [],
       boss: null,
       upgradeOptions: null,
@@ -170,6 +169,7 @@ export class GameInstance {
     state.enemies = [];
     state.projectiles = [];
     state.pickups = [];
+    state.consumablePickups = [];
     state.goldMotes = [];
     state.damageEvents = [];
     state.levelUpCompensationEvents = [];
@@ -246,6 +246,8 @@ export class GameInstance {
     processCollisions(engine);
     processDeaths(engine);
     tickPickups(engine, dt);
+    tickConsumablePickups(engine, dt);
+    tickConsumableEffects(engine, dt);
     tickLevelUp(engine);
     tickSpawning(engine, dt);
     tickAltars(engine, dt);
@@ -299,7 +301,19 @@ export class GameInstance {
         if (option.weaponType) {
           const weapon = player.weapons.find(w => w.type === option.weaponType);
           // 新规则：level +1，并按选项稀有度缩放「本级→下一级」步进累加到 growth。
-          if (weapon && !weapon.evolved) applyWeaponUpgrade(weapon, option.rarity);
+          if (weapon && !weapon.evolved) {
+            applyWeaponUpgrade(weapon, option.rarity);
+            const bonus = player.nextWeaponUpgradeBonus ?? 0;
+            if (bonus > 0) {
+              player.nextWeaponUpgradeBonus = 0;
+              if (player.activeConsumable?.id === 'craftsman_hammer') {
+                player.activeConsumable = null;
+              }
+              for (let i = 0; i < bonus && !weapon.evolved; i++) {
+                applyWeaponUpgrade(weapon, option.rarity);
+              }
+            }
+          }
         }
         break;
       case 'tome':
@@ -459,21 +473,7 @@ function makeEffects(engine: Engine): AiEffects {
       return newEnemy;
     },
     damagePlayer: (rawDamage: number) => {
-      const player = engine.state.player;
-      if (!player.alive || player.invincibleTimer > 0) return;
-      const shieldTome = player.tomes.find(t => t.type === 'shield_tome');
-      const shieldReduction = getTomePower(shieldTome) * 0.05;
-      const dmg = Math.max(1, rawDamage - player.armor);
-      const finalDmg = Math.max(1, Math.round(dmg * (1 - shieldReduction)));
-      const shield = player.shield ?? 0;
-      const absorbed = Math.min(shield, finalDmg);
-      if (absorbed > 0) player.shield = shield - absorbed;
-      const hpDamage = finalDmg - absorbed;
-      if (hpDamage > 0) player.hp -= hpDamage;
-      player.invincibleTimer = PLAYER_INVINCIBLE_DURATION;
-      engine.state.stats.damageTaken += hpDamage;
-      addDamageEvent(engine, player.x, 1.5, player.z, hpDamage, false, true);
-      if (player.hp <= 0) checkPlayerDeath(engine);
+      applyPlayerHit(engine, rawDamage);
     },
   };
 }

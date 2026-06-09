@@ -71,12 +71,13 @@ export function tickChests(engine: Engine, dt = 0): void {
   tickChestRespawn(engine, dt);
   if (!engine.input.interact) return;
 
+  const openedChestCount = engine.state.chests.filter(c => c.opened).length;
   for (const chest of engine.state.chests) {
     if (chest.opened) continue;
     const dist = distanceBetween(player.x, player.z, chest.x, chest.z);
     if (dist >= CHEST_INTERACT_RADIUS) continue;
 
-    const cost = getChestGoldCost(player.level);
+    const cost = getChestGoldCost(player.level, openedChestCount);
     if (player.gold < cost) return;
     player.gold -= cost;
     const relic = rollRelicForPlayer(engine);

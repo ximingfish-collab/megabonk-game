@@ -70,6 +70,16 @@ export function createInitialPlayer(config: GameConfig): PlayerState {
     hp: charCfg.hp + (shopBonuses['maxHp'] ?? 0),
     maxHp: charCfg.hp + (shopBonuses['maxHp'] ?? 0),
     consumableDropMult: 1,
+    activeConsumable: null,
+    nextHitNullify: false,
+    nextLevelUpReroll: false,
+    nextWeaponUpgradeBonus: 0,
+    xpPickupRadiusMult: 1,
+    consumableSpeedMult: 1,
+    consumableAttackSpeedMult: 1,
+    consumableArmorBonus: 0,
+    consumableDamageMult: 1,
+    consumableDamageTakenMult: 1,
     level: startLevel,
     xp: 0,
     xpToNext: xpForLevel(startLevel),
@@ -248,7 +258,7 @@ export function tickPlayerMovement(engine: Engine, dt: number): void {
 
   // 水平移动 (加速度)
   const speedMultiplier = player.isSliding ? player.slideSpeedBoost : 1.0;
-  const targetSpeed = player.speed * speedMultiplier;
+  const targetSpeed = player.speed * speedMultiplier * (player.consumableSpeedMult ?? 1);
 
   if (isMoving) {
     player.currentSpeed += (targetSpeed - player.currentSpeed) * Math.min(1, 12.0 * dt);
@@ -400,7 +410,14 @@ export function tickLevelUp(engine: Engine): void {
     player.xpToNext = xpForLevel(player.level);
     player.activeWeaponSlots = computeActiveWeaponSlots(player.level, player.maxWeaponSlots);
 
-    const options = generateUpgradeOptions(player, 3);
+    const useProphecy = player.nextLevelUpReroll === true;
+    if (useProphecy) {
+      player.nextLevelUpReroll = false;
+      if (player.activeConsumable?.id === 'prophecy_book') {
+        player.activeConsumable = null;
+      }
+    }
+    const options = generateUpgradeOptions(player, 3, useProphecy ? { prophecy: true } : undefined);
     if (options.length > 0) {
       engine.state.upgradeOptions = options;
       engine.state.phase = 'level_up';

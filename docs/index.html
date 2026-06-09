@@ -1944,7 +1944,7 @@ luck 来源 = luck_tome.level + floor(player.luckBonus * 100)</code></pre>
     </div>
     <div class="card">
       <h4>遗物 · 金币 · 宝箱 <span class="badge-new">已实现</span></h4>
-      <p>遗物<strong>不占武器槽</strong>，<strong>同 ID 可叠加</strong>。击杀生成<strong>金币 mote</strong>自动飞向玩家。开箱按等级曲线扣金币并进入 <code>chest_reward</code>；只有<strong>留下</strong>才写入 <code>relicStacks</code> 并生效。</p>
+      <p>遗物<strong>不占武器槽</strong>，<strong>同 ID 可叠加</strong>。击杀生成<strong>金币 mote</strong>自动飞向玩家。开箱按「等级曲线 + 本关已开启宝箱数」扣金币并进入 <code>chest_reward</code>；只有<strong>留下</strong>才写入 <code>relicStacks</code> 并生效。</p>
       <p><a href="#" data-tab="ext-relics">→ 详见</a></p>
     </div>
     <div class="card">
@@ -1986,7 +1986,7 @@ luck 来源 = luck_tome.level + floor(player.luckBonus * 100)</code></pre>
          ↓ 无
   roll 金币 or 银币（50/50，数量随 level 缩放）
 
-  宝箱 ──→ 消耗 gold（只随等级定价）──→ chest_reward 暂停 ──→ 留下：grantRelic / 丢弃：不记录
+  宝箱 ──→ 消耗 gold（等级曲线 + 已开启宝箱数递增）──→ chest_reward 暂停 ──→ 留下：grantRelic / 丢弃：不记录
          ↓ 场上未开 &lt; 6 时 30～60s 补刷 1 个
   怪物 ──→ 概率掉落消耗品（consumable_tome 提高掉落率）
 
@@ -2284,7 +2284,7 @@ on bond_upgrade 2→3:
 <!-- ============= EXT RELICS ============= -->
 <section id="ext-relics">
   <h2>遗物 · 宝箱 · 金币 <span class="badge-new">new</span></h2>
-  <p class="sub">v0.4 设计 + <strong>当前代码已落地</strong>：遗物<strong>不占武器槽</strong>；<strong>同 ID 可无限叠加</strong>（无种类上限、无替换 UI）。开箱消耗<strong>金币</strong>，费用只随玩家等级平滑增长，不按本关已开启宝箱数加税。</p>
+  <p class="sub">v0.4 设计 + <strong>当前代码已落地</strong>：遗物<strong>不占武器槽</strong>；<strong>同 ID 可无限叠加</strong>（无种类上限、无替换 UI）。开箱消耗<strong>金币</strong>，费用随玩家等级平滑增长，且<strong>本关每多开 1 个宝箱额外 +20 金币</strong>，抑制连续开箱滚雪球。</p>
 
   <div class="note">
     <b>当前实现：</b>击杀生成 <code>GameState.goldMotes[]</code>（Canvas 金币 sprite，自动飞向玩家到账，<strong>不是</strong> <code>pickups</code> 里的 gold 拾取物）。靠近未开启宝箱按交互键 → 立刻扣金币、<code>chest.opened = true</code>、<code>phase = chest_reward</code>（主循环暂停，等同 <code>level_up</code>）。客户端播放稀有度闪烁动画后弹出<strong>留下 / 丢弃</strong>；<code>GameInstance.selectChestReward(keep)</code> 仅在 <code>keep === true</code> 时调用 <code>grantRelic</code> 写入 <code>player.relicStacks</code>。丢弃不记录、不生效，但金币已扣、宝箱已开。
@@ -2294,7 +2294,7 @@ on bond_upgrade 2→3:
   <table>
     <tr><th>路径</th><th>职责</th></tr>
     <tr><td><code>data/relics.ts</code></td><td>10 件遗物表（<code>RELICS</code>）、稀有度权重、<code>rollRelic</code>（未拥有优先 + 重复降权）</td></tr>
-    <tr><td><code>systems/relics.ts</code></td><td><code>getChestGoldCost</code> / <code>rollRelicForPlayer</code> / <code>grantRelic</code>；击杀/伤害钩子（<strong>无</strong> <code>tickRelics</code>）</td></tr>
+    <tr><td><code>systems/relics.ts</code></td><td><code>getChestGoldCost(level, openedChestCount)</code> / <code>rollRelicForPlayer</code> / <code>grantRelic</code>；击杀/伤害钩子（<strong>无</strong> <code>tickRelics</code>）</td></tr>
     <tr><td><code>systems/chests.ts</code></td><td><code>generateChests</code> / <code>tickChests</code>（交互开箱 + 补刷）</td></tr>
     <tr><td><code>systems/pickups.ts</code></td><td><code>spawnGoldMoteFromEnemy</code> / <code>tickGoldMotes</code>；精英仍掉银币 <code>pickup</code></td></tr>
     <tr><td><code>GameInstance.ts</code></td><td><code>chest_reward</code> 阶段跳过 tick；<code>selectChestReward</code></td></tr>
@@ -2328,7 +2328,7 @@ on bond_upgrade 2→3:
     <tr><th>项</th><th>说明</th></tr>
     <tr><td>初始数量</td><td>开局 / tier 切换 <code>generateChests</code> → <strong>6</strong> 个（<code>CHEST_COUNT</code>）；有关卡 <code>chestSpawns</code> 时优先用手摆点</td></tr>
     <tr><td>补刷</td><td>场上未开启宝箱 &lt; <code>CHEST_MAX_ACTIVE</code>（6）时，每 30～60s 在玩家 12～35 单位外补 1 个</td></tr>
-    <tr><td>费用</td><td><code>cost = floor(35 + level × 3 + pow(level, 1.25) × 0.75)</code>；只随玩家等级增长，不包含「已开启宝箱数」递增项</td></tr>
+    <tr><td>费用</td><td><code>cost = floor(35 + level × 3 + pow(level, 1.25) × 0.75 + openedChestCount × 20)</code>；<code>openedChestCount</code> = 本关已开启宝箱数（<code>chests.filter(c =&gt; c.opened).length</code>）。例：Lv10 第 1 箱 ≈ 78 金，第 4 箱 ≈ 138 金</td></tr>
     <tr><td>交互</td><td>距离 &lt; <code>CHEST_INTERACT_RADIUS</code>（2.5）+ <code>interact</code>；<code>gold &lt; cost</code> 时按钮灰显；足够时立刻扣费并进入 <code>chest_reward</code></td></tr>
     <tr><td>产出</td><td><code>rollRelicForPlayer</code> → 写入 <code>pendingChestReward</code>；<strong>留下</strong> → <code>grantRelic</code>；<strong>丢弃</strong> → 不记录</td></tr>
     <tr><td>金币不足</td><td>无法开启；无「遗物栏满」fallback（因为无上限）</td></tr>

@@ -34,7 +34,7 @@ function defaultState(player: PlayerState, character: GameConfig['character'] = 
     tick: 0, gameTime: 0, overtimeSeconds: 0, running: false, paused: false, finished: false,
     phase: 'playing',
     player,
-    enemies: [], projectiles: [], pickups: [], goldMotes: [], boss: null,
+    enemies: [], projectiles: [], pickups: [], consumablePickups: [], goldMotes: [], boss: null,
     upgradeOptions: null, damageEvents: [], levelUpCompensationEvents: [],
     chestOpenEvents: [], pendingChestReward: null,
     stats: { killCount: 0, damageDealt: 0, damageTaken: 0, silverEarned: 0 },

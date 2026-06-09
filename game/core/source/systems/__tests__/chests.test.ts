@@ -74,7 +74,7 @@ describe('tickChests', () => {
     expect(engine.state.chestOpenEvents).toHaveLength(0);
   });
 
-  it('费用只随玩家等级增长，不受本关已开启宝箱数影响', () => {
+  it('费用随本关已开启宝箱数增长', () => {
     const engine = makeEngine();
     const target: ChestState = { id: 4, x: 0, z: 0, opened: false };
     engine.state.chests = [
@@ -83,7 +83,9 @@ describe('tickChests', () => {
       { id: 3, x: 14, z: 0, opened: true },
       target,
     ];
-    const cost = getChestGoldCost(engine.state.player.level);
+    const baseCost = getChestGoldCost(engine.state.player.level);
+    const cost = getChestGoldCost(engine.state.player.level, 3);
+    expect(cost).toBeGreaterThan(baseCost);
     engine.state.player.gold = cost;
     engine.input.interact = true;
     tickChests(engine);

@@ -74,7 +74,7 @@ export function tickWeapons(engine: Engine, dt: number): void {
   if (!player.alive) return;
 
   for (const weapon of player.weapons) {
-    weapon.cooldownTimer -= dt * player.attackSpeedMultiplier;
+    weapon.cooldownTimer -= dt * player.attackSpeedMultiplier * (player.consumableAttackSpeedMult ?? 1);
     if (weapon.cooldownTimer <= 0) {
       const baseStats = getWeaponStats(weapon);
       const stats = {
@@ -83,7 +83,9 @@ export function tickWeapons(engine: Engine, dt: number): void {
       };
       weapon.cooldownTimer = stats.cooldown;
       const baseDamageMultiplier = player.damageMultiplier;
-      player.damageMultiplier = baseDamageMultiplier * getRelicDamageMultiplier(engine);
+      player.damageMultiplier = baseDamageMultiplier
+        * getRelicDamageMultiplier(engine)
+        * (player.consumableDamageMult ?? 1);
       try {
         tryFireWeaponEcs(
           engine.world, weapon, stats,
