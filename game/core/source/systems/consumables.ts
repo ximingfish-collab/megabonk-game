@@ -12,6 +12,7 @@ import {
 } from '../config.ts';
 import { CONSUMABLES, rollConsumableForEnemy, rollMiniBossBonusConsumable } from '../data/consumables.ts';
 import { getTomePower } from '../tomeProgression.ts';
+import { applyCharacterTrait } from '../stats/applyCharacterTrait.ts';
 import { addDamageEvent, checkPlayerDeath } from './helpers.ts';
 import type { ConsumableId, ConsumablePickupState, EnemyState } from '../types.ts';
 import type { Engine } from './types.ts';
@@ -102,6 +103,7 @@ export function clearConsumableEffects(player: Engine['state']['player']): void 
   player.consumableArmorBonus = 0;
   player.consumableDamageMult = 1;
   player.consumableDamageTakenMult = 1;
+  applyCharacterTrait(player, player.character);
 }
 
 export function applyConsumable(engine: Engine, consumableId: ConsumableId): void {
@@ -169,6 +171,8 @@ function applyTimedConsumable(
     case 'hot_soup':
       break;
   }
+
+  applyCharacterTrait(player, player.character);
 }
 
 export function tickConsumableEffects(engine: Engine, dt: number): void {

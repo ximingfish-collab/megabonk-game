@@ -6865,6 +6865,17 @@ function refreshCharacterSelectDetail(): void {
     ));
   }
   mainSection.appendChild(statsEl);
+
+  const traitTitleEl = document.createElement('div');
+  traitTitleEl.style.cssText = detailFont('13px', 'font-weight:bold;margin-top:2px;');
+  traitTitleEl.textContent = t('characterSelect.traitTitle');
+  mainSection.appendChild(traitTitleEl);
+
+  const traitDescEl = document.createElement('p');
+  traitDescEl.style.cssText = detailFont('12px', 'font-weight:bold;');
+  traitDescEl.textContent = t(`character.${id}_trait`);
+  mainSection.appendChild(traitDescEl);
+
   card.appendChild(mainSection);
 
   const weaponSection = document.createElement('div');

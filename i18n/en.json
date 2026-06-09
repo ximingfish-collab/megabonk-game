@@ -13,6 +13,7 @@
     "confirm": "Confirm",
     "back": "Back",
     "initialWeapon": "Starting Weapon",
+    "traitTitle": "Trait",
     "statLabel": {
       "hp": "HP",
       "speed": "Speed",
@@ -33,10 +34,13 @@
   "character": {
     "megachad": "Megachad",
     "megachad_desc": "Balanced fighter. High damage, standard speed.",
+    "megachad_trait": "Damage multiplier above 1.0 becomes bonus XP gain.",
     "roberto": "Roberto",
     "roberto_desc": "Tanky warrior. Extra HP and armor, slower speed.",
+    "roberto_trait": "Armor grants crit chance; overflow past 100% crit becomes crit damage.",
     "skateboard_skeleton": "Skateboard Skeleton",
     "skateboard_skeleton_desc": "Fast and fragile. High speed and crit, low HP.",
+    "skateboard_skeleton_trait": "Movement speed above base speed increases attack speed.",
     "stat": {
       "hp": "HP: {{value}}",
       "speed": "Speed: {{value}}",

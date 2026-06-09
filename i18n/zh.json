@@ -13,6 +13,7 @@
     "confirm": "确认",
     "back": "返回",
     "initialWeapon": "初始武器",
+    "traitTitle": "天赋",
     "statLabel": {
       "hp": "血量",
       "speed": "速度",
@@ -33,10 +34,13 @@
   "character": {
     "megachad": "超级猛男",
     "megachad_desc": "均衡型战士，高伤害，标准速度",
+    "megachad_trait": "伤害倍率高于 1.0 的部分会转为经验获取加成。",
     "roberto": "罗伯托",
     "roberto_desc": "坦克型战士，高生命和护甲，速度较慢",
+    "roberto_trait": "护甲会提高暴击率；超过 100% 暴击率的部分会转为暴击伤害。",
     "skateboard_skeleton": "滑板骷髅",
     "skateboard_skeleton_desc": "速度型，高速高暴击，低生命值",
+    "skateboard_skeleton_trait": "高于基础速度的移速会提高攻击速度。",
     "stat": {
       "hp": "血量: {{value}}",
       "speed": "速度: {{value}}",

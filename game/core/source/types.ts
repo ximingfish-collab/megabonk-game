@@ -156,6 +156,14 @@ export interface PlayerState {
   consumableDamageMult?: number;
   /** timed 消耗品派生：受伤倍率（默认 1，狂怒药 +10%）。 */
   consumableDamageTakenMult?: number;
+  /** 角色天赋派生：经验获取加成（0.044 = +4.4%）。 */
+  characterTraitXpBonus?: number;
+  /** 角色天赋派生：暴击率加成，供重复刷新时撤销旧值。 */
+  characterTraitCritChanceBonus?: number;
+  /** 角色天赋派生：暴击伤害加成，供重复刷新时撤销旧值。 */
+  characterTraitCritDamageBonus?: number;
+  /** 角色天赋派生：攻速加成，供重复刷新时撤销旧值。 */
+  characterTraitAttackSpeedBonus?: number;
   level: number;
   xp: number;
   xpToNext: number;

@@ -12,6 +12,7 @@
  * 路径直接读 player.tomes，本函数不参与。
  */
 import { StatBlock } from './StatBlock.ts';
+import { applyCharacterTrait } from './applyCharacterTrait.ts';
 import { TOMES } from '../data/tomes.ts';
 import { getRelicStack } from '../data/relics.ts';
 import { getTomePower } from '../tomeProgression.ts';
@@ -39,7 +40,8 @@ export interface ShopBonuses {
  * 原 recalculateTomeStats 行为一致）。
  *
  * **副作用**：写 `player.speed / damageMultiplier / attackSpeedMultiplier /
- * critChance / critDamage / armor / pickupRadius / maxHp / consumableDropMult`.
+ * critChance / critDamage / armor / pickupRadius / maxHp / consumableDropMult /
+ * characterTraitXpBonus`.
  * 不写 level / xp / weapons / tomes，不治疗玩家。
  */
 export function recomputePlayerStats(
@@ -92,4 +94,10 @@ export function recomputePlayerStats(
   player.maxHp                 = block.getFinal('maxHp');
   player.hp                    = Math.min(player.hp, player.maxHp);
   player.consumableDropMult    = block.getFinal('consumableDropMult');
+
+  player.characterTraitXpBonus = 0;
+  player.characterTraitCritChanceBonus = 0;
+  player.characterTraitCritDamageBonus = 0;
+  player.characterTraitAttackSpeedBonus = 0;
+  applyCharacterTrait(player, character);
 }

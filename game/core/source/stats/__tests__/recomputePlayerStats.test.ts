@@ -1,14 +1,15 @@
 /**
- * recomputePlayerStats 数学等价测试.
+ * recomputePlayerStats 数学测试.
  *
  * 旧路径 (Phase 4 末): GameInstance.recalculateTomeStats 内嵌 switch case
- * 新路径 (Phase 5):    走 stat pipeline (StatBlock + data/tomes.ts modifiers)
+ * 新路径 (Phase 5+):   走 stat pipeline (StatBlock + data/tomes.ts modifiers) 后应用角色天赋
  *
  * 本文件以纯函数形式重新实现旧 switch case (legacyRecompute), 然后用
- * 一系列 (character × shop × tomes) fixture 对比新旧输出, 数学等价 = 全等.
+ * 一系列 (character × shop × tomes) fixture 对比重算与天赋结果, 数学等价 = 全等.
  */
 import { describe, it, expect } from 'vitest';
 import { recomputePlayerStats, type ShopBonuses } from '../recomputePlayerStats.ts';
+import { applyCharacterTrait } from '../applyCharacterTrait.ts';
 import {
   CHARACTER_CONFIGS,
   PLAYER_BASE_CRIT_DAMAGE,
@@ -53,6 +54,9 @@ function legacyRecompute(
   player.critDamage = critDamage;
   player.armor = armor;
   player.pickupRadius = pickupRadius;
+  player.characterTraitXpBonus = 0;
+
+  applyCharacterTrait(player, character);
 }
 
 // ─── fixture 工具 ───
@@ -82,6 +86,7 @@ function snapshot(p: PlayerState) {
     critDamage: p.critDamage,
     armor: p.armor,
     pickupRadius: p.pickupRadius,
+    characterTraitXpBonus: p.characterTraitXpBonus,
   };
 }
 
@@ -97,7 +102,7 @@ function assertEquivalent(
   expect(snapshot(b)).toEqual(snapshot(a));
 }
 
-describe('recomputePlayerStats: 与 Phase 4 末 switch case 数学等价', () => {
+describe('recomputePlayerStats: stat pipeline + 角色天赋', () => {
   it('裸玩家 (无 tome / 无 shop)', () => {
     assertEquivalent('megachad', {}, []);
     assertEquivalent('roberto', {}, []);
@@ -183,7 +188,7 @@ describe('recomputePlayerStats: 与 Phase 4 末 switch case 数学等价', () =>
 });
 
 describe('recomputePlayerStats: 边界与具体数值', () => {
-  it('megachad 裸 → speed=旧 slide 速度, damageMult=1.2, critDamage=1.5', () => {
+  it('megachad 裸 → speed=旧 slide 速度, damageMult=1.2, XP 天赋 +4.4%', () => {
     const p = makePlayer();
     recomputePlayerStats(p, 'megachad', {});
     expect(p.speed).toBeCloseTo(4.0 * PLAYER_MOVE_SPEED_MULTIPLIER, 5);
@@ -193,6 +198,7 @@ describe('recomputePlayerStats: 边界与具体数值', () => {
     expect(p.critDamage).toBe(PLAYER_BASE_CRIT_DAMAGE);
     expect(p.armor).toBe(0);
     expect(p.pickupRadius).toBe(PLAYER_PICKUP_RADIUS);
+    expect(p.characterTraitXpBonus).toBeCloseTo(0.044, 5);
   });
 
   it('megachad + speed_tome lv5 → speed = 旧 slide 速度 × 1.4', () => {
@@ -201,16 +207,17 @@ describe('recomputePlayerStats: 边界与具体数值', () => {
     expect(p.speed).toBeCloseTo(4.0 * PLAYER_MOVE_SPEED_MULTIPLIER * 1.4, 5);
   });
 
-  it('roberto + shield_tome lv5 → armor = 3 + 10 = 13', () => {
+  it('roberto + shield_tome lv5 → armor = 13, 天赋暴击 +10.4%', () => {
     const p = makePlayer([{ type: 'shield_tome', level: 5 }]);
     recomputePlayerStats(p, 'roberto', {});
     expect(p.armor).toBe(13);
+    expect(p.critChance).toBeCloseTo(0.05 + 13 * 0.008, 5);
   });
 
   it('precision_tome lv 3 → crit +15%, crit dmg +0.30', () => {
     const p = makePlayer([{ type: 'precision_tome', level: 3 }]);
     recomputePlayerStats(p, 'roberto', {});
-    expect(p.critChance).toBeCloseTo(0.05 + 0.15, 5);
+    expect(p.critChance).toBeCloseTo(0.05 + 0.15 + 3 * 0.008, 5);
     expect(p.critDamage).toBeCloseTo(1.5 + 0.30, 5);
   });
 
@@ -230,5 +237,14 @@ describe('recomputePlayerStats: 边界与具体数值', () => {
     const p = makePlayer([{ type: 'speed_tome', level: 1, growth: 1.6 }]);
     recomputePlayerStats(p, 'megachad', {});
     expect(p.speed).toBeCloseTo(4.0 * PLAYER_MOVE_SPEED_MULTIPLIER * 1.128, 5);
+  });
+
+  it('skateboard_skeleton + speed_tome lv5 → 超出基础速度的部分提高攻速', () => {
+    const p = makePlayer([{ type: 'speed_tome', level: 5 }]);
+    recomputePlayerStats(p, 'skateboard_skeleton', {});
+    const speed = 5.0 * PLAYER_MOVE_SPEED_MULTIPLIER * 1.4;
+    const baseSpeed = 5.0 * PLAYER_MOVE_SPEED_MULTIPLIER;
+    expect(p.speed).toBeCloseTo(speed, 5);
+    expect(p.attackSpeedMultiplier).toBeCloseTo(1 + (speed - baseSpeed) * 0.025, 5);
   });
 });
