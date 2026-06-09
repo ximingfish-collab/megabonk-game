@@ -2,7 +2,7 @@
  * GSAP 动画管理器
  * 负责 UI 和特效动画，与 Three.js 动画系统共存
  */
-import { gsap } from 'gsap';
+import gsap from 'gsap';
 
 export class GSAPAnimationManager {
   private animations: Map<string, gsap.core.Tween> = new Map();
