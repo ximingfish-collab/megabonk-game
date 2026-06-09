@@ -116,5 +116,5 @@ export { loadSave, saveSave, getDefaultSave, addSilver, spendSilver, updateRunSt
 export type { SaveData } from './save.ts';
 export { SHOP_UPGRADES, getUpgradeCost, canAfford, purchaseUpgrade, getShopBonuses } from './shop.ts';
 export type { ShopUpgrade } from './shop.ts';
-export { QUESTS, checkQuestCompletion, getQuestProgress, getCompletedQuestCount } from './quests.ts';
+export { QUESTS, checkQuestCompletion, claimQuest, getQuestProgress, getCompletedQuestCount } from './quests.ts';
 export type { Quest, QuestReward, QuestProgress } from './quests.ts';
