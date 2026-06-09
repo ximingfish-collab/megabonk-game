@@ -68,6 +68,7 @@ import { installThreeHighDpi } from '@minigame/render-adapter';
 import { initI18n, t, getLocale, setLocale, getAvailableLocales, getMode } from '@minigame/i18n';
 import { CameraOrbit } from './systems/cameraOrbit.ts';
 import { PlayerInvincibilityFx } from './systems/playerFx.ts';
+import { gsapAnimations } from './gsap-animations.ts';
 import type { I18nMode } from '@minigame/i18n';
 import { EventEmitter } from './session/EventEmitter.ts';
 
@@ -1511,6 +1512,12 @@ export class GameScene {
   private wasGrounded = true; // Track grounded state for jump animation trigger
   private lastPhase: GamePhase = 'playing';
   private screenFlashEl: HTMLDivElement | null = null;
+
+  // GSAP animation state
+  private lastHpPercent = 100;
+  private lastXpPercent = 0;
+  private lastBossHpPercent = 100;
+  private levelPulseAnimation: any = null;
 
   // Player skeletal animation
   private playerMixer: THREE.AnimationMixer | null = null;
@@ -3632,24 +3639,14 @@ export class GameScene {
   }
 
   private triggerScreenFlash(color: string, duration: number): void {
+    // 使用 GSAP 屏幕闪光动画
+    gsapAnimations.screenFlash(color, duration);
+
+    // 清理旧的屏幕闪光元素（如果有）
     if (this.screenFlashEl) {
       this.screenFlashEl.remove();
+      this.screenFlashEl = null;
     }
-    this.screenFlashEl = document.createElement('div');
-    this.screenFlashEl.style.cssText = `position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:150;background:${color};opacity:0.4;transition:opacity ${duration}s ease-out;`;
-    document.body.appendChild(this.screenFlashEl);
-
-    // Force reflow then fade out
-    void this.screenFlashEl.offsetWidth;
-    this.screenFlashEl.style.opacity = '0';
-
-    const el = this.screenFlashEl;
-    setTimeout(() => {
-      el.remove();
-      if (this.screenFlashEl === el) {
-        this.screenFlashEl = null;
-      }
-    }, duration * 1000 + 50);
   }
 
   private renderEnemies(enemies: EnemyState[]): void {
@@ -4788,7 +4785,6 @@ export class GameScene {
       position:fixed;top:18%;left:50%;transform:translateX(-50%) scale(0.85);
       z-index:250;pointer-events:none;text-align:center;
       font-family:Arial,sans-serif;opacity:0;
-      transition:opacity 0.2s ease-out, transform 0.25s cubic-bezier(0.2,1.4,0.4,1);
     `;
 
     const title = document.createElement('div');
@@ -4814,15 +4810,9 @@ export class GameScene {
     toast.appendChild(sub);
 
     document.body.appendChild(toast);
-    void toast.offsetWidth;
-    toast.style.opacity = '1';
-    toast.style.transform = 'translateX(-50%) scale(1)';
 
-    setTimeout(() => {
-      toast.style.opacity = '0';
-      toast.style.transform = 'translateX(-50%) scale(0.95) translateY(-12px)';
-    }, 900);
-    setTimeout(() => toast.remove(), 1200);
+    // 使用 GSAP 吐司通知动画
+    gsapAnimations.showToast(toast, 1.2);
   }
 
   private emitFlameRingParticles(x: number, y: number, z: number, radius: number): void {
@@ -5497,36 +5487,41 @@ export class GameScene {
     const p = state.player;
     const time = performance.now();
 
-    // HP bar
+    // HP bar with GSAP animation
     const hpPercent = Math.max(0, Math.min(100, (p.hp / p.maxHp) * 100));
-    this.hpBarInner.style.width = `${hpPercent}%`;
+    if (hpPercent !== this.lastHpPercent) {
+      gsapAnimations.animateHealthBar(this.hpBarInner, hpPercent);
+      this.lastHpPercent = hpPercent;
+    }
 
-    // XP bar with exact numbers
+    // XP bar with exact numbers and GSAP animation
     const xpPercent = p.xpToNext > 0 ? Math.max(0, Math.min(100, (p.xp / p.xpToNext) * 100)) : 0;
-    this.xpBarInner.style.width = `${xpPercent}%`;
+    if (xpPercent !== this.lastXpPercent) {
+      gsapAnimations.animateHealthBar(this.xpBarInner, xpPercent);
+      this.lastXpPercent = xpPercent;
+    }
     this.xpNumbers.textContent = `${p.xp} / ${p.xpToNext}`;
 
-    // XP flash on gain
+    // XP flash on gain with GSAP
     if (p.xp !== this.lastXp) {
-      this.xpFlashTimer = 0.4;
+      // 使用 GSAP 创建闪光效果
+      gsapAnimations.playLevelUpEffect(this.xpBarInner);
       this.lastXp = p.xp;
     }
-    if (this.xpFlashTimer > 0) {
-      this.xpFlashTimer -= 1 / 60;
-      this.xpBarInner.style.background = 'linear-gradient(90deg,#ffdd00,#ffff44)';
-    } else {
-      this.xpBarInner.style.background = 'linear-gradient(90deg,#cc9900,#ffcc00)';
-    }
 
-    // Level label（空池升级时脉冲高亮）
+    // Level label with GSAP pulse animation
     this.levelLabel.textContent = t('hud.level', { level: String(p.level) });
     if (this.levelCompPulseTimer > 0) {
       this.levelCompPulseTimer -= 1 / 60;
-      const pulse = 1 + Math.sin(this.levelCompPulseTimer * 28) * 0.12;
-      this.levelLabel.style.transform = `translateX(-50%) scale(${pulse})`;
-      this.levelLabel.style.color = '#ffff88';
-      this.levelLabel.style.textShadow = '0 0 16px rgba(255,220,80,0.9),0 0 32px rgba(255,180,40,0.5)';
+      // 使用 GSAP 实现平滑脉冲效果
+      if (!this.levelPulseAnimation) {
+        this.levelPulseAnimation = gsapAnimations.playLevelLabelPulse(this.levelLabel);
+      }
     } else {
+      if (this.levelPulseAnimation) {
+        this.levelPulseAnimation.kill();
+        this.levelPulseAnimation = null;
+      }
       this.levelLabel.style.transform = 'translateX(-50%) scale(1)';
       this.levelLabel.style.color = '#ffcc00';
       this.levelLabel.style.textShadow = '0 0 8px rgba(255,200,0,0.4),0 1px 3px rgba(0,0,0,0.8)';
@@ -5555,7 +5550,8 @@ export class GameScene {
       const timerText = active.remaining < 0
         ? t('consumable.pending')
         : t('consumable.timer', { seconds: String(Math.ceil(active.remaining)) });
-      this.consumableLabel.style.display = 'flex';
+      // 使用 GSAP 动画显示消耗品标签
+      gsapAnimations.animateConsumableLabel(this.consumableLabel, true, 0.3);
       this.consumableLabel.innerHTML = `
         <div style="display:flex;align-items:center;gap:6px;width:100%;justify-content:flex-end;">
           <span style="font-size:18px;line-height:1;flex-shrink:0;">${emoji}</span>
@@ -5565,7 +5561,8 @@ export class GameScene {
         <div style="font-size:10px;font-weight:500;opacity:0.88;color:#d8c8ff;text-align:right;line-height:1.3;max-width:100%;">${desc}</div>
       `;
     } else {
-      this.consumableLabel.style.display = 'none';
+      // 使用 GSAP 动画隐藏消耗品标签
+      gsapAnimations.animateConsumableLabel(this.consumableLabel, false, 0.3);
       this.consumableLabel.innerHTML = '';
     }
 
@@ -5639,12 +5636,23 @@ export class GameScene {
       this.relicSlotsContainer.appendChild(slot);
     }
 
-    // --- Boss HP Bar ---
+    // --- Boss HP Bar with GSAP animation ---
     if (state.boss && state.boss.hp > 0) {
-      this.bossHpContainer.style.display = 'block';
+      // 使用 GSAP 淡入显示
+      if (this.bossHpContainer.style.display === 'none') {
+        gsapAnimations.fadeInElement(this.bossHpContainer, 0.2);
+      }
+
       const bossHpPercent = Math.max(0, Math.min(100, (state.boss.hp / state.boss.maxHp) * 100));
-      this.bossHpBarInner.style.width = `${bossHpPercent}%`;
+
+      // 使用 GSAP 动画更新血条宽度
+      if (bossHpPercent !== this.lastBossHpPercent) {
+        gsapAnimations.animateBossHealthBar(this.bossHpBarInner, bossHpPercent);
+        this.lastBossHpPercent = bossHpPercent;
+      }
+
       this.bossNameLabel.textContent = `${t('boss.anubis')} - Phase ${state.boss.phase}`;
+
       // Pulsing glow when enraged
       if (state.boss.enraged) {
         const pulse = 0.6 + Math.sin(time * 0.008) * 0.4;
@@ -5653,7 +5661,10 @@ export class GameScene {
         this.bossHpContainer.style.boxShadow = 'none';
       }
     } else {
-      this.bossHpContainer.style.display = 'none';
+      // 使用 GSAP 淡出隐藏
+      if (this.bossHpContainer.style.display !== 'none') {
+        gsapAnimations.fadeOutElement(this.bossHpContainer, 0.2);
+      }
     }
 
     // --- Altar / Portal Indicator ---
@@ -5668,7 +5679,8 @@ export class GameScene {
     const chestInRange = nearestChest != null && nearestChest.dist <= CHEST_INTERACT_RADIUS;
     const visibleAltar = state.altars.find(a => a.phase !== 'boss_active' && a.phase !== 'portal_used');
     if (chestInRange && nearestChest) {
-      this.teleporterIndicator.style.display = 'block';
+      // 使用 GSAP 动画显示传送门指示器
+      gsapAnimations.animateTeleporterIndicator(this.teleporterIndicator, true, 0.2);
       const canAfford = p.gold >= chestCost;
       this.teleporterIndicator.style.color = canAfford ? '#ffdd66' : '#999999';
       this.teleporterIndicator.style.textShadow = canAfford
@@ -5678,7 +5690,8 @@ export class GameScene {
         ? `🎁 [E] 开启宝箱 - ${chestCost} 金币`
         : `🎁 金币不足 ${p.gold}/${chestCost}`;
     } else if (visibleAltar) {
-      this.teleporterIndicator.style.display = 'block';
+      // 使用 GSAP 动画显示传送门指示器
+      gsapAnimations.animateTeleporterIndicator(this.teleporterIndicator, true, 0.2);
       this.teleporterIndicator.style.color = '#00ccff';
       this.teleporterIndicator.style.textShadow = '0 0 8px #00ccff,0 1px 3px rgba(0,0,0,0.8)';
       const dx = visibleAltar.x - p.x;
@@ -5707,12 +5720,14 @@ export class GameScene {
         }
       }
     } else if (nearestChest) {
-      this.teleporterIndicator.style.display = 'block';
+      // 使用 GSAP 动画显示传送门指示器
+      gsapAnimations.animateTeleporterIndicator(this.teleporterIndicator, true, 0.2);
       this.teleporterIndicator.style.color = '#ffdd66';
       this.teleporterIndicator.style.textShadow = '0 0 8px #ffcc33,0 1px 3px rgba(0,0,0,0.8)';
       this.teleporterIndicator.textContent = `🎁 宝箱: ${Math.round(nearestChest.dist)}m`;
     } else {
-      this.teleporterIndicator.style.display = 'none';
+      // 使用 GSAP 动画隐藏传送门指示器
+      gsapAnimations.animateTeleporterIndicator(this.teleporterIndicator, false, 0.2);
     }
 
     // --- 移动端交互按钮：仅在玩家位于祭坛 / 传送门 / 宝箱交互半径内时显示 ---
@@ -5723,7 +5738,8 @@ export class GameScene {
     // 简易移动端判定：能 hover 的设备视作 PC，不显示按钮（避免 PC 用户看到双重 UI）
     const isMobile = !window.matchMedia('(hover: hover)').matches;
     if ((altarInRange || chestInRange) && isMobile) {
-      this.interactBtn.style.display = 'block';
+      // 使用 GSAP 动画显示交互按钮
+      gsapAnimations.animateInteractButton(this.interactBtn, true, 0.3);
       if (chestInRange) {
         const canAfford = p.gold >= chestCost;
         this.interactBtn.style.background = canAfford ? 'rgba(210,145,24,0.88)' : 'rgba(80,80,80,0.82)';
@@ -5735,18 +5751,21 @@ export class GameScene {
           : t('altar.prompt.summon');
       }
     } else {
-      this.interactBtn.style.display = 'none';
+      // 使用 GSAP 动画隐藏交互按钮
+      gsapAnimations.animateInteractButton(this.interactBtn, false, 0.3);
     }
 
     // --- Overtime banner ---
     if (state.overtimeSeconds > 0) {
-      this.overtimeBanner.style.display = 'block';
+      // 使用 GSAP 动画显示超时横幅
+      gsapAnimations.animateOvertimeBanner(this.overtimeBanner, true, 0.4);
       const sec = Math.floor(state.overtimeSeconds);
       const mm = Math.floor(sec / 60).toString().padStart(2, '0');
       const ss = (sec % 60).toString().padStart(2, '0');
       this.overtimeBanner.textContent = `⏱ ${t('overtime.banner')} ${mm}:${ss}`;
     } else {
-      this.overtimeBanner.style.display = 'none';
+      // 使用 GSAP 动画隐藏超时横幅
+      gsapAnimations.animateOvertimeBanner(this.overtimeBanner, false, 0.4);
     }
 
     // --- Final Swarm visual effects ---
@@ -5756,10 +5775,9 @@ export class GameScene {
         this.finalSwarmBorder = document.createElement('div');
         this.finalSwarmBorder.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:90;border:4px solid rgba(255,50,50,0.6);box-sizing:border-box;';
         document.body.appendChild(this.finalSwarmBorder);
+        // 启动 GSAP 边框动画
+        gsapAnimations.animateFinalSwarmBorder(this.finalSwarmBorder, 0.5);
       }
-      // Pulse the border opacity
-      const pulse = 0.4 + Math.sin(time * 0.005) * 0.3;
-      this.finalSwarmBorder.style.borderColor = `rgba(255,50,50,${pulse})`;
 
       // Show "FINAL SWARM!" text
       if (!this.finalSwarmLabel) {
@@ -5767,10 +5785,9 @@ export class GameScene {
         this.finalSwarmLabel.style.cssText = 'position:fixed;top:66px;left:50%;transform:translateX(-50%);color:#ff4444;font-size:20px;font-weight:bold;text-shadow:0 0 10px #ff0000,0 2px 4px rgba(0,0,0,0.8);pointer-events:none;z-index:101;letter-spacing:2px;';
         this.finalSwarmLabel.textContent = `⚠️ ${t('hud.finalSwarm')} ⚠️`;
         document.body.appendChild(this.finalSwarmLabel);
+        // 启动 GSAP 标签动画
+        gsapAnimations.animateFinalSwarmLabel(this.finalSwarmLabel, 0.5);
       }
-      // Pulse the text
-      const textPulse = 0.7 + Math.sin(time * 0.006) * 0.3;
-      this.finalSwarmLabel.style.opacity = String(textPulse);
 
       // Red-tint HUD elements during final swarm
       this.timerLabel.style.color = '#ff8888';
@@ -5778,6 +5795,7 @@ export class GameScene {
     } else {
       // Remove final swarm visuals
       if (this.finalSwarmBorder) {
+        gsapAnimations.stopFinalSwarmAnimations();
         this.finalSwarmBorder.remove();
         this.finalSwarmBorder = null;
       }
@@ -5812,7 +5830,8 @@ export class GameScene {
     if (this.comboLabel) {
       const combo = state.player.comboCount;
       if (combo > 3) {
-        this.comboLabel.style.opacity = '1';
+        // 使用 GSAP 动画显示组合标签
+        gsapAnimations.animateComboLabel(this.comboLabel, true, 0.3);
         this.comboLabel.textContent = t('hud.combo', { count: String(combo) });
         // Scale up with combo count
         const fontSize = Math.min(28 + combo * 1.5, 56);
@@ -5821,7 +5840,7 @@ export class GameScene {
         this.lastComboCount = combo;
       } else if (this.lastComboCount > 3 && combo <= 3) {
         // Combo dropped — fade out
-        this.comboLabel.style.opacity = '0';
+        gsapAnimations.animateComboLabel(this.comboLabel, false, 0.3);
         this.lastComboCount = combo;
       }
     }
@@ -5866,22 +5885,16 @@ export class GameScene {
     }
 
     const dmgText = evt.isShield ? `+${Math.round(evt.damage)}` : String(Math.round(evt.damage));
-    el.textContent = evt.isCrit ? `${dmgText} CRIT!` : dmgText;
-    el.style.color = color;
-    el.style.left = `${screenX}px`;
-    el.style.top = `${screenY}px`;
-    el.style.fontSize = `${fontSize}px`;
-    el.style.opacity = '1';
-    el.style.transform = 'translateY(0px) scale(1)';
-    el.style.transition = 'none';
-
-    void el.offsetWidth;
-
-    // Faster upward velocity for more satisfying feel
-    const flyDistance = evt.isCrit ? -60 : (evt.damage > 20 ? -50 : -40);
-    el.style.transition = 'opacity 0.5s ease-out, transform 0.5s ease-out';
-    el.style.opacity = '0';
-    el.style.transform = `translateY(${flyDistance}px) scale(${evt.isCrit ? 0.6 : 0.8})`;
+    // Use GSAP for damage number animation
+    gsapAnimations.showDamageNumber(el, {
+      text: evt.isCrit ? `${dmgText} CRIT!` : dmgText,
+      color: color,
+      x: screenX,
+      y: screenY,
+      fontSize: fontSize,
+      isCrit: evt.isCrit,
+      damage: evt.damage
+    });
   }
 
   // ===========================================================================

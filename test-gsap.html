@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GSAP 动画测试</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #1a1a1a;
+            color: white;
+        }
+        .test-container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .bar {
+            width: 100%;
+            height: 30px;
+            background: #333;
+            border-radius: 15px;
+            margin: 20px 0;
+            overflow: hidden;
+        }
+        .bar-inner {
+            height: 100%;
+            background: linear-gradient(90deg, #cc9900, #ffcc00);
+            width: 50%;
+            border-radius: 15px;
+            transition: none;
+        }
+        .health-bar .bar-inner {
+            background: linear-gradient(90deg, #ff4444, #ff8888);
+        }
+        .button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .button:hover {
+            background: #45a049;
+        }
+        .damage-number {
+            position: absolute;
+            color: #ff4444;
+            font-size: 16px;
+            font-weight: bold;
+            pointer-events: none;
+            opacity: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>GSAP 动画测试</h1>
+
+        <h3>健康条动画测试</h3>
+        <div class="bar health-bar">
+            <div class="bar-inner" id="health-bar"></div>
+        </div>
+        <button class="button" onclick="testHealthBar()">测试健康条动画</button>
+
+        <h3>经验条动画测试</h3>
+        <div class="bar">
+            <div class="bar-inner" id="xp-bar"></div>
+        </div>
+        <button class="button" onclick="testXpBar()">测试经验条动画</button>
+
+        <h3>伤害数字动画测试</h3>
+        <button class="button" onclick="testDamageNumber()">测试伤害数字</button>
+
+        <h3>升级特效测试</h3>
+        <button class="button" onclick="testLevelUp()">测试升级特效</button>
+    </div>
+
+    <script>
+        function testHealthBar() {
+            const healthBar = document.getElementById('health-bar');
+            const randomHealth = Math.floor(Math.random() * 100);
+
+            gsap.to(healthBar, {
+                width: `${randomHealth}%`,
+                duration: 0.3,
+                ease: "power2.out"
+            });
+        }
+
+        function testXpBar() {
+            const xpBar = document.getElementById('xp-bar');
+            const randomXp = Math.floor(Math.random() * 100);
+
+            gsap.to(xpBar, {
+                width: `${randomXp}%`,
+                duration: 0.3,
+                ease: "power2.out"
+            });
+        }
+
+        function testDamageNumber() {
+            const damageNumber = document.createElement('div');
+            damageNumber.className = 'damage-number';
+            damageNumber.textContent = Math.floor(Math.random() * 100) + ' CRIT!';
+            damageNumber.style.left = Math.random() * 300 + 'px';
+            damageNumber.style.top = Math.random() * 200 + 'px';
+            damageNumber.style.fontSize = (16 + Math.random() * 20) + 'px';
+            damageNumber.style.color = '#ff4444';
+
+            document.body.appendChild(damageNumber);
+
+            gsap.timeline({
+                onComplete: () => damageNumber.remove()
+            })
+            .to(damageNumber, { y: -50, duration: 0.5, ease: "power2.out" })
+            .to(damageNumber, { opacity: 0, duration: 0.3 }, "-=0.2");
+        }
+
+        function testLevelUp() {
+            const xpBar = document.getElementById('xp-bar');
+
+            gsap.timeline()
+            .fromTo(xpBar,
+                { scale: 0.5, opacity: 0 },
+                { scale: 1.2, opacity: 1, duration: 0.3, ease: "back.out(1.7)" }
+            )
+            .to(xpBar, { scale: 1, duration: 0.2, ease: "power2.out" });
+        }
+    </script>
+</body>
+</html>
