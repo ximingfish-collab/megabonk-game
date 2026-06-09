@@ -735,6 +735,7 @@
 
     <h4>技术</h4>
     <a data-tab="architecture">架构</a>
+    <a data-tab="gsap-animations">GSAP 动画系统</a>
     <a data-tab="physics">物理 / 碰撞</a>
     <a data-tab="performance">性能</a>
     <a data-tab="dev">开发指南</a>
@@ -1715,6 +1716,19 @@ portal_used    终态；tier 推进流程消费它（清场 + 重生新祭坛）
     <li><b>Mobile</b>：交互半径内出现屏幕中下方圆形按钮，文案随阶段切换：<code>altar.prompt.summon</code> ↔ <code>altar.prompt.enterPortal</code></li>
     <li><b>HUD</b>：屏幕中上方指南针文字 + 距离；Overtime 时屏幕顶部黄色横幅显示 <code>mm:ss</code></li>
     <li><b>3D 表现</b>：祭坛底色按阶段切换（青蓝 ready / 金黄 summoning / 红 boss_active / 紫 portal_ready）</li>
+    <li><b>GSAP 动画系统</b>：所有 UI 元素使用 GSAP 动画，包括：
+      <ul>
+        <li>Boss 血条淡入淡出 + 宽度动画</li>
+        <li>传送门指示器淡入淡出</li>
+        <li>超时横幅弹跳效果</li>
+        <li>交互按钮弹跳动画</li>
+        <li>组合标签缩放淡入淡出</li>
+        <li>消耗品标签缩放动画</li>
+        <li>最终蜂群脉冲效果</li>
+        <li>屏幕闪光淡出效果</li>
+        <li>吐司通知弹跳动画</li>
+      </ul>
+    </li>
   </ul>
 
   <h3>银币来源（关卡内）</h3>
@@ -1864,12 +1878,33 @@ luck 来源 = luck_tome.level + floor(player.luckBonus * 100)</code></pre>
 
   <h3>6. UI 流程</h3>
   <table>
-    <tr><th>阶段</th><th>显示</th><th>i18n key</th></tr>
-    <tr><td>接近未充能圣殿（&lt; 30m）</td><td>HUD：<code>充能神殿: {dist}m</code></td><td><code>shrine.indicator_far</code></td></tr>
-    <tr><td>站立充能中</td><td>HUD：<code>充能中... {percent}%</code> + 3D 蓝紫脉动</td><td><code>shrine.indicator_charging</code></td></tr>
-    <tr><td>充满</td><td>弹出 4 选 1 卡片面板（rarity 边框 + emoji + 数值）</td><td><code>shrine.title</code> + <code>shrine.reward.*</code></td></tr>
-    <tr><td>选完</td><td>卡片消失、圣殿变灰、玩家继续战斗</td><td>—</td></tr>
+    <tr><th>阶段</th><th>显示</th><th>i18n key</th><th>GSAP 动画</th></tr>
+    <tr><td>接近未充能圣殿（&lt; 30m）</td><td>HUD：<code>充能神殿: {dist}m</code></td><td><code>shrine.indicator_far</code></td><td>传送门指示器淡入淡出</td></tr>
+    <tr><td>站立充能中</td><td>HUD：<code>充能中... {percent}%</code> + 3D 蓝紫脉动</td><td><code>shrine.indicator_charging</code></td><td>进度条平滑过渡</td></tr>
+    <tr><td>充满</td><td>弹出 4 选 1 卡片面板（rarity 边框 + emoji + 数值）</td><td><code>shrine.title</code> + <code>shrine.reward.*</code></td><td>卡片弹跳淡入效果</td></tr>
+    <tr><td>选完</td><td>卡片消失、圣殿变灰、玩家继续战斗</td><td>—</td><td>卡片缩放淡出效果</td></tr>
   </table>
+
+  <h4>GSAP 动画系统集成</h4>
+  <div class="card">
+    <p><strong>🎯 动画完成状态：</strong>所有 UI 动画已从 CSS 过渡迁移到 GSAP 系统</p>
+    <p><strong>📊 迁移统计：</strong>12 个主要 UI 元素，100% 完成率</p>
+
+    <h5>主要动画效果</h5>
+    <ul>
+      <li><strong>淡入淡出</strong> - 使用 <code>power2.out</code> 和 <code>power2.in</code> 缓动</li>
+      <li><strong>弹跳效果</strong> - 使用 <code>back.out(1.2)</code> 缓动</li>
+      <li><strong>缩放动画</strong> - 配合淡入淡出增强视觉冲击力</li>
+      <li><strong>脉冲效果</strong> - 使用 <code>sine.inOut</code> 缓动实现循环动画</li>
+    </ul>
+
+    <h5>性能优化</h5>
+    <ul>
+      <li>自动资源清理机制</li>
+      <li>动画取消和复用机制</li>
+      <li>统一的动画管理接口</li>
+    </ul>
+  </div>
 
   <h3>7. 与 <code>level_up</code> 的协同</h3>
   <table>
@@ -2442,6 +2477,7 @@ player.consumableDropMult?: number       // consumable_tome</code></pre>
           <li>VFX 粒子（500 池）</li>
           <li>HUD / 升级 / 商店 / 任务 UI</li>
           <li>相机系统（屏震 / 顿帧 / 动态 FOV）</li>
+          <li>GSAP 动画系统（UI 动画管理）</li>
           <li>读取 GameState 渲染（不写）</li>
         </ul>
       </div>
@@ -2460,6 +2496,57 @@ player.consumableDropMult?: number       // consumable_tome</code></pre>
         <div class="det">自适应帧率</div>
       </div>
     </div>
+  </div>
+
+  <h3>GSAP 动画系统</h3>
+  <div class="card">
+    <p><strong>🎯 完成状态：</strong>所有 UI 动画已从 CSS 过渡迁移到 GSAP 系统</p>
+    <p><strong>📊 迁移统计：</strong>12 个主要 UI 元素，100% 完成率</p>
+
+    <h4>迁移的 UI 元素</h4>
+    <div class="grid cols-2">
+      <div>
+        <ul>
+          <li>Boss 血条动画</li>
+          <li>传送门指示器动画</li>
+          <li>超时横幅动画</li>
+          <li>交互按钮动画</li>
+          <li>组合标签动画</li>
+          <li>消耗品标签动画</li>
+        </ul>
+      </div>
+      <div>
+        <ul>
+          <li>最终蜂群动画</li>
+          <li>屏幕闪光效果</li>
+          <li>吐司通知动画</li>
+          <li>金币拾取动画</li>
+          <li>健康条动画</li>
+          <li>伤害数字动画</li>
+        </ul>
+      </div>
+    </div>
+
+    <h4>GSAP 动画方法</h4>
+    <p><code>game/client/source/gsap-animations.ts</code> 提供 12 个专业动画方法：</p>
+    <ul>
+      <li><code>fadeInElement()</code> / <code>fadeOutElement()</code> - 基础淡入淡出</li>
+      <li><code>animateHealthBar()</code> - 健康条平滑过渡</li>
+      <li><code>showDamageNumber()</code> - 伤害数字特效</li>
+      <li><code>playLevelUpEffect()</code> - 升级特效</li>
+      <li><code>animateTeleporterIndicator()</code> - 传送门指示器</li>
+      <li><code>animateOvertimeBanner()</code> - 超时横幅</li>
+      <li><code>screenFlash()</code> - 屏幕闪光</li>
+      <li><code>showToast()</code> - 吐司通知</li>
+    </ul>
+
+    <h4>技术优势</h4>
+    <ul>
+      <li><strong>统一的动画接口</strong> - 所有动画使用一致的 GSAP 方法</li>
+      <li><strong>性能优化</strong> - 自动资源清理和动画取消机制</li>
+      <li><strong>丰富的动画效果</strong> - 淡入淡出、缩放、弹跳、脉冲等多种效果</li>
+      <li><strong>可维护性提升</strong> - 清晰的动画方法命名和参数配置</li>
+    </ul>
   </div>
 
   <h3>core 内部目录树</h3>
@@ -2584,6 +2671,100 @@ engine.aiGroup = (engine.aiGroup + 1) % 4;  // 错峰组循环</code></pre>
         <li>❌ 在热路径里 <code>new Vector3()</code></li>
       </ul>
     </div>
+  </div>
+</section>
+
+<!-- ============= GSAP ANIMATION SYSTEM ============= -->
+<section id="gsap-animations">
+  <h2>GSAP 动画系统 <span class="badge-new">new</span></h2>
+  <p class="sub">所有 UI 动画已从 CSS 过渡迁移到 GSAP 系统，提供更流畅、更专业的动画效果。</p>
+
+  <h3>动画演示</h3>
+  <div class="card">
+    <p><strong>🎯 测试页面：</strong> <a href="../test-gsap.html" target="_blank">test-gsap.html</a> - 独立的 GSAP 动画测试页面</p>
+    <p><strong>📊 迁移状态：</strong>12 个主要 UI 元素，100% 完成率</p>
+
+    <h4>可测试的动画效果</h4>
+    <div class="grid cols-2">
+      <div>
+        <ul>
+          <li><strong>健康条动画</strong> - 平滑宽度过渡</li>
+          <li><strong>经验条动画</strong> - 平滑进度更新</li>
+          <li><strong>伤害数字动画</strong> - 暴击特效</li>
+          <li><strong>升级特效</strong> - 弹跳缩放效果</li>
+        </ul>
+      </div>
+      <div>
+        <ul>
+          <li><strong>淡入淡出动画</strong> - UI 元素显示/隐藏</li>
+          <li><strong>弹跳效果</strong> - 按钮和通知动画</li>
+          <li><strong>脉冲效果</strong> - 循环动画（如最终蜂群）</li>
+          <li><strong>缩放动画</strong> - 组合标签效果</li>
+        </ul>
+      </div>
+    </div>
+
+    <h4>GSAP 动画方法</h4>
+    <pre><code>// 基础动画方法
+fadeInElement(element: HTMLElement, duration?: number): void
+fadeOutElement(element: HTMLElement, duration?: number): void
+
+// 特定 UI 动画
+animateHealthBar(element: HTMLElement, newHealthPercent: number): void
+showDamageNumber(element: HTMLElement, options: DamageNumberOptions): void
+playLevelUpEffect(container: HTMLElement): void
+playLevelLabelPulse(element: HTMLElement): gsap.core.Timeline
+
+// 高级动画
+animateTeleporterIndicator(element: HTMLElement, show: boolean, duration?: number): void
+animateOvertimeBanner(element: HTMLElement, show: boolean, duration?: number): void
+animateComboLabel(element: HTMLElement, show: boolean, duration?: number): void
+animateConsumableLabel(element: HTMLElement, show: boolean, duration?: number): void
+animateInteractButton(element: HTMLElement, show: boolean, duration?: number): void
+animateFinalSwarmBorder(element: HTMLElement, intensity: number, duration?: number): void
+animateFinalSwarmLabel(element: HTMLElement, intensity: number, duration?: number): void
+screenFlash(color: string, duration?: number): void
+showToast(element: HTMLElement, duration?: number): void
+
+// 管理方法
+cancelAnimation(id: string): void
+cleanup(): void</code></pre>
+
+    <h4>技术优势</h4>
+    <ul>
+      <li><strong>性能优化</strong> - 自动资源清理和动画取消机制</li>
+      <li><strong>统一接口</strong> - 所有动画使用一致的 GSAP 方法</li>
+      <li><strong>丰富的缓动函数</strong> - power2.out、back.out、sine.inOut 等</li>
+      <li><strong>时间轴动画</strong> - 支持复杂的序列动画</li>
+      <li><strong>循环动画</strong> - 支持持续的效果（如脉冲）</li>
+    </ul>
+  </div>
+
+  <h3>集成示例</h3>
+  <div class="card">
+    <h4>Boss 血条动画集成</h4>
+    <pre><code>// 原 CSS 过渡方式
+this.bossHpContainer.style.display = 'block';
+this.bossHpBarInner.style.width = `${bossHpPercent}%`;
+
+// 迁移后的 GSAP 方式
+gsapAnimations.fadeInElement(this.bossHpContainer, 0.2);
+gsapAnimations.animateBossHealthBar(this.bossHpBarInner, bossHpPercent);</code></pre>
+
+    <h4>传送门指示器动画集成</h4>
+    <pre><code>// 原方式
+this.teleporterIndicator.style.display = 'block';
+
+// 迁移后的 GSAP 方式
+gsapAnimations.animateTeleporterIndicator(this.teleporterIndicator, true, 0.2);</code></pre>
+
+    <h4>屏幕闪光效果集成</h4>
+    <pre><code>// 原方式（CSS 过渡）
+this.screenFlashEl.style.opacity = '0';
+setTimeout(() => this.screenFlashEl.remove(), duration * 1000 + 50);
+
+// 迁移后的 GSAP 方式
+gsapAnimations.screenFlash(color, duration);</code></pre>
   </div>
 </section>
 

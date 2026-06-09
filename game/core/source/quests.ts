@@ -4,6 +4,7 @@
  */
 
 import { loadSave, saveSave } from './save.ts';
+import type { SaveData } from './save.ts';
 
 export interface Quest {
   id: string;
@@ -22,6 +23,7 @@ export interface QuestProgress {
   questId: string;
   current: number;
   completed: boolean;
+  claimed: boolean;
 }
 
 export const QUESTS: Quest[] = [
@@ -72,60 +74,71 @@ export const QUESTS: Quest[] = [
   { id: 'q31', description: 'quest.use_7_weapons', type: 'weapons_used', target: 7, reward: { type: 'weapon_slot', value: 1 } },
 ];
 
+function getQuestStatProgress(save: SaveData, quest: Quest): number {
+  switch (quest.type) {
+    case 'kill':
+      return save.stats.totalKills;
+    case 'survive':
+      return save.stats.bestSurvivalTime;
+    case 'level':
+      return save.stats.highestLevel;
+    case 'evolve':
+      return save.stats.totalEvolutions;
+    case 'boss':
+      return save.stats.bossesDefeated;
+    case 'no_damage':
+      return save.stats.noDamageRuns;
+    case 'collect':
+      return save.totalSilverEarned;
+    case 'weapons_used':
+      return save.stats.uniqueWeaponsUsed.length;
+    default:
+      return 0;
+  }
+}
+
+function isQuestClaimed(save: SaveData, questId: string): boolean {
+  return save.questsCompleted.includes(questId);
+}
+
+function isQuestCompleted(save: SaveData, quest: Quest): boolean {
+  return getQuestStatProgress(save, quest) >= quest.target;
+}
+
 /**
- * Check and award quests based on current save data stats.
- * Returns newly completed quest IDs this call.
+ * Detect quests that reached completion since the previous snapshot.
+ * Does not apply rewards — players must claim manually in the quest panel.
  */
-export function checkQuestCompletion(): string[] {
+export function checkQuestCompletion(previousCompleteIds?: ReadonlySet<string>): string[] {
   const save = loadSave();
   const newlyCompleted: string[] = [];
 
   for (const quest of QUESTS) {
-    if (save.questsCompleted.includes(quest.id)) continue;
-
-    let progress = 0;
-    switch (quest.type) {
-      case 'kill':
-        progress = save.stats.totalKills;
-        break;
-      case 'survive':
-        progress = save.stats.bestSurvivalTime;
-        break;
-      case 'level':
-        progress = save.stats.highestLevel;
-        break;
-      case 'evolve':
-        progress = save.stats.totalEvolutions;
-        break;
-      case 'boss':
-        progress = save.stats.bossesDefeated;
-        break;
-      case 'no_damage':
-        progress = save.stats.noDamageRuns;
-        break;
-      case 'collect':
-        progress = save.totalSilverEarned;
-        break;
-      case 'weapons_used':
-        progress = save.stats.uniqueWeaponsUsed.length;
-        break;
-    }
-
-    if (progress >= quest.target) {
-      save.questsCompleted.push(quest.id);
-      newlyCompleted.push(quest.id);
-      applyQuestReward(save, quest.reward);
-    }
-  }
-
-  if (newlyCompleted.length > 0) {
-    saveSave(save);
+    if (!isQuestCompleted(save, quest)) continue;
+    if (previousCompleteIds?.has(quest.id)) continue;
+    newlyCompleted.push(quest.id);
   }
 
   return newlyCompleted;
 }
 
-function applyQuestReward(save: ReturnType<typeof loadSave>, reward: QuestReward): void {
+/**
+ * Claim a completed quest reward. Returns true if the reward was applied.
+ */
+export function claimQuest(questId: string): boolean {
+  const save = loadSave();
+  if (isQuestClaimed(save, questId)) return false;
+
+  const quest = QUESTS.find(q => q.id === questId);
+  if (!quest || !isQuestCompleted(save, quest)) return false;
+
+  applyQuestReward(save, quest.reward);
+  save.questsCompleted.push(questId);
+  saveSave(save);
+  return true;
+}
+
+function applyQuestReward(save: SaveData, reward: QuestReward): void {
   switch (reward.type) {
     case 'silver':
       save.silver += reward.value as number;
@@ -158,44 +171,15 @@ export function getQuestProgress(): QuestProgress[] {
   const result: QuestProgress[] = [];
 
   for (const quest of QUESTS) {
-    const completed = save.questsCompleted.includes(quest.id);
-    let current = 0;
-
-    if (!completed) {
-      switch (quest.type) {
-        case 'kill':
-          current = save.stats.totalKills;
-          break;
-        case 'survive':
-          current = save.stats.bestSurvivalTime;
-          break;
-        case 'level':
-          current = save.stats.highestLevel;
-          break;
-        case 'evolve':
-          current = save.stats.totalEvolutions;
-          break;
-        case 'boss':
-          current = save.stats.bossesDefeated;
-          break;
-        case 'no_damage':
-          current = save.stats.noDamageRuns;
-          break;
-        case 'collect':
-          current = save.totalSilverEarned;
-          break;
-        case 'weapons_used':
-          current = save.stats.uniqueWeaponsUsed.length;
-          break;
-      }
-    } else {
-      current = quest.target;
-    }
+    const claimed = isQuestClaimed(save, quest.id);
+    const raw = getQuestStatProgress(save, quest);
+    const completed = raw >= quest.target;
 
     result.push({
       questId: quest.id,
-      current: Math.min(current, quest.target),
+      current: completed ? quest.target : Math.min(raw, quest.target),
       completed,
+      claimed,
     });
   }
 
@@ -203,9 +187,13 @@ export function getQuestProgress(): QuestProgress[] {
 }
 
 /**
- * Get the count of completed quests.
+ * Get the count of completed quests (claimed or ready to claim).
  */
 export function getCompletedQuestCount(): number {
   const save = loadSave();
-  return save.questsCompleted.length;
+  let count = 0;
+  for (const quest of QUESTS) {
+    if (isQuestCompleted(save, quest)) count += 1;
+  }
+  return count;
 }

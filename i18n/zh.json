@@ -223,7 +223,7 @@
     "start_level": "初始等级",
     "start_level_desc": "起始等级+1",
     "buy": "购买",
-    "maxed": "满级",
+    "maxed": "已满级",
     "cost": "费用: {{cost}}",
     "level": "Lv.{{current}}/{{max}}",
     "silver": "银币: {{count}}",
@@ -232,6 +232,13 @@
   "quest": {
     "title": "任务",
     "progress": "{{current}}/{{total}} 已完成",
+    "category": {
+      "all": "全部",
+      "challenge": "挑战",
+      "growth": "成长",
+      "wealth": "财富",
+      "weapons": "武器"
+    },
     "kill_100": "击杀100个敌人",
     "kill_500": "击杀500个敌人",
     "kill_1000": "击杀1000个敌人",
@@ -268,6 +275,10 @@
     "reward_character_unlock": "解锁: {{character}}",
     "reward_weapon_slot": "+1 武器槽位",
     "completed": "完成",
+    "go_complete": "去完成",
+    "claim": "领取",
+    "claimed": "已领取",
+    "ready_to_claim": "可领取",
     "back": "返回"
   },
   "boss": {

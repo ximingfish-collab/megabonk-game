@@ -223,7 +223,7 @@
     "start_level": "Starting Level",
     "start_level_desc": "Start 1 level higher",
     "buy": "Buy",
-    "maxed": "MAX",
+    "maxed": "MAXED",
     "cost": "Cost: {{cost}}",
     "level": "Lv.{{current}}/{{max}}",
     "silver": "Silver: {{count}}",
@@ -232,6 +232,13 @@
   "quest": {
     "title": "Quests",
     "progress": "{{current}}/{{total}} completed",
+    "category": {
+      "all": "All",
+      "challenge": "Challenge",
+      "growth": "Growth",
+      "wealth": "Wealth",
+      "weapons": "Weapons"
+    },
     "kill_100": "Kill 100 enemies",
     "kill_500": "Kill 500 enemies",
     "kill_1000": "Kill 1000 enemies",
@@ -268,6 +275,10 @@
     "reward_character_unlock": "Unlock: {{character}}",
     "reward_weapon_slot": "+1 Weapon Slot",
     "completed": "DONE",
+    "go_complete": "Start",
+    "claim": "Claim",
+    "claimed": "Claimed",
+    "ready_to_claim": "Ready to claim",
     "back": "Back"
   },
   "boss": {
