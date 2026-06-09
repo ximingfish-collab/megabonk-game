@@ -30,8 +30,10 @@ import {
   getUpgradeCost,
   canAfford,
   getQuestProgress,
-  getCompletedQuestCount,
   checkQuestCompletion,
+  claimQuest,
+  type Quest,
+  type QuestProgress,
   getUpgradePreviewLines,
   type GameConfig,
   type GameState,
@@ -63,7 +65,7 @@ import {
 } from '@minigame/core';
 import { PlatformInput } from '@minigame/platform';
 import { installThreeHighDpi } from '@minigame/render-adapter';
-import { initI18n, t, mountDevtools } from '@minigame/i18n';
+import { initI18n, t, getLocale, setLocale, getAvailableLocales, getMode } from '@minigame/i18n';
 import { CameraOrbit } from './systems/cameraOrbit.ts';
 import { PlayerInvincibilityFx } from './systems/playerFx.ts';
 import type { I18nMode } from '@minigame/i18n';
@@ -390,6 +392,8 @@ const CHARACTER_FULL_PATHS: Record<CharacterType, string> = {
 };
 
 const CHARACTER_SELECT_BACK_ICON = '/ui/button/back.png';
+const LANG_BUTTON_CN = '/ui/button/btn_lang_cn.png';
+const LANG_BUTTON_EN = '/ui/button/btn_lang_en.png';
 const CHARACTER_DETAIL_PANEL_BG = '/ui/panel/character_detail.png';
 /** character_detail.png 原图 820×820，文本 inset 按原图像素换算为百分比 */
 const CHARACTER_DETAIL_PANEL_PX = 820;
@@ -415,6 +419,48 @@ const TIER_PANEL_SIZE: Record<DifficultyTier, { w: number; h: number }> = {
   2: { w: 580, h: 920 },
   3: { w: 584, h: 919 },
 };
+
+const SHOP_ITEM_LIST_PANEL_BG = '/ui/shop/shop_panel_itemlist.png';
+/** shop_panel_itemlist.png 原图 966×646，用于 aspect-ratio，避免拉伸 */
+const SHOP_ITEM_LIST_PANEL_SIZE = { w: 966, h: 646 } as const;
+
+const SHOP_ITEM_PANEL_BG = '/ui/shop/shop_item_bg.png';
+/** shop_item_bg.png 原图 353×331，用于 aspect-ratio，避免拉伸 */
+const SHOP_ITEM_PANEL_SIZE = { w: 353, h: 331 } as const;
+const SHOP_BUY_BUTTON_FRAME = '/ui/button/button_green.png';
+const SHOP_BUY_BUTTON_PRESSED_FRAME = '/ui/button/button_green_pressed.png';
+const SHOP_ITEM_TITLE_COLOR = '#1a3a6e';
+
+const SHOP_ITEM_ICONS: Record<string, string> = {
+  max_hp: '/ui/shop/shop_item_hp.png',
+  damage: '/ui/shop/shop_item_atk.png',
+  speed: '/ui/shop/shop_item_spd.png',
+  crit: '/ui/shop/shop_item_crit.png',
+  pickup_radius: '/ui/shop/shop_item_range.png',
+  armor: '/ui/shop/shop_item_armor.png',
+  xp_gain: '/ui/shop/shop_item_exp.png',
+  starting_level: '/ui/shop/shop_item_lv.png',
+};
+
+const SHOP_LEVEL_SEGMENT_GREEN = '#44aa44';
+const SHOP_LEVEL_SEGMENT_GRAY = '#c0c8d4';
+
+function createShopLevelSegments(currentLevel: number, maxLevel: number): HTMLDivElement {
+  const container = document.createElement('div');
+  container.style.cssText = `
+    display:flex;align-items:stretch;gap:clamp(1px,0.3vw,2px);
+    flex:1;min-width:0;height:clamp(5px,1.2vw,7px);
+  `;
+  for (let i = 0; i < maxLevel; i++) {
+    const seg = document.createElement('div');
+    seg.style.cssText = `
+      flex:1;min-width:0;height:100%;border-radius:1px;
+      background:${i < currentLevel ? SHOP_LEVEL_SEGMENT_GREEN : SHOP_LEVEL_SEGMENT_GRAY};
+    `;
+    container.appendChild(seg);
+  }
+  return container;
+}
 
 const TIER_MONSTER_FRAME = '/ui/panel/frame_monster.png';
 const TIER_MONSTER_FRAME_SIZE = { w: 692, h: 922 };
@@ -467,11 +513,29 @@ const STAT_BAR_FILL = '#3b7ddd';
 
 const TITLE_IMAGE_PATH = '/ui/title/megabonk_title.png';
 const LOBBY_BG_PATH = '/ui/common/bg_lobby.png';
+const SHOP_BG_PATH = '/ui/common/bg_shop.png';
+const QUESTS_BG_PATH = '/ui/common/bg_quests.png';
+const QUEST_LIST_PANEL_BG = '/ui/quests/task_panel_list.png';
+/** task_panel_list.png 原图 966×646，用于 aspect-ratio，避免拉伸 */
+const QUEST_LIST_PANEL_SIZE = { w: 966, h: 646 } as const;
+const QUEST_ITEM_BG = '/ui/quests/task_item_bg.png';
+/** 滚动区相对 panel 图片内容区的内边距比例 */
+const QUEST_LIST_SCROLL_INSET = { top: 0.11, right: 0.09, bottom: 0.11, left: 0.09 } as const;
+/** 分类列表相对 panel 图片顶部的额外下移比例 */
+const QUEST_CATEGORY_SIDEBAR_OFFSET_RATIO = 0.05;
 
 const MENU_BUTTON_FRAME = '/ui/button/button.png';
 const CHARACTER_CONFIRM_BUTTON_FRAME = '/ui/button/button_orange.png';
 const TIER_SELECT_BUTTON_NORMAL = '/ui/button/button_orange.png';
 const TIER_SELECT_BUTTON_PRESSED = '/ui/button/button_orange_pressed.png';
+const QUEST_CATEGORY_BUTTON_NORMAL = '/ui/button/button_gray.png';
+const QUEST_ACTION_BUTTON_ORANGE = '/ui/button/button_orange.png';
+const QUEST_ACTION_BUTTON_ORANGE_PRESSED = '/ui/button/button_orange_pressed.png';
+const QUEST_ACTION_BUTTON_GREEN = '/ui/button/button_green.png';
+const QUEST_ACTION_BUTTON_GREEN_PRESSED = '/ui/button/button_green_pressed.png';
+const QUEST_ACTION_BUTTON_GRAY = '/ui/button/button_gray.png';
+const QUEST_ACTION_BUTTON_GRAY_PRESSED = '/ui/button/button_gray_pressed.png';
+const QUEST_TEXT_COLOR = '#1a3a6e';
 const MENU_BUTTON_ICONS = {
   start: '/ui/button/pause.png',
   shop: '/ui/button/shop.png',
@@ -487,20 +551,20 @@ function createSilverBadge(count: number, prefix = ''): HTMLDivElement {
   const badge = document.createElement('div');
   badge.dataset.silverBadge = '1';
   badge.style.cssText = `
-    display:inline-flex;align-items:center;gap:clamp(5px,1.5vw,8px);
+    display:inline-flex;align-items:center;gap:8px;
     background:${SILVER_BADGE_BG};border-radius:9999px;box-sizing:border-box;
-    padding:0 clamp(10px,2.5vw,14px) 0 clamp(2px,0.6vw,4px);
+    padding:0 14px 0 4px;
   `;
 
   const icon = document.createElement('img');
   icon.src = SILVER_COIN_ICON_PATH;
   icon.alt = '';
   icon.draggable = false;
-  icon.style.cssText = 'width:clamp(28px,7.5vw,36px);height:clamp(28px,7.5vw,36px);object-fit:contain;flex-shrink:0;display:block;';
+  icon.style.cssText = 'width:36px;height:36px;object-fit:contain;flex-shrink:0;display:block;';
 
   const amount = document.createElement('span');
   amount.className = 'silver-badge-amount';
-  amount.style.cssText = 'color:#ffffff;font-size:clamp(13px,3.4vw,17px);font-weight:bold;line-height:1;white-space:nowrap;';
+  amount.style.cssText = 'color:#ffffff;font-size:17px;font-weight:bold;line-height:1;white-space:nowrap;';
   amount.textContent = `${prefix}${count}`;
 
   badge.appendChild(icon);
@@ -540,15 +604,43 @@ function setGoldBadgeAmount(badge: HTMLDivElement, count: number): void {
   if (amount) amount.textContent = String(count);
 }
 
-const I18N_DEVTOOLS_ID = '__i18n_devtools__';
+function languageButtonIconSrc(): string {
+  return getLocale() === 'zh' ? LANG_BUTTON_CN : LANG_BUTTON_EN;
+}
 
-/** Reposition i18n dev language button (package default is bottom-right). */
-function positionLanguageSwitcher(): void {
-  const btn = document.getElementById(I18N_DEVTOOLS_ID);
-  if (!btn) return;
-  btn.style.right = 'auto';
-  btn.style.left = 'max(12px, env(safe-area-inset-left, 0px))';
-  btn.style.bottom = 'max(12px, env(safe-area-inset-bottom, 0px))';
+/** Icon-based language switcher; skipped when i18n mode is locked or only one locale. */
+function createLanguageSwitcherButton(): HTMLButtonElement | null {
+  if (getMode() === 'locked') return null;
+  const locales = getAvailableLocales();
+  if (locales.length < 2) return null;
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.setAttribute('aria-label', 'Switch language / 切换语言');
+  btn.title = 'Switch language / 切换语言';
+  btn.style.cssText = `
+    min-width:44px;min-height:44px;padding:0;border:none;background:transparent;cursor:pointer;
+    touch-action:manipulation;display:flex;align-items:center;justify-content:center;flex-shrink:0;
+    transition:transform 0.15s;
+  `;
+
+  const img = document.createElement('img');
+  img.src = languageButtonIconSrc();
+  img.alt = '';
+  img.draggable = false;
+  img.style.cssText = 'width:44px;height:44px;object-fit:contain;pointer-events:none;';
+  btn.appendChild(img);
+
+  btn.addEventListener('click', () => {
+    const current = getLocale();
+    const idx = locales.indexOf(current);
+    const next = locales[(idx + 1) % locales.length];
+    setLocale(next);
+    location.reload();
+  });
+  btn.addEventListener('mouseenter', () => { btn.style.transform = 'scale(1.05)'; });
+  btn.addEventListener('mouseleave', () => { btn.style.transform = 'scale(1)'; });
+  return btn;
 }
 
 const GROUND_SIZE = 120;
@@ -1511,6 +1603,7 @@ export class GameScene {
   private pauseBtn!: HTMLDivElement;
   private upgradePanel: HTMLDivElement | null = null;
   private gameOverPanel: HTMLDivElement | null = null;
+  private questCompleteAtRunStart: Set<string> = new Set();
   private damageNums: HTMLDivElement[] = [];
   private damageNumIndex = 0;
   private finalSwarmLabel: HTMLDivElement | null = null;
@@ -1643,6 +1736,9 @@ export class GameScene {
   }
 
   start(): void {
+    this.questCompleteAtRunStart = new Set(
+      getQuestProgress().filter(p => p.completed).map(p => p.questId),
+    );
     this.setupLighting();
     this.setupGround();
     this.setupPlayer();
@@ -5947,8 +6043,8 @@ export class GameScene {
     if (this.gameOverPanel) return;
     this.cameraOrbit.setEnabled(false);
 
-    const newQuests = checkQuestCompletion();
-    const completedCount = getCompletedQuestCount();
+    // Detect quests that newly reached completion this run (rewards must be claimed manually)
+    const newQuests = checkQuestCompletion(this.questCompleteAtRunStart);
 
     this.gameOverPanel = document.createElement('div');
     this.gameOverPanel.dataset.cameraBlock = 'true';
@@ -5990,11 +6086,10 @@ export class GameScene {
     silverRow.appendChild(createSilverBadge(result.silverEarned));
     statsContainer.appendChild(silverRow);
 
-    // Show newly completed quest rewards
     if (newQuests.length > 0) {
       const questHeader = document.createElement('div');
       questHeader.style.cssText = 'color:#ffcc00;font-size:13px;font-weight:bold;margin-top:8px;';
-      questHeader.textContent = '--- Quest Rewards ---';
+      questHeader.textContent = t('quest.ready_to_claim');
       statsContainer.appendChild(questHeader);
 
       for (const qId of newQuests) {
@@ -6002,7 +6097,7 @@ export class GameScene {
         if (!quest) continue;
         const el = document.createElement('div');
         el.style.cssText = 'color:#88ff88;font-size:12px;';
-        el.textContent = `${t(quest.description)} - ${t('quest.completed')}`;
+        el.textContent = t(quest.description);
         statsContainer.appendChild(el);
       }
     }
@@ -6088,7 +6183,19 @@ const PREP_SCREEN_STYLE = `
 
 const PREP_SCREEN_HEADER_STYLE = `
   display:flex;align-items:center;justify-content:space-between;width:100%;flex-shrink:0;
-  padding:clamp(6px,1.5vw,10px) clamp(8px,2vw,14px);box-sizing:border-box;z-index:2;
+  padding:10px 14px;box-sizing:border-box;z-index:2;
+`;
+
+/** 预备界面（英雄/难度选择）的固定设计尺寸：横屏锚定，不随屏幕放大、不换行重排 */
+const PREP_STAGE_WIDTH = 860;
+const PREP_STAGE_HEIGHT = 380;
+const PREP_STAGE_STYLE = `
+  flex:1;min-height:0;width:100%;display:flex;align-items:center;justify-content:center;
+  padding:0 14px 14px;box-sizing:border-box;overflow:auto;
+`;
+const PREP_STAGE_BODY_STYLE = `
+  width:${PREP_STAGE_WIDTH}px;height:${PREP_STAGE_HEIGHT}px;max-width:100%;max-height:100%;
+  box-sizing:border-box;
 `;
 
 function createPrepBackButton(onClick: () => void): HTMLButtonElement {
@@ -6104,13 +6211,61 @@ function createPrepBackButton(onClick: () => void): HTMLButtonElement {
   backImg.src = CHARACTER_SELECT_BACK_ICON;
   backImg.alt = '';
   backImg.draggable = false;
-  backImg.style.cssText = 'width:clamp(36px,10vw,48px);height:clamp(36px,10vw,48px);object-fit:contain;pointer-events:none;';
+  backImg.style.cssText = 'width:44px;height:44px;object-fit:contain;pointer-events:none;';
   backBtn.appendChild(backImg);
   backBtn.addEventListener('mouseenter', () => { backBtn.style.transform = 'scale(1.05)'; });
   backBtn.addEventListener('mouseleave', () => { backBtn.style.transform = 'scale(1)'; });
   backBtn.addEventListener('click', onClick);
   return backBtn;
 }
+
+const PREP_SCREEN_TITLE_STYLE = `
+  font-size:clamp(18px,5vw,24px);font-weight:bold;color:#ffffff;
+  text-shadow:0 2px 4px rgba(0,0,0,0.5);white-space:nowrap;
+`;
+
+function createPrepScreenHeader(
+  title: string,
+  onBack: () => void,
+  rightContent: HTMLElement,
+): HTMLElement {
+  const header = document.createElement('header');
+  header.style.cssText = PREP_SCREEN_HEADER_STYLE;
+
+  const leftGroup = document.createElement('div');
+  leftGroup.style.cssText = 'display:flex;align-items:center;gap:6px;min-width:0;';
+  leftGroup.appendChild(createPrepBackButton(onBack));
+  const titleEl = document.createElement('span');
+  titleEl.style.cssText = PREP_SCREEN_TITLE_STYLE;
+  titleEl.textContent = title;
+  leftGroup.appendChild(titleEl);
+  header.appendChild(leftGroup);
+
+  header.appendChild(rightContent);
+  return header;
+}
+
+const SHOP_OVERLAY_STYLE = `
+  position:fixed;top:0;left:0;width:100%;height:100%;box-sizing:border-box;
+  background:#0a0a1a url(${SHOP_BG_PATH}) center center/cover no-repeat;
+  display:flex;flex-direction:column;
+  z-index:600;font-family:Arial,sans-serif;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  padding-left:env(safe-area-inset-left,0px);
+  padding-right:env(safe-area-inset-right,0px);
+`;
+
+const QUESTS_OVERLAY_STYLE = `
+  position:fixed;top:0;left:0;width:100%;height:100%;box-sizing:border-box;
+  background:#0a0a1a url(${QUESTS_BG_PATH}) center center/cover no-repeat;
+  display:flex;flex-direction:column;
+  z-index:600;font-family:Arial,sans-serif;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  padding-left:env(safe-area-inset-left,0px);
+  padding-right:env(safe-area-inset-right,0px);
+`;
 
 function characterColorHex(char: CharacterType): string {
   const charColor = CHARACTER_COLORS[char] ?? 0xa8e6cf;
@@ -6130,13 +6285,6 @@ function alignCharacterSelectConfirmToStage(): void {
   const stage = characterSelectPreviewHost?.firstElementChild as HTMLElement | null;
   const detail = confirmWrap?.parentElement as HTMLElement | null;
   if (!confirmWrap || !stage || !detail) return;
-
-  const narrow = window.innerWidth < 720;
-  if (narrow) {
-    confirmWrap.style.paddingTop = '0';
-    confirmWrap.style.paddingBottom = 'clamp(10px,2.5vw,25px)';
-    return;
-  }
 
   const stageRect = stage.getBoundingClientRect();
   const detailRect = detail.getBoundingClientRect();
@@ -6160,7 +6308,7 @@ function mountCharacterSelectSlots(host: HTMLElement): void {
 
     const slot = document.createElement('div');
     slot.style.cssText = `
-      position:relative;width:clamp(52px,12vw,68px);min-width:44px;min-height:44px;
+      position:relative;width:64px;min-width:44px;min-height:44px;
       cursor:pointer;flex-shrink:0;transition:transform 0.15s;
       touch-action:manipulation;user-select:none;
     `;
@@ -6195,11 +6343,79 @@ function mountCharacterSelectSlots(host: HTMLElement): void {
   }
 }
 
+function createShopBuyButton(cost: number, affordable: boolean, onClick?: () => void): HTMLDivElement {
+  const btn = document.createElement('div');
+  btn.style.cssText = `
+    position:relative;width:100%;max-width:100%;
+    cursor:${affordable ? 'pointer' : 'default'};user-select:none;
+    touch-action:manipulation;transition:transform 0.15s;
+  `;
+
+  const frame = document.createElement('img');
+  frame.src = SHOP_BUY_BUTTON_FRAME;
+  frame.alt = '';
+  frame.draggable = false;
+  frame.style.cssText = 'display:block;width:100%;height:auto;pointer-events:none;';
+
+  const content = document.createElement('div');
+  content.style.cssText = `
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    gap:clamp(1px,0.4vw,3px);padding:0 clamp(2px,0.6vw,5px);box-sizing:border-box;
+    pointer-events:none;
+  `;
+
+  const coin = document.createElement('img');
+  coin.src = SILVER_COIN_ICON_PATH;
+  coin.alt = '';
+  coin.draggable = false;
+  coin.style.cssText = 'height:62%;width:auto;aspect-ratio:1/1;object-fit:contain;flex-shrink:0;';
+
+  const amount = document.createElement('span');
+  amount.style.cssText = 'color:#ffffff;font-size:clamp(8px,2.6vw,12px);font-weight:bold;line-height:1;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,0.35);';
+  amount.textContent = String(cost);
+
+  content.appendChild(coin);
+  content.appendChild(amount);
+  btn.appendChild(frame);
+  btn.appendChild(content);
+
+  if (affordable && onClick) {
+    btn.addEventListener('click', onClick);
+    btn.addEventListener('mouseenter', () => { btn.style.transform = 'scale(1.05)'; });
+    btn.addEventListener('mouseleave', () => { btn.style.transform = 'scale(1)'; });
+  }
+
+  return btn;
+}
+
+function createShopMaxedButton(): HTMLDivElement {
+  const btn = document.createElement('div');
+  btn.style.cssText = 'position:relative;width:100%;max-width:100%;user-select:none;';
+
+  const frame = document.createElement('img');
+  frame.src = SHOP_BUY_BUTTON_PRESSED_FRAME;
+  frame.alt = '';
+  frame.draggable = false;
+  frame.style.cssText = 'display:block;width:100%;height:auto;pointer-events:none;';
+
+  const label = document.createElement('span');
+  label.style.cssText = `
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    color:#ffffff;font-size:clamp(7px,2.2vw,11px);font-weight:bold;line-height:1;
+    white-space:nowrap;pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,0.35);
+  `;
+  label.textContent = t('shop.maxed');
+
+  btn.appendChild(frame);
+  btn.appendChild(label);
+  return btn;
+}
+
 function createCharacterConfirmButton(label: string, onClick: () => void): HTMLDivElement {
   const btn = document.createElement('div');
   btn.dataset.action = 'confirm';
   btn.style.cssText = `
-    position:relative;width:clamp(88px,22vw,116px);min-width:44px;max-width:100%;
+    position:relative;width:116px;min-width:44px;max-width:100%;
     cursor:pointer;user-select:none;touch-action:manipulation;transition:transform 0.15s;
   `;
 
@@ -6213,7 +6429,7 @@ function createCharacterConfirmButton(label: string, onClick: () => void): HTMLD
   labelEl.textContent = label;
   labelEl.style.cssText = `
     position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-    color:#ffffff;font-size:clamp(12px,3.2vw,15px);font-weight:bold;line-height:1.2;
+    color:#ffffff;font-size:15px;font-weight:bold;line-height:1.2;
     pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,0.35);
   `;
 
@@ -6230,19 +6446,19 @@ function createCharacterStatBar(label: string, valueText: string, ratio: number,
 
   const row = document.createElement('div');
   row.style.cssText = `
-    display:flex;align-items:center;gap:clamp(6px,1.5vw,10px);
-    font-size:clamp(10px,2.5vw,12px);margin:clamp(3px,0.8vw,5px) 0;width:100%;
+    display:flex;align-items:center;gap:10px;
+    font-size:12px;margin:5px 0;width:100%;
   `;
 
   const labelEl = document.createElement('span');
   labelEl.textContent = label;
   labelEl.style.cssText = `
-    flex:0 0 clamp(52px,14vw,72px);color:${textColor};font-weight:600;flex-shrink:0;
+    flex:0 0 72px;color:${textColor};font-weight:600;flex-shrink:0;
   `;
 
   const track = document.createElement('div');
   track.style.cssText = `
-    flex:1;height:clamp(6px,1.6vw,8px);background:${STAT_BAR_TRACK_BG};
+    flex:1;height:8px;background:${STAT_BAR_TRACK_BG};
     border-radius:4px;overflow:hidden;min-width:0;
   `;
 
@@ -6256,7 +6472,7 @@ function createCharacterStatBar(label: string, valueText: string, ratio: number,
   const valEl = document.createElement('span');
   valEl.textContent = valueText;
   valEl.style.cssText = `
-    flex:0 0 clamp(40px,10vw,52px);text-align:right;color:${textColor};
+    flex:0 0 52px;text-align:right;color:${textColor};
     font-weight:600;font-variant-numeric:tabular-nums;flex-shrink:0;
   `;
 
@@ -6307,7 +6523,7 @@ function refreshCharacterSelectDetail(): void {
 
   const card = document.createElement('div');
   card.style.cssText = `
-    width:100%;max-width:100%;aspect-ratio:1/1;max-height:min(100%,calc(100vh - 128px));
+    width:100%;max-width:100%;aspect-ratio:1/1;max-height:100%;
     margin:0 auto;box-sizing:border-box;display:grid;
     grid-template-rows:${mainRowPct} minmax(0,1fr);
     background:url(${CHARACTER_DETAIL_PANEL_BG}) center center/100% 100% no-repeat;
@@ -6316,19 +6532,19 @@ function refreshCharacterSelectDetail(): void {
 
   const mainSection = document.createElement('div');
   mainSection.style.cssText = `
-    box-sizing:border-box;display:flex;flex-direction:column;gap:clamp(4px,1vw,7px);
+    box-sizing:border-box;display:flex;flex-direction:column;gap:7px;
     min-height:0;overflow-y:auto;
     padding:${characterDetailInsetPct(mainPad.top)} ${characterDetailInsetPct(mainPad.right)}
       ${characterDetailInsetPct(mainPad.bottom)} ${characterDetailInsetPct(mainPad.left)};
   `;
 
   const nameEl = document.createElement('h2');
-  nameEl.style.cssText = detailFont('clamp(18px,4.5vw,24px)', 'font-weight:bold;');
+  nameEl.style.cssText = detailFont('24px', 'font-weight:bold;');
   nameEl.textContent = t(`character.${id}`);
   mainSection.appendChild(nameEl);
 
   const descEl = document.createElement('p');
-  descEl.style.cssText = detailFont('clamp(12px,3vw,14px)', 'font-weight:bold;');
+  descEl.style.cssText = detailFont('14px', 'font-weight:bold;');
   descEl.textContent = t(`character.${id}_desc`);
   mainSection.appendChild(descEl);
 
@@ -6361,17 +6577,17 @@ function refreshCharacterSelectDetail(): void {
 
   const weaponRow = document.createElement('div');
   weaponRow.style.cssText = `
-    display:flex;align-items:center;gap:clamp(8px,2vw,12px);width:100%;box-sizing:border-box;
+    display:flex;align-items:center;gap:12px;width:100%;box-sizing:border-box;
   `;
 
-  const weaponBoxSize = 'clamp(64px,16vw,88px)';
+  const weaponBoxSize = '88px';
   const weaponImgWrap = document.createElement('div');
   weaponImgWrap.style.cssText = `
     flex-shrink:0;display:flex;align-items:center;justify-content:center;
     width:${weaponBoxSize};height:${weaponBoxSize};aspect-ratio:1/1;
     margin-top:0;box-sizing:border-box;
     background:${WEAPON_ICON_PANEL_BG};border:2px solid ${WEAPON_ICON_PANEL_BORDER};
-    border-radius:clamp(8px,2vw,10px);padding:clamp(6px,1.5vw,10px);
+    border-radius:10px;padding:10px;
   `;
   const weaponSrc = STARTING_WEAPON_IMAGE_PATHS[weapon];
   if (weaponSrc) {
@@ -6397,23 +6613,23 @@ function refreshCharacterSelectDetail(): void {
   weaponRow.appendChild(weaponImgWrap);
 
   const weaponTextCol = document.createElement('div');
-  const weaponTextMarginTop = weapon === 'axe' ? 'clamp(-10px,-2.5vw,-6px)' : '0';
+  const weaponTextMarginTop = weapon === 'axe' ? '-8px' : '0';
   weaponTextCol.style.cssText = `
     flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;margin-top:${weaponTextMarginTop};
   `;
 
   const weaponNameEl = document.createElement('div');
-  weaponNameEl.style.cssText = detailFont('clamp(13px,3.2vw,16px)', 'font-weight:bold;margin-top:0;');
+  weaponNameEl.style.cssText = detailFont('16px', 'font-weight:bold;margin-top:0;');
   weaponNameEl.textContent = t(`upgrade.weapon.${weapon}`);
   weaponTextCol.appendChild(weaponNameEl);
 
   const weaponDescEl = document.createElement('p');
-  weaponDescEl.style.cssText = detailFont('clamp(11px,2.8vw,13px)', 'font-weight:bold;margin-top:clamp(2px,0.6vw,4px);margin-bottom:2px;');
+  weaponDescEl.style.cssText = detailFont('13px', 'font-weight:bold;margin-top:4px;margin-bottom:2px;');
   weaponDescEl.textContent = t(`upgrade.weapon.${weapon}_desc`);
   weaponTextCol.appendChild(weaponDescEl);
 
   const weaponStatsEl = document.createElement('div');
-  weaponStatsEl.style.cssText = detailFont('clamp(10px,2.5vw,12px)', 'display:flex;flex-direction:column;gap:2px;');
+  weaponStatsEl.style.cssText = detailFont('12px', 'display:flex;flex-direction:column;gap:2px;');
   for (const line of formatWeaponStatLines(weapon)) {
     const row = document.createElement('div');
     row.textContent = line;
@@ -6434,10 +6650,10 @@ function refreshCharacterSelectPreview(): void {
   const id = selectedCharacter;
   const stage = document.createElement('div');
   stage.style.cssText = `
-    width:min(58%,340px);max-width:100%;height:100%;margin:0 auto;box-sizing:border-box;
+    width:min(72%,340px);max-width:100%;height:100%;margin:0 auto;box-sizing:border-box;
     display:flex;align-items:center;justify-content:center;
-    background:${CHARACTER_PREVIEW_STAGE_BG};border:none;border-radius:clamp(10px,2.5vw,16px);
-    padding:clamp(4px,1vw,8px);overflow:hidden;
+    background:${CHARACTER_PREVIEW_STAGE_BG};border:none;border-radius:16px;
+    padding:8px;overflow:hidden;
   `;
 
   const preview = document.createElement('img');
@@ -6467,27 +6683,6 @@ function refreshCharacterSelectUI(): void {
   refreshCharacterSelectDetail();
 }
 
-function applyCharacterSelectResponsiveLayout(): void {
-  if (!characterSelectBodyEl || !characterSelectSlotsHost) return;
-  const narrow = window.innerWidth < 720;
-  characterSelectBodyEl.style.flexDirection = narrow ? 'column' : 'row';
-  characterSelectSlotsHost.style.flexDirection = narrow ? 'row' : 'column';
-  characterSelectSlotsHost.style.overflowX = narrow ? 'auto' : 'visible';
-  characterSelectSlotsHost.style.overflowY = narrow ? 'hidden' : 'visible';
-  characterSelectSlotsHost.style.width = narrow ? '100%' : 'auto';
-  characterSelectSlotsHost.style.justifyContent = narrow ? 'center' : 'flex-start';
-  if (characterSelectPreviewHost) {
-    characterSelectPreviewHost.style.minHeight = narrow ? 'clamp(200px,38vh,320px)' : '0';
-    characterSelectPreviewHost.style.flex = narrow ? '0 0 auto' : '1 1 52%';
-  }
-  if (characterSelectDetailHost) {
-    characterSelectDetailHost.style.flex = narrow ? '1 1 auto' : '1 1 44%';
-    characterSelectDetailHost.style.width = narrow ? '100%' : 'auto';
-    characterSelectDetailHost.style.maxWidth = narrow ? '100%' : 'min(480px, 46vw)';
-  }
-  scheduleCharacterSelectConfirmAlign();
-}
-
 let characterSelectEl: HTMLDivElement | null = null;
 let tierSelectEl: HTMLDivElement | null = null;
 
@@ -6513,18 +6708,21 @@ function showCharacterSelectScreen(): void {
   header.appendChild(silverWrap);
   characterSelectEl.appendChild(header);
 
+  const stageWrap = document.createElement('div');
+  stageWrap.dataset.region = 'stage';
+  stageWrap.style.cssText = PREP_STAGE_STYLE;
+
   const body = document.createElement('main');
   body.dataset.region = 'body';
   body.style.cssText = `
-    display:flex;flex:1;min-height:0;width:100%;gap:clamp(4px,1vw,8px);
-    padding:0 clamp(4px,1.2vw,10px) clamp(12px,3vw,20px);box-sizing:border-box;align-items:stretch;
+    ${PREP_STAGE_BODY_STYLE}display:flex;flex-direction:row;gap:8px;align-items:stretch;
   `;
   characterSelectBodyEl = body;
 
   const rail = document.createElement('aside');
   rail.dataset.region = 'rail';
   rail.style.cssText = `
-    display:flex;flex-direction:column;gap:clamp(6px,1.5vw,10px);
+    display:flex;flex-direction:column;gap:10px;
     flex:0 0 auto;align-items:center;align-self:flex-start;
   `;
   characterSelectSlotsHost = rail;
@@ -6543,7 +6741,7 @@ function showCharacterSelectScreen(): void {
   const detail = document.createElement('aside');
   detail.dataset.region = 'detail';
   detail.style.cssText = `
-    flex:1 1 44%;width:auto;min-width:min(320px,88vw);max-width:min(480px,46vw);
+    flex:1 1 44%;width:auto;min-width:300px;max-width:420px;
     display:flex;flex-direction:column;min-height:0;align-self:stretch;position:relative;
   `;
 
@@ -6558,7 +6756,7 @@ function showCharacterSelectScreen(): void {
   characterSelectConfirmHost = confirmWrap;
   confirmWrap.style.cssText = `
     flex-shrink:0;width:100%;display:flex;align-items:center;justify-content:center;
-    padding:0 clamp(4px,1vw,8px) 0;box-sizing:border-box;
+    padding:0 8px 0;box-sizing:border-box;
   `;
   confirmWrap.appendChild(createCharacterConfirmButton(t('characterSelect.confirm'), () => {
     destroyCharacterSelectScreen();
@@ -6568,11 +6766,11 @@ function showCharacterSelectScreen(): void {
 
   body.appendChild(detail);
 
-  characterSelectEl.appendChild(body);
+  stageWrap.appendChild(body);
+  characterSelectEl.appendChild(stageWrap);
   refreshCharacterSelectUI();
-  applyCharacterSelectResponsiveLayout();
 
-  characterSelectResizeHandler = () => applyCharacterSelectResponsiveLayout();
+  characterSelectResizeHandler = () => scheduleCharacterSelectConfirmAlign();
   window.addEventListener('resize', characterSelectResizeHandler);
 
   document.body.appendChild(characterSelectEl);
@@ -6613,12 +6811,15 @@ function showTierSelectScreen(): void {
   header.appendChild(silverWrap);
   tierSelectEl.appendChild(header);
 
+  const stageWrap = document.createElement('div');
+  stageWrap.dataset.region = 'stage';
+  stageWrap.style.cssText = PREP_STAGE_STYLE;
+
   const body = document.createElement('main');
   body.dataset.region = 'body';
   body.style.cssText = `
-    flex:1;min-height:0;width:100%;display:flex;flex-direction:column;
-    align-items:center;justify-content:center;gap:clamp(12px,3vw,20px);
-    padding:0 clamp(4px,1.2vw,10px) clamp(12px,3vw,20px);box-sizing:border-box;
+    width:720px;max-width:100%;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:20px;box-sizing:border-box;
   `;
 
   const tierPanel = showTierSelect((_tier) => {
@@ -6627,14 +6828,15 @@ function showTierSelectScreen(): void {
   body.appendChild(tierPanel);
 
   const startWrap = document.createElement('div');
-  startWrap.style.cssText = 'margin-top:clamp(8px,2.5vw,16px);width:100%;display:flex;justify-content:center;padding:0 4px;box-sizing:border-box;';
+  startWrap.style.cssText = 'margin-top:16px;width:100%;display:flex;justify-content:center;box-sizing:border-box;';
   startWrap.appendChild(createMainMenuButton(MENU_BUTTON_ICONS.start, t('menu.start'), () => {
     destroyTierSelectScreen();
     startGame(selectedCharacter);
   }));
   body.appendChild(startWrap);
 
-  tierSelectEl.appendChild(body);
+  stageWrap.appendChild(body);
+  tierSelectEl.appendChild(stageWrap);
   document.body.appendChild(tierSelectEl);
 }
 
@@ -6651,14 +6853,14 @@ function createTierMonsterAvatarRow(): HTMLElement {
   const row = document.createElement('div');
   row.style.cssText = `
     display:flex;align-items:center;justify-content:space-between;width:100%;
-    gap:clamp(3px,0.8vw,6px);margin-top:clamp(5px,1.2vw,8px);box-sizing:border-box;
+    gap:6px;margin-top:8px;box-sizing:border-box;
   `;
 
   const { w: fw, h: fh } = TIER_MONSTER_FRAME_SIZE;
   for (const src of TIER_MONSTER_AVATARS) {
     const slot = document.createElement('div');
     slot.style.cssText = `
-      flex:1 1 0;min-width:0;position:relative;height:clamp(34px,8.5vw,50px);
+      flex:1 1 0;min-width:0;position:relative;height:42px;
       aspect-ratio:${fw}/${fh};
       background:url(${TIER_MONSTER_FRAME}) center center/contain no-repeat;
     `;
@@ -6682,7 +6884,7 @@ function createTierPanelSelectButton(isSelected: boolean, onClick: () => void): 
   btn.setAttribute('role', 'button');
   btn.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
   btn.style.cssText = `
-    position:relative;width:min(60%,60px);min-width:44px;max-width:100%;
+    position:relative;width:60px;min-width:44px;max-width:100%;
     cursor:${isSelected ? 'default' : 'pointer'};user-select:none;touch-action:manipulation;
     transition:transform 0.15s;
   `;
@@ -6697,7 +6899,7 @@ function createTierPanelSelectButton(isSelected: boolean, onClick: () => void): 
   labelEl.textContent = t(isSelected ? 'tier.chosen' : 'tier.choose');
   labelEl.style.cssText = `
     position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-    color:#ffffff;font-size:clamp(9px,2.4vw,11px);font-weight:bold;line-height:1.2;
+    color:#ffffff;font-size:11px;font-weight:bold;line-height:1.2;
     pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,0.35);
   `;
 
@@ -6714,8 +6916,8 @@ function createTierPanelSelectButton(isSelected: boolean, onClick: () => void): 
 function showTierSelect(onSelect: (tier: DifficultyTier) => void): HTMLDivElement {
   const panel = document.createElement('div');
   panel.style.cssText = `
-    display:flex;gap:clamp(8px,2vw,14px);flex-wrap:wrap;justify-content:center;
-    width:min(100%,720px);box-sizing:border-box;
+    display:flex;gap:14px;flex-wrap:nowrap;justify-content:center;
+    width:100%;max-width:100%;box-sizing:border-box;
   `;
 
   const tiers: DifficultyTier[] = [1, 2, 3];
@@ -6729,16 +6931,16 @@ function showTierSelect(onSelect: (tier: DifficultyTier) => void): HTMLDivElemen
     const card = document.createElement('div');
     card.setAttribute('aria-label', t(`tier.${tier}`));
     card.style.cssText = `
-      position:relative;width:min(140px,26vw);aspect-ratio:${panelSize.w}/${panelSize.h};height:auto;
+      position:relative;width:160px;max-width:32%;aspect-ratio:${panelSize.w}/${panelSize.h};height:auto;
       box-sizing:border-box;
       background:url(${TIER_PANEL_BGS[tier]}) center center/contain no-repeat;
-      border:none;border-radius:clamp(8px,2vw,12px);overflow:visible;
+      border:none;border-radius:12px;overflow:visible;
     `;
 
     const descEl = document.createElement('div');
     descEl.style.cssText = `
       position:absolute;top:28%;left:11%;right:11%;box-sizing:border-box;text-align:left;
-      color:${statColor};font-size:clamp(9px,2.2vw,11px);line-height:1.45;font-weight:600;
+      color:${statColor};font-size:11px;line-height:1.45;font-weight:600;
     `;
     const tierStatRows = [
       t('tier.stat.enemyHp', { value: String(cfg.enemyHpMultiplier) }),
@@ -6782,8 +6984,8 @@ let mainMenuEl: HTMLDivElement | null = null;
 function createMainMenuButton(iconSrc: string, label: string, onClick: () => void): HTMLDivElement {
   const btn = document.createElement('div');
   btn.style.cssText = `
-    position:relative;width:min(92%,clamp(168px,62vw,232px));cursor:pointer;user-select:none;
-    touch-action:manipulation;transition:transform 0.15s;max-width:100%;
+    position:relative;width:232px;max-width:100%;cursor:pointer;user-select:none;
+    touch-action:manipulation;transition:transform 0.15s;
   `;
 
   const frame = document.createElement('img');
@@ -6795,7 +6997,7 @@ function createMainMenuButton(iconSrc: string, label: string, onClick: () => voi
   const content = document.createElement('div');
   content.style.cssText = `
     position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-    gap:clamp(6px,2vw,10px);padding:0 clamp(4px,2vw,12px);box-sizing:border-box;pointer-events:none;
+    gap:10px;padding:0 12px;box-sizing:border-box;pointer-events:none;
     max-width:100%;overflow:hidden;
   `;
 
@@ -6803,11 +7005,11 @@ function createMainMenuButton(iconSrc: string, label: string, onClick: () => voi
   icon.src = iconSrc;
   icon.alt = '';
   icon.draggable = false;
-  icon.style.cssText = 'width:clamp(22px,6.5vw,30px);height:clamp(22px,6.5vw,30px);object-fit:contain;flex-shrink:0;';
+  icon.style.cssText = 'width:30px;height:30px;object-fit:contain;flex-shrink:0;';
 
   const labelEl = document.createElement('span');
   labelEl.textContent = label;
-  labelEl.style.cssText = `color:${MENU_BUTTON_LABEL_COLOR};font-size:clamp(12px,3.6vw,16px);font-weight:bold;line-height:1.2;white-space:nowrap;flex-shrink:1;min-width:0;overflow:hidden;text-overflow:ellipsis;`;
+  labelEl.style.cssText = `color:${MENU_BUTTON_LABEL_COLOR};font-size:16px;font-weight:bold;line-height:1.2;white-space:nowrap;flex-shrink:1;min-width:0;overflow:hidden;text-overflow:ellipsis;`;
 
   content.appendChild(icon);
   content.appendChild(labelEl);
@@ -6828,25 +7030,32 @@ function showMainMenu(): void {
     background:#0a0a1a url(${LOBBY_BG_PATH}) center center/cover no-repeat;
   `;
 
-  // Silver display at top
   const save = loadSave();
   const silverDisplay = createSilverBadge(save.silver);
   silverDisplay.style.position = 'absolute';
-  silverDisplay.style.top = '16px';
-  silverDisplay.style.right = '16px';
+  silverDisplay.style.top = 'max(16px, env(safe-area-inset-top, 0px))';
+  silverDisplay.style.right = 'max(16px, env(safe-area-inset-right, 0px))';
   mainMenuEl.appendChild(silverDisplay);
+
+  const langBtn = createLanguageSwitcherButton();
+  if (langBtn) {
+    langBtn.style.position = 'absolute';
+    langBtn.style.left = 'max(12px, env(safe-area-inset-left, 0px))';
+    langBtn.style.bottom = 'max(12px, env(safe-area-inset-bottom, 0px))';
+    mainMenuEl.appendChild(langBtn);
+  }
 
   // Title
   const title = document.createElement('img');
   title.src = TITLE_IMAGE_PATH;
   title.alt = t('game.title');
   title.draggable = false;
-  title.style.cssText = 'width:min(88vw,520px);height:auto;object-fit:contain;margin-bottom:8px;filter:drop-shadow(0 4px 12px rgba(0,0,0,0.65));user-select:none;';
+  title.style.cssText = 'width:520px;max-width:90%;height:auto;object-fit:contain;margin-bottom:8px;filter:drop-shadow(0 4px 12px rgba(0,0,0,0.65));user-select:none;';
   mainMenuEl.appendChild(title);
 
   // Button row (Start + Shop + Quests)
   const btnRow = document.createElement('div');
-  btnRow.style.cssText = 'display:flex;flex-direction:column;gap:clamp(8px,2.5vw,12px);margin-top:16px;align-items:center;width:100%;max-width:100%;box-sizing:border-box;padding:0 4px;';
+  btnRow.style.cssText = 'display:flex;flex-direction:column;gap:12px;margin-top:16px;align-items:center;box-sizing:border-box;';
 
   btnRow.appendChild(createMainMenuButton(MENU_BUTTON_ICONS.start, t('menu.start'), () => {
     destroyMainMenu();
@@ -6855,9 +7064,12 @@ function showMainMenu(): void {
   btnRow.appendChild(createMainMenuButton(MENU_BUTTON_ICONS.shop, t('menu.shop'), () => {
     showShopOverlay();
   }));
-  btnRow.appendChild(createMainMenuButton(MENU_BUTTON_ICONS.quest, t('menu.quests'), () => {
+  const questBtn = createMainMenuButton(MENU_BUTTON_ICONS.quest, t('menu.quests'), () => {
     showQuestsOverlay();
-  }));
+  });
+  questBtn.dataset.menuQuestBtn = 'true';
+  setNotificationDotVisible(questBtn, hasClaimableQuests(), 'menuQuest');
+  btnRow.appendChild(questBtn);
 
   mainMenuEl.appendChild(btnRow);
   document.body.appendChild(mainMenuEl);
@@ -6878,25 +7090,48 @@ function showShopOverlay(): void {
   if (shopOverlayEl) return;
 
   shopOverlayEl = document.createElement('div');
-  shopOverlayEl.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,20,0.92);display:flex;flex-direction:column;align-items:center;justify-content:flex-start;z-index:600;font-family:Arial,sans-serif;overflow-y:auto;padding:20px 0;';
-
-  // Header with silver display
-  const header = document.createElement('div');
-  header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;width:90%;max-width:700px;margin-bottom:16px;';
-
-  const titleEl = document.createElement('div');
-  titleEl.style.cssText = 'font-size:28px;font-weight:bold;color:#ffcc00;text-shadow:0 2px 4px rgba(0,0,0,0.8);';
-  titleEl.textContent = t('shop.title');
-  header.appendChild(titleEl);
+  shopOverlayEl.style.cssText = SHOP_OVERLAY_STYLE;
 
   const save = loadSave();
-  header.appendChild(createSilverBadge(save.silver));
+  const silverWrap = document.createElement('div');
+  silverWrap.appendChild(createSilverBadge(save.silver));
+  shopOverlayEl.appendChild(createPrepScreenHeader(t('menu.shop'), () => {
+    hideShopOverlay();
+    if (mainMenuEl) {
+      const silverDisp = mainMenuEl.querySelector('[data-silver-badge]') as HTMLDivElement | null;
+      if (silverDisp) {
+        setSilverBadgeAmount(silverDisp, loadSave().silver);
+      }
+    }
+  }, silverWrap));
 
-  shopOverlayEl.appendChild(header);
+  const content = document.createElement('div');
+  content.style.cssText = 'flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;align-items:center;padding:8px 14px 20px;box-sizing:border-box;';
 
-  // Upgrade grid
+  const itemListPanel = document.createElement('div');
+  itemListPanel.style.cssText = `
+    position:relative;box-sizing:border-box;
+    width:min(94vw,840px);
+    aspect-ratio:${SHOP_ITEM_LIST_PANEL_SIZE.w}/${SHOP_ITEM_LIST_PANEL_SIZE.h};
+    background:url(${SHOP_ITEM_LIST_PANEL_BG}) center center/contain no-repeat;
+  `;
+
+  const gridWrap = document.createElement('div');
+  gridWrap.style.cssText = `
+    position:absolute;inset:8%;
+    display:flex;align-items:center;justify-content:center;
+    box-sizing:border-box;
+  `;
+
+  // Upgrade grid — 4 items per row, wrap to next line
   const grid = document.createElement('div');
-  grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;width:90%;max-width:700px;';
+  grid.style.cssText = `
+    display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:clamp(4px,1vw,8px);width:100%;box-sizing:border-box;
+  `;
+
+  const shopText = (size: string, extra = '') =>
+    `margin:0;color:#2a2a3e;font-size:${size};line-height:1.3;${extra}`;
 
   for (const upgrade of SHOP_UPGRADES) {
     const currentLevel = save.shopLevels[upgrade.id] ?? 0;
@@ -6906,91 +7141,94 @@ function showShopOverlay(): void {
 
     const card = document.createElement('div');
     card.style.cssText = `
-      background:rgba(30,30,50,0.95);border:1px solid ${isMaxed ? '#ffcc00' : (affordable ? '#44cc44' : '#555555')};
-      border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:6px;
-      ${isMaxed ? 'opacity:0.7;' : ''}
+      position:relative;box-sizing:border-box;min-width:0;
+      aspect-ratio:${SHOP_ITEM_PANEL_SIZE.w}/${SHOP_ITEM_PANEL_SIZE.h};
+      background:url(${SHOP_ITEM_PANEL_BG}) center center/contain no-repeat;
+      overflow:hidden;
+      ${isMaxed ? 'opacity:0.65;' : ''}
     `;
 
-    // Name + Level
+    const cardInner = document.createElement('div');
+    cardInner.style.cssText = `
+      position:absolute;inset:6% 6% 10% 6%;
+      display:flex;flex-direction:column;align-items:center;
+      box-sizing:border-box;
+    `;
+
+    const infoArea = document.createElement('div');
+    infoArea.style.cssText = `
+      display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
+      text-align:center;flex-shrink:0;gap:clamp(2px,0.6vw,4px);width:100%;
+      margin-top:clamp(6px,2vw,14px);
+    `;
+
     const nameRow = document.createElement('div');
-    nameRow.style.cssText = 'display:flex;justify-content:space-between;align-items:center;';
+    nameRow.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:clamp(4px,1vw,8px);max-width:100%;flex-shrink:0;';
 
-    const nameEl = document.createElement('div');
-    nameEl.style.cssText = 'color:#ffffff;font-size:15px;font-weight:bold;';
-    nameEl.textContent = t(upgrade.nameKey);
-    nameRow.appendChild(nameEl);
-
-    const levelEl = document.createElement('div');
-    levelEl.style.cssText = 'color:#888;font-size:12px;';
-    levelEl.textContent = t('shop.level', { current: String(currentLevel), max: String(upgrade.maxLevel) });
-    nameRow.appendChild(levelEl);
-
-    card.appendChild(nameRow);
-
-    // Description
-    const descEl = document.createElement('div');
-    descEl.style.cssText = 'color:#999;font-size:12px;';
-    descEl.textContent = t(upgrade.descKey);
-    card.appendChild(descEl);
-
-    // Level bar
-    const barContainer = document.createElement('div');
-    barContainer.style.cssText = 'height:6px;background:rgba(80,80,100,0.5);border-radius:3px;overflow:hidden;margin-top:4px;';
-    const barFill = document.createElement('div');
-    const fillPercent = (currentLevel / upgrade.maxLevel) * 100;
-    barFill.style.cssText = `height:100%;width:${fillPercent}%;background:linear-gradient(90deg,#44cc44,#88ff88);border-radius:3px;transition:width 0.3s;`;
-    barContainer.appendChild(barFill);
-    card.appendChild(barContainer);
-
-    // Buy button
-    const buyRow = document.createElement('div');
-    buyRow.style.cssText = 'display:flex;justify-content:flex-end;margin-top:6px;';
-
-    if (isMaxed) {
-      const maxLabel = document.createElement('div');
-      maxLabel.style.cssText = 'color:#ffcc00;font-size:13px;font-weight:bold;';
-      maxLabel.textContent = t('shop.maxed');
-      buyRow.appendChild(maxLabel);
-    } else {
-      const buyBtn = document.createElement('div');
-      buyBtn.style.cssText = `padding:5px 14px;background:${affordable ? '#44aa44' : '#444455'};color:#ffffff;font-size:13px;font-weight:bold;border-radius:6px;cursor:${affordable ? 'pointer' : 'default'};user-select:none;${affordable ? '' : 'opacity:0.5;'}`;
-      buyBtn.textContent = `${t('shop.buy')} (${cost})`;
-      if (affordable) {
-        buyBtn.addEventListener('click', () => {
-          const success = purchaseUpgrade(upgrade.id);
-          if (success) {
-            // Refresh shop overlay
-            hideShopOverlay();
-            showShopOverlay();
-          }
-        });
-        buyBtn.addEventListener('mouseenter', () => { buyBtn.style.transform = 'scale(1.05)'; });
-        buyBtn.addEventListener('mouseleave', () => { buyBtn.style.transform = 'scale(1)'; });
-      }
-      buyRow.appendChild(buyBtn);
+    const iconSrc = SHOP_ITEM_ICONS[upgrade.id];
+    if (iconSrc) {
+      const iconEl = document.createElement('img');
+      iconEl.src = iconSrc;
+      iconEl.alt = '';
+      iconEl.draggable = false;
+      iconEl.style.cssText = 'width:clamp(20px,7.5vw,32px);height:clamp(20px,7.5vw,32px);object-fit:contain;flex-shrink:0;';
+      nameRow.appendChild(iconEl);
     }
 
-    card.appendChild(buyRow);
+    const nameEl = document.createElement('div');
+    nameEl.style.cssText = shopText('clamp(10px,3.2vw,16px)', `color:${SHOP_ITEM_TITLE_COLOR};font-weight:bold;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`);
+    nameEl.textContent = t(upgrade.nameKey);
+    nameRow.appendChild(nameEl);
+    infoArea.appendChild(nameRow);
+
+    const descEl = document.createElement('div');
+    descEl.style.cssText = shopText('clamp(8px,2.2vw,11px)', 'color:#5a5a6e;max-width:90%;margin-top:clamp(6px,1.8vw,12px);overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;text-align:center;');
+    descEl.textContent = t(upgrade.descKey);
+    infoArea.appendChild(descEl);
+    cardInner.appendChild(infoArea);
+
+    const bottomArea = document.createElement('div');
+    bottomArea.style.cssText = `
+      width:88%;margin-top:auto;margin-bottom:2%;
+      display:flex;flex-direction:column;align-items:center;
+      gap:clamp(2px,0.5vw,4px);
+    `;
+
+    const progressRow = document.createElement('div');
+    progressRow.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:clamp(3px,0.8vw,6px);width:100%;';
+
+    const levelEl = document.createElement('div');
+    levelEl.style.cssText = shopText('clamp(7px,2vw,10px)', `color:${SHOP_ITEM_TITLE_COLOR};font-weight:bold;flex-shrink:0;white-space:nowrap;`);
+    levelEl.textContent = t('shop.level', { current: String(currentLevel), max: String(upgrade.maxLevel) });
+    progressRow.appendChild(levelEl);
+    progressRow.appendChild(createShopLevelSegments(currentLevel, upgrade.maxLevel));
+    bottomArea.appendChild(progressRow);
+
+    const buyRow = document.createElement('div');
+    buyRow.style.cssText = 'display:flex;justify-content:center;align-items:center;width:42%;align-self:center;';
+
+    if (isMaxed) {
+      buyRow.appendChild(createShopMaxedButton());
+    } else {
+      buyRow.appendChild(createShopBuyButton(cost!, affordable, affordable ? () => {
+        const success = purchaseUpgrade(upgrade.id);
+        if (success) {
+          hideShopOverlay();
+          showShopOverlay();
+        }
+      } : undefined));
+    }
+
+    bottomArea.appendChild(buyRow);
+    cardInner.appendChild(bottomArea);
+    card.appendChild(cardInner);
     grid.appendChild(card);
   }
 
-  shopOverlayEl.appendChild(grid);
-
-  // Back button
-  const backBtn = document.createElement('div');
-  backBtn.style.cssText = 'margin-top:20px;padding:10px 30px;background:#555566;color:#ffffff;font-size:16px;font-weight:bold;border-radius:8px;cursor:pointer;user-select:none;';
-  backBtn.textContent = t('shop.back');
-  backBtn.addEventListener('click', () => {
-    hideShopOverlay();
-    // Refresh silver on main menu
-    if (mainMenuEl) {
-      const silverDisp = mainMenuEl.querySelector('[data-silver-badge]') as HTMLDivElement | null;
-      if (silverDisp) {
-        setSilverBadgeAmount(silverDisp, loadSave().silver);
-      }
-    }
-  });
-  shopOverlayEl.appendChild(backBtn);
+  gridWrap.appendChild(grid);
+  itemListPanel.appendChild(gridWrap);
+  content.appendChild(itemListPanel);
+  shopOverlayEl.appendChild(content);
 
   document.body.appendChild(shopOverlayEl);
 }
@@ -7004,111 +7242,515 @@ function hideShopOverlay(): void {
 // Quests Overlay
 // =============================================================================
 
+type QuestCategory = 'all' | 'challenge' | 'growth' | 'wealth' | 'weapons';
+
+const QUEST_CATEGORY_ICONS: Record<QuestCategory, string> = {
+  all: '/ui/quests/tab_task_all.png',
+  challenge: '/ui/quests/tab_task_challenge.png',
+  growth: '/ui/quests/tab_task_grow.png',
+  wealth: '/ui/quests/tab_task_wealth.png',
+  weapons: '/ui/quests/tab_task_weapon.png',
+};
+
+const QUEST_CATEGORIES: { id: QuestCategory; labelKey: string }[] = [
+  { id: 'all', labelKey: 'quest.category.all' },
+  { id: 'challenge', labelKey: 'quest.category.challenge' },
+  { id: 'growth', labelKey: 'quest.category.growth' },
+  { id: 'wealth', labelKey: 'quest.category.wealth' },
+  { id: 'weapons', labelKey: 'quest.category.weapons' },
+];
+
+function getQuestCategory(type: Quest['type']): QuestCategory {
+  switch (type) {
+    case 'kill':
+    case 'boss':
+    case 'no_damage':
+      return 'challenge';
+    case 'survive':
+    case 'level':
+    case 'evolve':
+      return 'growth';
+    case 'collect':
+      return 'wealth';
+    case 'weapons_used':
+      return 'weapons';
+    default:
+      return 'all';
+  }
+}
+
+function questMatchesCategory(quest: Quest, category: QuestCategory): boolean {
+  return category === 'all' || getQuestCategory(quest.type) === category;
+}
+
+const NOTIFICATION_DOT_ATTR = 'data-notification-dot';
+
+type NotificationDotPlacement = 'default' | 'menuQuest';
+
+function createNotificationDot(placement: NotificationDotPlacement = 'default'): HTMLDivElement {
+  const position = placement === 'menuQuest'
+    ? 'top:clamp(8px,2.2vw,12px);right:clamp(18px,5vw,28px);transform:none;'
+    : 'top:0;right:0;transform:translate(25%,-25%);';
+
+  const dot = document.createElement('div');
+  dot.setAttribute(NOTIFICATION_DOT_ATTR, 'true');
+  dot.style.cssText = `
+    position:absolute;${position}
+    width:clamp(8px,2.2vw,10px);height:clamp(8px,2.2vw,10px);
+    background:#ff4444;border-radius:50%;
+    border:clamp(1px,0.3vw,2px) solid #ffffff;
+    box-sizing:border-box;pointer-events:none;z-index:2;
+  `;
+  return dot;
+}
+
+function setNotificationDotVisible(
+  host: HTMLElement,
+  visible: boolean,
+  placement: NotificationDotPlacement = 'default',
+): void {
+  const existing = host.querySelector(`[${NOTIFICATION_DOT_ATTR}]`);
+  if (visible) {
+    if (!existing) host.appendChild(createNotificationDot(placement));
+  } else {
+    existing?.remove();
+  }
+}
+
+function isQuestClaimable(progress: QuestProgress): boolean {
+  return progress.completed && !progress.claimed;
+}
+
+function hasClaimableQuests(): boolean {
+  return getQuestProgress().some(isQuestClaimable);
+}
+
+function getClaimableQuestCategories(): Set<QuestCategory> {
+  const categories = new Set<QuestCategory>();
+  const progressList = getQuestProgress();
+  for (let i = 0; i < QUESTS.length; i++) {
+    if (!isQuestClaimable(progressList[i])) continue;
+    categories.add(getQuestCategory(QUESTS[i].type));
+    categories.add('all');
+  }
+  return categories;
+}
+
+function updateMainMenuQuestNotification(): void {
+  if (!mainMenuEl) return;
+  const questBtn = mainMenuEl.querySelector('[data-menu-quest-btn]') as HTMLElement | null;
+  if (questBtn) setNotificationDotVisible(questBtn, hasClaimableQuests(), 'menuQuest');
+}
+
+function updateQuestCategoryNotifications(
+  categoryButtons: Map<QuestCategory, HTMLDivElement>,
+): void {
+  const claimable = getClaimableQuestCategories();
+  for (const [id, btn] of categoryButtons) {
+    setNotificationDotVisible(btn, claimable.has(id));
+  }
+}
+
+type QuestActionState = 'incomplete' | 'claimable' | 'claimed';
+
+function createQuestActionButton(
+  state: QuestActionState,
+  onClick?: () => void,
+): HTMLDivElement {
+  const config = {
+    incomplete: {
+      frame: QUEST_ACTION_BUTTON_ORANGE,
+      pressed: QUEST_ACTION_BUTTON_ORANGE_PRESSED,
+      label: t('quest.go_complete'),
+      color: '#ffffff',
+      interactive: true,
+    },
+    claimable: {
+      frame: QUEST_ACTION_BUTTON_GREEN,
+      pressed: QUEST_ACTION_BUTTON_GREEN_PRESSED,
+      label: t('quest.claim'),
+      color: '#ffffff',
+      interactive: true,
+    },
+    claimed: {
+      frame: QUEST_ACTION_BUTTON_GRAY,
+      pressed: QUEST_ACTION_BUTTON_GRAY_PRESSED,
+      label: t('quest.claimed'),
+      color: '#555566',
+      interactive: false,
+    },
+  }[state];
+
+  const btn = document.createElement('div');
+  btn.style.cssText = `
+    position:relative;flex-shrink:0;display:inline-block;
+    width:clamp(56px,16vw,72px);min-width:44px;
+    cursor:${config.interactive ? 'pointer' : 'default'};
+    user-select:none;touch-action:manipulation;
+    transition:transform 0.15s;
+  `;
+
+  const frame = document.createElement('img');
+  frame.src = config.frame;
+  frame.alt = '';
+  frame.draggable = false;
+  frame.style.cssText = 'display:block;width:100%;height:auto;pointer-events:none;vertical-align:top;';
+
+  const labelEl = document.createElement('span');
+  labelEl.textContent = config.label;
+  labelEl.style.cssText = `
+    position:absolute;left:0;top:0;width:100%;height:100%;
+    display:flex;align-items:center;justify-content:center;
+    color:${config.color};font-size:clamp(10px,2.5vw,12px);font-weight:bold;line-height:1;
+    padding:0 clamp(2px,0.6vw,4px);box-sizing:border-box;text-align:center;
+    pointer-events:none;
+  `;
+
+  btn.appendChild(frame);
+  btn.appendChild(labelEl);
+  if (state === 'claimable') {
+    btn.appendChild(createNotificationDot());
+  }
+
+  if (config.interactive && onClick) {
+    btn.addEventListener('click', onClick);
+    btn.addEventListener('mouseenter', () => { btn.style.transform = 'scale(1.05)'; });
+    btn.addEventListener('mouseleave', () => {
+      btn.style.transform = 'scale(1)';
+      frame.src = config.frame;
+    });
+    btn.addEventListener('mousedown', () => { frame.src = config.pressed; });
+    btn.addEventListener('mouseup', () => { frame.src = config.frame; });
+    btn.addEventListener('touchstart', () => { frame.src = config.pressed; }, { passive: true });
+    btn.addEventListener('touchend', () => { frame.src = config.frame; });
+  }
+
+  return btn;
+}
+
+function createQuestRow(
+  quest: Quest,
+  progress: QuestProgress,
+  onRefresh?: () => void,
+): HTMLDivElement {
+  const rowMinHeight = progress.completed
+    ? 'clamp(48px,12vw,58px)'
+    : 'clamp(64px,15vw,80px)';
+
+  const row = document.createElement('div');
+  row.style.cssText = `
+    position:relative;box-sizing:border-box;width:100%;overflow:hidden;
+    min-height:${rowMinHeight};
+    padding:clamp(6px,1.5vw,8px) clamp(10px,3vw,14px);
+    background:url(${QUEST_ITEM_BG}) center center/100% 100% no-repeat;
+    display:flex;align-items:center;
+    ${progress.claimed ? 'opacity:0.7;' : ''}
+  `;
+
+  const contentEl = document.createElement('div');
+  contentEl.style.cssText = `
+    position:relative;z-index:1;width:100%;
+    display:flex;align-items:center;gap:clamp(6px,1.5vw,10px);
+  `;
+
+  const infoEl = document.createElement('div');
+  infoEl.style.cssText = 'flex:1;min-width:0;';
+
+  const descEl = document.createElement('div');
+  descEl.style.cssText = `color:${QUEST_TEXT_COLOR};font-size:clamp(11px,2.8vw,13px);line-height:1.4;`;
+  descEl.textContent = t(quest.description);
+  infoEl.appendChild(descEl);
+
+  if (!progress.completed) {
+    const progressBarContainer = document.createElement('div');
+    progressBarContainer.style.cssText = 'height:4px;background:rgba(80,80,100,0.5);border-radius:2px;overflow:hidden;margin-top:4px;';
+    const progressBar = document.createElement('div');
+    const pct = Math.min(100, (progress.current / quest.target) * 100);
+    progressBar.style.cssText = `height:100%;width:${pct}%;background:#44cc44;border-radius:2px;`;
+    progressBarContainer.appendChild(progressBar);
+    infoEl.appendChild(progressBarContainer);
+
+    const progressText = document.createElement('div');
+    progressText.style.cssText = 'color:#888;font-size:clamp(9px,2.2vw,10px);margin-top:2px;';
+    progressText.textContent = `${progress.current} / ${quest.target}`;
+    infoEl.appendChild(progressText);
+  }
+
+  contentEl.appendChild(infoEl);
+
+  const actionArea = document.createElement('div');
+  actionArea.style.cssText = `
+    display:flex;align-items:center;justify-content:flex-end;
+    gap:clamp(4px,1.2vw,8px);flex-shrink:0;
+  `;
+
+  const rewardText = document.createElement('span');
+  rewardText.style.cssText = `
+    color:${QUEST_TEXT_COLOR};font-size:clamp(9px,2.2vw,11px);line-height:1.3;
+    text-align:right;max-width:clamp(48px,14vw,72px);
+    word-break:break-word;
+  `;
+  rewardText.textContent = formatQuestReward(quest.reward);
+  actionArea.appendChild(rewardText);
+
+  let actionState: QuestActionState;
+  if (progress.claimed) {
+    actionState = 'claimed';
+  } else if (progress.completed) {
+    actionState = 'claimable';
+  } else {
+    actionState = 'incomplete';
+  }
+
+  const actionBtn = createQuestActionButton(
+    actionState,
+    actionState === 'incomplete'
+      ? () => {
+          hideQuestsOverlay();
+          showCharacterSelectScreen();
+        }
+      : actionState === 'claimable'
+        ? () => {
+            if (claimQuest(quest.id)) onRefresh?.();
+          }
+        : undefined,
+  );
+  actionArea.appendChild(actionBtn);
+  contentEl.appendChild(actionArea);
+
+  row.appendChild(contentEl);
+
+  return row;
+}
+
+function createQuestCategoryButton(iconSrc: string, label: string, selected: boolean, onClick: () => void): HTMLDivElement {
+  const btn = document.createElement('div');
+  btn.setAttribute('role', 'button');
+  btn.setAttribute('aria-pressed', selected ? 'true' : 'false');
+  btn.style.cssText = `
+    position:relative;width:100%;min-height:36px;min-width:36px;
+    cursor:pointer;user-select:none;touch-action:manipulation;transition:transform 0.15s;
+  `;
+
+  const frame = document.createElement('img');
+  frame.setAttribute('data-quest-cat-frame', 'true');
+  frame.src = selected ? TIER_SELECT_BUTTON_NORMAL : QUEST_CATEGORY_BUTTON_NORMAL;
+  frame.alt = '';
+  frame.draggable = false;
+  frame.style.cssText = 'display:block;width:100%;height:auto;pointer-events:none;';
+
+  const content = document.createElement('div');
+  content.style.cssText = `
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    gap:clamp(2px,0.6vw,4px);pointer-events:none;
+    padding:0 clamp(3px,0.8vw,6px);box-sizing:border-box;max-width:100%;overflow:hidden;
+  `;
+
+  const icon = document.createElement('img');
+  icon.src = iconSrc;
+  icon.alt = '';
+  icon.draggable = false;
+  icon.style.cssText = 'width:clamp(14px,4vw,18px);height:clamp(14px,4vw,18px);object-fit:contain;flex-shrink:0;';
+
+  const labelEl = document.createElement('span');
+  labelEl.textContent = label;
+  labelEl.style.cssText = `
+    color:#ffffff;font-size:clamp(9px,2.2vw,11px);font-weight:bold;line-height:1.2;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;
+    text-shadow:0 1px 2px rgba(0,0,0,0.35);
+  `;
+
+  content.appendChild(icon);
+  content.appendChild(labelEl);
+  btn.appendChild(frame);
+  btn.appendChild(content);
+  btn.addEventListener('click', onClick);
+  btn.addEventListener('mouseenter', () => { btn.style.transform = 'scale(1.05)'; });
+  btn.addEventListener('mouseleave', () => { btn.style.transform = 'scale(1)'; });
+  return btn;
+}
+
+function updateQuestCategoryButtonStyle(btn: HTMLDivElement, selected: boolean): void {
+  const frame = btn.querySelector('img[data-quest-cat-frame]');
+  if (frame instanceof HTMLImageElement) {
+    frame.src = selected ? TIER_SELECT_BUTTON_NORMAL : QUEST_CATEGORY_BUTTON_NORMAL;
+  }
+  btn.setAttribute('aria-pressed', selected ? 'true' : 'false');
+}
+
 let questsOverlayEl: HTMLDivElement | null = null;
+let questsOverlayResizeHandler: (() => void) | null = null;
+
+function getQuestListPanelImageRect(panel: HTMLElement) {
+  const boxW = panel.clientWidth;
+  const boxH = panel.clientHeight;
+  if (boxW <= 0 || boxH <= 0) return null;
+
+  const scale = Math.min(boxW / QUEST_LIST_PANEL_SIZE.w, boxH / QUEST_LIST_PANEL_SIZE.h);
+  const renderedW = QUEST_LIST_PANEL_SIZE.w * scale;
+  const renderedH = QUEST_LIST_PANEL_SIZE.h * scale;
+  const offsetX = (boxW - renderedW) / 2;
+  const offsetY = (boxH - renderedH) / 2;
+  return { renderedW, renderedH, offsetX, offsetY };
+}
+
+function layoutQuestPanel(
+  panel: HTMLDivElement,
+  scroll: HTMLDivElement,
+  categorySidebar: HTMLDivElement,
+): void {
+  const rect = getQuestListPanelImageRect(panel);
+  if (!rect) return;
+
+  const { renderedW, renderedH, offsetX, offsetY } = rect;
+  const { top, right, bottom, left } = QUEST_LIST_SCROLL_INSET;
+
+  categorySidebar.style.marginTop = `${offsetY + renderedH * QUEST_CATEGORY_SIDEBAR_OFFSET_RATIO}px`;
+  scroll.style.top = `${offsetY + renderedH * top}px`;
+  scroll.style.left = `${offsetX + renderedW * left}px`;
+  scroll.style.width = `${renderedW * (1 - left - right)}px`;
+  scroll.style.height = `${renderedH * (1 - top - bottom)}px`;
+}
 
 function showQuestsOverlay(): void {
   if (questsOverlayEl) return;
 
   questsOverlayEl = document.createElement('div');
-  questsOverlayEl.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,20,0.92);display:flex;flex-direction:column;align-items:center;justify-content:flex-start;z-index:600;font-family:Arial,sans-serif;overflow-y:auto;padding:20px 0;';
+  questsOverlayEl.style.cssText = QUESTS_OVERLAY_STYLE;
 
-  // Header
-  const header = document.createElement('div');
-  header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;width:90%;max-width:700px;margin-bottom:16px;';
-
-  const titleEl = document.createElement('div');
-  titleEl.style.cssText = 'font-size:28px;font-weight:bold;color:#ffcc00;text-shadow:0 2px 4px rgba(0,0,0,0.8);';
-  titleEl.textContent = t('quest.title');
-  header.appendChild(titleEl);
-
-  const progressEl = document.createElement('div');
-  progressEl.style.cssText = 'font-size:14px;color:#cccccc;';
-  const completedCount = getCompletedQuestCount();
-  progressEl.textContent = t('quest.progress', { current: String(completedCount), total: String(QUESTS.length) });
-  header.appendChild(progressEl);
-
-  questsOverlayEl.appendChild(header);
-
-  // Quest list
-  const questList = document.createElement('div');
-  questList.style.cssText = 'display:flex;flex-direction:column;gap:8px;width:90%;max-width:700px;';
-
-  const questProgress = getQuestProgress();
-
-  for (let i = 0; i < QUESTS.length; i++) {
-    const quest = QUESTS[i];
-    const progress = questProgress[i];
-
-    const row = document.createElement('div');
-    row.style.cssText = `
-      background:rgba(30,30,50,0.95);border:1px solid ${progress.completed ? '#44cc44' : '#444455'};
-      border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:12px;
-      ${progress.completed ? 'opacity:0.7;' : ''}
-    `;
-
-    // Status indicator
-    const statusEl = document.createElement('div');
-    statusEl.style.cssText = `width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;background:${progress.completed ? '#44cc44' : 'rgba(80,80,100,0.5)'};flex-shrink:0;`;
-    statusEl.textContent = progress.completed ? '✓' : '';
-    row.appendChild(statusEl);
-
-    // Description and progress
-    const infoEl = document.createElement('div');
-    infoEl.style.cssText = 'flex:1;';
-
-    const descEl = document.createElement('div');
-    descEl.style.cssText = 'color:#ffffff;font-size:13px;';
-    descEl.textContent = t(quest.description);
-    infoEl.appendChild(descEl);
-
-    if (!progress.completed) {
-      const progressBarContainer = document.createElement('div');
-      progressBarContainer.style.cssText = 'height:4px;background:rgba(80,80,100,0.5);border-radius:2px;overflow:hidden;margin-top:4px;';
-      const progressBar = document.createElement('div');
-      const pct = Math.min(100, (progress.current / quest.target) * 100);
-      progressBar.style.cssText = `height:100%;width:${pct}%;background:#ffaa00;border-radius:2px;`;
-      progressBarContainer.appendChild(progressBar);
-      infoEl.appendChild(progressBarContainer);
-
-      const progressText = document.createElement('div');
-      progressText.style.cssText = 'color:#888;font-size:10px;margin-top:2px;';
-      progressText.textContent = `${progress.current} / ${quest.target}`;
-      infoEl.appendChild(progressText);
-    }
-
-    row.appendChild(infoEl);
-
-    // Reward
-    const rewardEl = document.createElement('div');
-    rewardEl.style.cssText = 'display:flex;justify-content:flex-end;flex-shrink:0;';
-    if (quest.reward.type === 'silver') {
-      rewardEl.appendChild(createSilverBadge(quest.reward.value as number, '+'));
-    } else {
-      const rewardText = document.createElement('span');
-      rewardText.style.cssText = 'color:#ffcc00;font-size:11px;text-align:right;';
-      rewardText.textContent = formatQuestReward(quest.reward);
-      rewardEl.appendChild(rewardText);
-    }
-    row.appendChild(rewardEl);
-
-    questList.appendChild(row);
-  }
-
-  questsOverlayEl.appendChild(questList);
-
-  // Back button
-  const backBtn = document.createElement('div');
-  backBtn.style.cssText = 'margin-top:20px;padding:10px 30px;background:#555566;color:#ffffff;font-size:16px;font-weight:bold;border-radius:8px;cursor:pointer;user-select:none;margin-bottom:20px;';
-  backBtn.textContent = t('quest.back');
-  backBtn.addEventListener('click', () => {
+  const silverWrap = document.createElement('div');
+  silverWrap.dataset.region = 'silver';
+  const silverBadge = createSilverBadge(loadSave().silver);
+  silverWrap.appendChild(silverBadge);
+  questsOverlayEl.appendChild(createPrepScreenHeader(t('menu.quests'), () => {
     hideQuestsOverlay();
-  });
-  questsOverlayEl.appendChild(backBtn);
+    if (mainMenuEl) {
+      const silverDisp = mainMenuEl.querySelector('[data-silver-badge]') as HTMLDivElement | null;
+      if (silverDisp) {
+        setSilverBadgeAmount(silverDisp, loadSave().silver);
+      }
+      updateMainMenuQuestNotification();
+    }
+  }, silverWrap));
 
+  const content = document.createElement('div');
+  content.style.cssText = `
+    flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;
+    padding:8px clamp(8px,3vw,14px) max(20px,env(safe-area-inset-bottom,0px));
+    box-sizing:border-box;width:min(96vw,840px);margin:0 auto;overflow:hidden;
+  `;
+
+  const panelRow = document.createElement('div');
+  panelRow.style.cssText = `
+    flex:1;min-height:0;width:100%;display:flex;justify-content:center;
+    box-sizing:border-box;
+  `;
+
+  const panelUnit = document.createElement('div');
+  panelUnit.style.cssText = `
+    display:flex;align-items:flex-start;gap:clamp(6px,2vw,12px);
+    height:100%;max-height:100%;min-height:0;width:100%;max-width:100%;
+    box-sizing:border-box;
+  `;
+
+  const questListPanel = document.createElement('div');
+  questListPanel.style.cssText = `
+    position:relative;box-sizing:border-box;overflow:hidden;flex:1;min-width:0;
+    height:100%;max-height:100%;
+    aspect-ratio:${QUEST_LIST_PANEL_SIZE.w}/${QUEST_LIST_PANEL_SIZE.h};
+    background:url(${QUEST_LIST_PANEL_BG}) center center/contain no-repeat;
+  `;
+
+  const questListScroll = document.createElement('div');
+  questListScroll.style.cssText = `
+    position:absolute;overflow-y:auto;overflow-x:hidden;box-sizing:border-box;
+    overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+  `;
+
+  const categorySidebar = document.createElement('div');
+  categorySidebar.style.cssText = `
+    display:flex;flex-direction:column;gap:clamp(4px,1.2vw,6px);flex-shrink:0;
+    width:clamp(64px,18vw,92px);align-self:flex-start;
+  `;
+
+  const questList = document.createElement('div');
+  questList.style.cssText = 'display:flex;flex-direction:column;gap:clamp(6px,1.5vw,8px);width:100%;';
+
+  const categoryButtons = new Map<QuestCategory, HTMLDivElement>();
+  let selectedCategory: QuestCategory = 'all';
+
+  const refreshAfterClaim = (): void => {
+    renderQuestList(selectedCategory);
+    setSilverBadgeAmount(silverBadge, loadSave().silver);
+    updateQuestCategoryNotifications(categoryButtons);
+  };
+
+  const renderQuestList = (category: QuestCategory): void => {
+    questList.replaceChildren();
+    const questProgress = getQuestProgress();
+    const entries: { quest: Quest; progress: QuestProgress; index: number }[] = [];
+    for (let i = 0; i < QUESTS.length; i++) {
+      const quest = QUESTS[i];
+      if (!questMatchesCategory(quest, category)) continue;
+      entries.push({ quest, progress: questProgress[i], index: i });
+    }
+    entries.sort((a, b) => {
+      const rank = (p: QuestProgress) => {
+        if (!p.completed) return 0;
+        if (!p.claimed) return 1;
+        return 2;
+      };
+      const rankDiff = rank(a.progress) - rank(b.progress);
+      if (rankDiff !== 0) return rankDiff;
+      return a.index - b.index;
+    });
+    for (const { quest, progress } of entries) {
+      questList.appendChild(createQuestRow(quest, progress, refreshAfterClaim));
+    }
+  };
+
+  const selectCategory = (category: QuestCategory): void => {
+    selectedCategory = category;
+    for (const [id, btn] of categoryButtons) {
+      updateQuestCategoryButtonStyle(btn, id === category);
+    }
+    renderQuestList(category);
+  };
+
+  for (const cat of QUEST_CATEGORIES) {
+    const btn = createQuestCategoryButton(
+      QUEST_CATEGORY_ICONS[cat.id],
+      t(cat.labelKey),
+      cat.id === selectedCategory,
+      () => selectCategory(cat.id),
+    );
+    categoryButtons.set(cat.id, btn);
+    categorySidebar.appendChild(btn);
+  }
+  updateQuestCategoryNotifications(categoryButtons);
+
+  questListScroll.appendChild(questList);
+  questListPanel.appendChild(questListScroll);
+  panelUnit.appendChild(categorySidebar);
+  panelUnit.appendChild(questListPanel);
+  panelRow.appendChild(panelUnit);
+  content.appendChild(panelRow);
+  questsOverlayEl.appendChild(content);
+
+  renderQuestList(selectedCategory);
   document.body.appendChild(questsOverlayEl);
+
+  const syncQuestPanelLayout = () => layoutQuestPanel(questListPanel, questListScroll, categorySidebar);
+  requestAnimationFrame(syncQuestPanelLayout);
+  questsOverlayResizeHandler = syncQuestPanelLayout;
+  window.addEventListener('resize', questsOverlayResizeHandler);
 }
 
 function hideQuestsOverlay(): void {
+  if (questsOverlayResizeHandler) {
+    window.removeEventListener('resize', questsOverlayResizeHandler);
+    questsOverlayResizeHandler = null;
+  }
   questsOverlayEl?.remove();
   questsOverlayEl = null;
 }
@@ -7116,13 +7758,13 @@ function hideQuestsOverlay(): void {
 function formatQuestReward(reward: { type: string; value: string | number }): string {
   switch (reward.type) {
     case 'silver':
-      return `+${reward.value} Silver`;
+      return t('quest.reward_silver', { count: String(reward.value) });
     case 'weapon_unlock':
-      return `Unlock: ${String(reward.value)}`;
+      return t(`upgrade.weapon.${String(reward.value)}`);
     case 'character_unlock':
-      return `Unlock: ${String(reward.value)}`;
+      return t(`character.${String(reward.value)}`);
     case 'weapon_slot':
-      return '+1 Weapon Slot';
+      return t('quest.reward_weapon_slot');
     default:
       return String(reward.value);
   }
@@ -7173,11 +7815,6 @@ async function main(): Promise<void> {
     mode: i18nMode,
     locale: i18nLocale,
   });
-
-  if (import.meta.env.DEV) {
-    mountDevtools();
-    positionLanguageSwitcher();
-  }
 
   await loadModels();
   // 关卡白盒默认不自动加载（PR #7 引入了「数据驱动关卡」，但物理 / boss / 投射物
