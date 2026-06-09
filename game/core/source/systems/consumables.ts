@@ -217,26 +217,32 @@ export function applyPlayerHit(engine: Engine, rawDamage: number): number {
   }
 
   const damage = computePlayerHitDamage(engine, rawDamage);
-  const hpDamage = applyShieldAbsorb(player, damage);
+  const { hpDamage, absorbed } = applyShieldAbsorb(player, damage);
   player.invincibleTimer = PLAYER_INVINCIBLE_DURATION;
-  engine.state.stats.damageTaken += hpDamage;
-  addDamageEvent(engine, player.x, 1.5, player.z, hpDamage, false, true);
+  engine.state.stats.damageTaken += hpDamage + absorbed;
+  engine.state.stats.shieldAbsorbed += absorbed;
+  if (hpDamage > 0) {
+    addDamageEvent(engine, player.x, 1.5, player.z, hpDamage, false, true);
+  }
+  if (absorbed > 0) {
+    addDamageEvent(engine, player.x, 1.7, player.z, absorbed, false, true, undefined, true);
+  }
   if (player.hp <= 0) checkPlayerDeath(engine);
   return hpDamage;
 }
 
-function applyShieldAbsorb(player: Engine['state']['player'], damage: number): number {
+function applyShieldAbsorb(player: Engine['state']['player'], damage: number): { hpDamage: number; absorbed: number } {
   const shield = player.shield ?? 0;
   if (shield <= 0) {
     player.hp -= damage;
-    return damage;
+    return { hpDamage: damage, absorbed: 0 };
   }
 
   const absorbed = Math.min(shield, damage);
   player.shield = shield - absorbed;
   const hpDamage = damage - absorbed;
   if (hpDamage > 0) player.hp -= hpDamage;
-  return hpDamage;
+  return { hpDamage, absorbed };
 }
 
 /** XP 宝石拾取半径（磁铁仅扩大 XP 类拾取）。 */

@@ -19,6 +19,7 @@ import {
   PLAYER_BASE_CRIT_DAMAGE,
   PLAYER_PICKUP_RADIUS,
   CHARACTER_CONFIGS,
+  PLAYER_MOVE_SPEED_MULTIPLIER,
 } from '../config.ts';
 import type { PlayerState, CharacterType } from '../types.ts';
 
@@ -50,7 +51,7 @@ export function recomputePlayerStats(
   const block = new StatBlock();
 
   // ─── 1. base ───
-  block.setBase('moveSpeed',     charCfg.speed       + (shop.speed       ?? 0));
+  block.setBase('moveSpeed',     (charCfg.speed      + (shop.speed       ?? 0)) * PLAYER_MOVE_SPEED_MULTIPLIER);
   block.setBase('damageMult',    charCfg.damage      + (shop.damage      ?? 0));
   block.setBase('maxHp',         charCfg.hp          + (shop.maxHp       ?? 0));
   block.setBase('attackSpeed',   1.0);

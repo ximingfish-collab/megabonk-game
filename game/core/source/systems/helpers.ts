@@ -66,8 +66,9 @@ export function addDamageEvent(
   isCrit: boolean,
   isPlayerDamage: boolean,
   weaponType?: WeaponType,
+  isShield?: boolean,
 ): void {
-  engine.state.damageEvents.push({ x, y, z, damage, isCrit, isPlayerDamage, weaponType });
+  engine.state.damageEvents.push({ x, y, z, damage, isCrit, isPlayerDamage, weaponType, isShield });
 }
 
 /**

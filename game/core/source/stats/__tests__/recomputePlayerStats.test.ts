@@ -13,6 +13,7 @@ import {
   CHARACTER_CONFIGS,
   PLAYER_BASE_CRIT_DAMAGE,
   PLAYER_PICKUP_RADIUS,
+  PLAYER_MOVE_SPEED_MULTIPLIER,
 } from '../../config.ts';
 import type { PlayerState, TomeType, CharacterType, TomeState } from '../../types.ts';
 
@@ -45,7 +46,7 @@ function legacyRecompute(
     }
   }
 
-  player.speed = (charCfg.speed + (shop.speed ?? 0)) * speedMult;
+  player.speed = (charCfg.speed + (shop.speed ?? 0)) * PLAYER_MOVE_SPEED_MULTIPLIER * speedMult;
   player.damageMultiplier = damageMult;
   player.attackSpeedMultiplier = attackSpeedMult;
   player.critChance = critChance;
@@ -182,10 +183,10 @@ describe('recomputePlayerStats: 与 Phase 4 末 switch case 数学等价', () =>
 });
 
 describe('recomputePlayerStats: 边界与具体数值', () => {
-  it('megachad 裸 → speed=4.0, damageMult=1.2, critDamage=1.5', () => {
+  it('megachad 裸 → speed=旧 slide 速度, damageMult=1.2, critDamage=1.5', () => {
     const p = makePlayer();
     recomputePlayerStats(p, 'megachad', {});
-    expect(p.speed).toBe(4.0);
+    expect(p.speed).toBeCloseTo(4.0 * PLAYER_MOVE_SPEED_MULTIPLIER, 5);
     expect(p.damageMultiplier).toBe(1.2);
     expect(p.attackSpeedMultiplier).toBe(1.0);
     expect(p.critChance).toBeCloseTo(0.08, 5);
@@ -194,10 +195,10 @@ describe('recomputePlayerStats: 边界与具体数值', () => {
     expect(p.pickupRadius).toBe(PLAYER_PICKUP_RADIUS);
   });
 
-  it('megachad + speed_tome lv5 → speed = 4.0 × 1.4 = 5.6', () => {
+  it('megachad + speed_tome lv5 → speed = 旧 slide 速度 × 1.4', () => {
     const p = makePlayer([{ type: 'speed_tome', level: 5 }]);
     recomputePlayerStats(p, 'megachad', {});
-    expect(p.speed).toBeCloseTo(5.6, 5);
+    expect(p.speed).toBeCloseTo(4.0 * PLAYER_MOVE_SPEED_MULTIPLIER * 1.4, 5);
   });
 
   it('roberto + shield_tome lv5 → armor = 3 + 10 = 13', () => {
@@ -228,6 +229,6 @@ describe('recomputePlayerStats: 边界与具体数值', () => {
   it('speed_tome 使用 growth 结算：level 1 / rare power 1.6 → 移速 +12.8%', () => {
     const p = makePlayer([{ type: 'speed_tome', level: 1, growth: 1.6 }]);
     recomputePlayerStats(p, 'megachad', {});
-    expect(p.speed).toBeCloseTo(4.0 * 1.128, 5);
+    expect(p.speed).toBeCloseTo(4.0 * PLAYER_MOVE_SPEED_MULTIPLIER * 1.128, 5);
   });
 });

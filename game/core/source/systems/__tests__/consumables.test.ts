@@ -39,6 +39,51 @@ describe('applyConsumable', () => {
     expect(engine.state.player.nextHitNullify).toBe(false);
   });
 
+  it('护盾完全吸收伤害时记录统计并推 shield 漂字', () => {
+    const engine = makeEngine();
+    engine.state.player.hp = 100;
+    engine.state.player.shield = 10;
+
+    const hpDamage = applyPlayerHit(engine, 5);
+
+    expect(hpDamage).toBe(0);
+    expect(engine.state.player.hp).toBe(100);
+    expect(engine.state.player.shield).toBe(5);
+    expect(engine.state.stats.damageTaken).toBe(5);
+    expect(engine.state.stats.shieldAbsorbed).toBe(5);
+    expect(engine.state.damageEvents).toHaveLength(1);
+    expect(engine.state.damageEvents[0]).toMatchObject({
+      damage: 5,
+      isPlayerDamage: true,
+      isShield: true,
+    });
+  });
+
+  it('护盾部分吸收伤害时分别推 hp 和 shield 漂字', () => {
+    const engine = makeEngine();
+    engine.state.player.hp = 100;
+    engine.state.player.shield = 10;
+
+    const hpDamage = applyPlayerHit(engine, 15);
+
+    expect(hpDamage).toBe(5);
+    expect(engine.state.player.hp).toBe(95);
+    expect(engine.state.player.shield).toBe(0);
+    expect(engine.state.stats.damageTaken).toBe(15);
+    expect(engine.state.stats.shieldAbsorbed).toBe(10);
+    expect(engine.state.damageEvents).toHaveLength(2);
+    expect(engine.state.damageEvents[0]).toMatchObject({
+      damage: 5,
+      isPlayerDamage: true,
+      isShield: undefined,
+    });
+    expect(engine.state.damageEvents[1]).toMatchObject({
+      damage: 10,
+      isPlayerDamage: true,
+      isShield: true,
+    });
+  });
+
   it('预言之书设置 nextLevelUpReroll', () => {
     const engine = makeEngine();
     applyConsumable(engine, 'prophecy_book');

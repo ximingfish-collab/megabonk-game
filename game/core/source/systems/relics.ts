@@ -1,5 +1,7 @@
 import { getTomePower } from '../tomeProgression.ts';
 import { RELICS, getRelicStack, rollRelic, type RelicDef } from '../data/relics.ts';
+import { recomputePlayerStats } from '../stats/recomputePlayerStats.ts';
+import { getShopBonuses } from '../shop.ts';
 import type { EnemyState, RelicId } from '../types.ts';
 import type { Engine } from './types.ts';
 
@@ -34,9 +36,6 @@ export function grantRelic(engine: Engine, relicId: RelicId): void {
   player.relicStacks[relicId] = next;
 
   switch (relicId) {
-    case 'keen_lens':
-      player.critChance += 0.03;
-      break;
     case 'small_shield_charm':
       player.maxShield = (player.maxShield ?? 0) + 5;
       player.shield = Math.min(player.maxShield, (player.shield ?? 0) + 2);
@@ -50,15 +49,9 @@ export function grantRelic(engine: Engine, relicId: RelicId): void {
     case 'elite_writ':
       player.eliteDamageMult = 1 + next * 0.10;
       break;
-    case 'iron_heart': {
-      player.armor += 2;
-      const beforeMult = 1 + before * 0.12;
-      const nextMult = 1 + next * 0.12;
-      player.maxHp = (player.maxHp / beforeMult) * nextMult;
-      player.hp = Math.min(player.hp, player.maxHp);
-      break;
-    }
   }
+
+  recomputePlayerStats(player, engine.config.character, getShopBonuses());
 }
 
 export function applyRelicKillEffects(engine: Engine, enemy: EnemyState): void {

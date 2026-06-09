@@ -37,7 +37,7 @@ function defaultState(player: PlayerState, character: GameConfig['character'] = 
     enemies: [], projectiles: [], pickups: [], consumablePickups: [], goldMotes: [], boss: null,
     upgradeOptions: null, damageEvents: [], levelUpCompensationEvents: [],
     chestOpenEvents: [], pendingChestReward: null,
-    stats: { killCount: 0, damageDealt: 0, damageTaken: 0, silverEarned: 0 },
+    stats: { killCount: 0, damageDealt: 0, damageTaken: 0, shieldAbsorbed: 0, silverEarned: 0 },
     waveIndex: 0, altars: [], shrines: [], activeShrineId: null, chests: [],
     character,
     finalSwarm: false,

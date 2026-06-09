@@ -90,7 +90,7 @@ export class GameInstance {
       levelUpCompensationEvents: [],
       chestOpenEvents: [],
       pendingChestReward: null,
-      stats: { killCount: 0, damageDealt: 0, damageTaken: 0, silverEarned: 0 },
+      stats: { killCount: 0, damageDealt: 0, damageTaken: 0, shieldAbsorbed: 0, silverEarned: 0 },
       waveIndex: 0,
       altars: [],
       shrines: [],
@@ -177,7 +177,7 @@ export class GameInstance {
     state.pendingChestReward = null;
     state.boss = null;
     state.upgradeOptions = null;
-    state.stats = { killCount: 0, damageDealt: 0, damageTaken: 0, silverEarned: 0 };
+    state.stats = { killCount: 0, damageDealt: 0, damageTaken: 0, shieldAbsorbed: 0, silverEarned: 0 };
     state.waveIndex = 0;
     state.altars = generateAltars(config);
     state.shrines = generateShrines(config);

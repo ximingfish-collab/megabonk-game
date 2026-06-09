@@ -495,6 +495,8 @@ export interface DamageEvent {
   isPlayerDamage: boolean;
   /** Optional source weapon — used by client to drive weapon-specific VFX. */
   weaponType?: WeaponType;
+  /** Shield absorption feedback uses a separate visual style from HP damage. */
+  isShield?: boolean;
 }
 
 // --- Game State ---
@@ -504,6 +506,7 @@ export interface GameStats {
   killCount: number;
   damageDealt: number;
   damageTaken: number;
+  shieldAbsorbed: number;
   silverEarned: number;
 }
 

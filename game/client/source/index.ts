@@ -1522,7 +1522,6 @@ export class GameScene {
   // State
   private isPaused = false;
   private jumpKeyDown = false;
-  private slideKeyDown = false;
   /**
    * 交互按键的边缘状态。`interactKeyPressed` 在按下的那一帧为 true，
    * 发完一帧后立即清零，避免长按反复触发祭坛召唤。
@@ -1629,7 +1628,6 @@ export class GameScene {
     // Keyboard bindings
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Space') { this.jumpKeyDown = true; e.preventDefault(); }
-      if (e.code === 'ShiftLeft' || e.code === 'ControlLeft') { this.slideKeyDown = true; }
       if (e.code === 'KeyE') {
         // 边缘触发：keydown 那一帧标记为 pressed；发送过 input 后会清零（见 handleInput）
         if (!e.repeat) this.interactKeyPressed = true;
@@ -1637,7 +1635,6 @@ export class GameScene {
     });
     window.addEventListener('keyup', (e) => {
       if (e.code === 'Space') { this.jumpKeyDown = false; }
-      if (e.code === 'ShiftLeft' || e.code === 'ControlLeft') { this.slideKeyDown = false; }
     });
 
     // 镜头视图系统：FPS pointer lock + 拖拽 + 手机右半屏滑动 + pitch 夹紧。
@@ -2998,7 +2995,7 @@ export class GameScene {
       skill1: raw.action3 ?? false,
       skill2: false,
       jump: this.jumpKeyDown || (raw.action1 ?? false),
-      slide: this.slideKeyDown || (raw.action2 ?? false),
+      slide: raw.action2 ?? false,
       interact: this.interactKeyPressed || (this.mobileInteractPressed ?? false),
     };
     // 边缘触发：发出后立即清零，避免长按反复触发
@@ -5758,7 +5755,8 @@ export class GameScene {
     const screenY = -(this._tempVec.y * hh) + hh;
 
     let color = '#ffffff';
-    if (evt.isPlayerDamage) color = '#ff4444';
+    if (evt.isShield) color = '#66ddff';
+    else if (evt.isPlayerDamage) color = '#ff4444';
     else if (evt.isCrit) color = '#ffd700'; // gold for crits
 
     // Damage number scaling by value
@@ -5771,7 +5769,7 @@ export class GameScene {
       fontSize = Math.round(fontSize * 1.5);
     }
 
-    const dmgText = String(Math.round(evt.damage));
+    const dmgText = evt.isShield ? `+${Math.round(evt.damage)}` : String(Math.round(evt.damage));
     el.textContent = evt.isCrit ? `${dmgText} CRIT!` : dmgText;
     el.style.color = color;
     el.style.left = `${screenX}px`;
