@@ -36,7 +36,7 @@ export class EnhancedCollisionSystem {
         this.setLevelGeometry(levelGeometry);
       }
     } catch (error) {
-      console.warn('⚠️ RapierJS初始化失败，回退到基础碰撞系统:', error.message);
+      console.warn('⚠️ RapierJS初始化失败，回退到基础碰撞系统:', (error as Error).message);
       this.isRapierEnabled = false;
     }
   }
@@ -61,9 +61,9 @@ export class EnhancedCollisionSystem {
       rapierPhysics.createRampCollider(ramp);
     });
 
-    // 创建矩形平台碰撞体
-    geo.rects.forEach(rect => {
-      rapierPhysics.createRectCollider(rect);
+    // 创建矩形平台碰撞体（geo.rects 是 [cx, cz, halfW, halfD, height] 元组，转回 CollisionRect 形状）
+    geo.rects.forEach(([cx, cz, halfW, halfD, height]) => {
+      rapierPhysics.createRectCollider({ cx, cz, halfW, halfD, height });
     });
 
     // 创建攀爬体碰撞体

@@ -6,7 +6,8 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { enhancedCollision } from '../collisionEnhanced.ts';
-import type { LevelGeometry, RampVolume, CollisionRect } from '../../types.ts';
+import type { LevelGeometry } from '../collision.ts';
+import type { RampVolume, CollisionRect } from '../../types.ts';
 
 // 测试用的斜坡数据
 const testRamp: RampVolume = {
@@ -29,9 +30,9 @@ const testRect: CollisionRect = {
   height: 3
 };
 
-// 测试用的关卡几何
+// 测试用的关卡几何（rects 是 [cx, cz, halfW, halfD, height] 元组）
 const testLevelGeometry: LevelGeometry = {
-  rects: [testRect],
+  rects: [[testRect.cx, testRect.cz, testRect.halfW, testRect.halfD, testRect.height]],
   ramps: [testRamp],
   solidBoxes: [],
   climbs: [],
