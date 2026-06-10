@@ -130,6 +130,8 @@ export function spawnEnemy(
     attackCooldownMax: def.attackCooldown,
     targetX: ctx.player.x,
     targetZ: ctx.player.z,
+    /** AI错峰计算相位（0-3），随机分配 */
+    aiPhase: Math.floor(Math.random() * 4),
     chargeState: 'idle',
     chargeTimer: 0,
     chargeTargetX: 0,

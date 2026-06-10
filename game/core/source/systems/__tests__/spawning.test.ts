@@ -99,6 +99,7 @@ describe('tickSpawning', () => {
       behavior: 'chase' as const, isElite: false, isMiniBoss: false,
       hitFlashTimer: 0, attackCooldown: 0, attackCooldownMax: 1.5,
       targetX: 0, targetZ: 0,
+      aiPhase: 0, // AI错峰相位
       chargeState: 'idle' as const, chargeTimer: 0, chargeTargetX: 0, chargeTargetZ: 0,
       summonCooldown: 0, orbitAngle: 0, orbitTimer: 0,
       diveState: 'flying' as const, diveTimer: 0,
