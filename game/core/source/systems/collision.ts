@@ -144,9 +144,13 @@ function rampHeightAt(ramp: RampVolume, x: number, z: number): number | null {
   // 投影到 slopeDir（沿坡道方向） + 法向（slopeDir 旋转 90°）
   const sCoord = dx * ramp.slopeDirX + dz * ramp.slopeDirZ;
   const pCoord = dx * (-ramp.slopeDirZ) + dz * ramp.slopeDirX;
-  if (Math.abs(sCoord) > ramp.halfSlope || Math.abs(pCoord) > ramp.halfPerp) return null;
-  // t: 0 在低端 (-halfSlope)，1 在高端 (+halfSlope)
-  const t = ramp.halfSlope > 0 ? (sCoord + ramp.halfSlope) / (ramp.halfSlope * 2) : 0;
+  // EPS 容差：旋转坡道在精确边角点处，sCoord/pCoord 因浮点累积可能微超 half*，
+  // 不容差会让玩家恰好站在坡顶边角时穿地。
+  const EPS = 1e-6;
+  if (Math.abs(sCoord) > ramp.halfSlope + EPS || Math.abs(pCoord) > ramp.halfPerp + EPS) return null;
+  // t: 0 在低端 (-halfSlope)，1 在高端 (+halfSlope)。clamp 抵消上面 EPS 带来的轻微越界。
+  let t = ramp.halfSlope > 0 ? (sCoord + ramp.halfSlope) / (ramp.halfSlope * 2) : 0;
+  t = Math.max(0, Math.min(1, t));
   return ramp.lowY + (ramp.highY - ramp.lowY) * t;
 }
 

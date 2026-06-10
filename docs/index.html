@@ -707,39 +707,39 @@
 
     <h4>概览</h4>
     <a href="#overview" data-tab="overview">项目总览</a>
-    <a data-tab="ext-overview" class="nav-entry-new">扩展总览<span class="badge-new">new</span></a>
-    <a data-tab="timeline">单局节奏</a>
-    <a data-tab="tier">难度分层</a>
+    <a href="#ext-overview" data-tab="ext-overview" class="nav-entry-new">扩展总览<span class="badge-new">new</span></a>
+    <a href="#timeline" data-tab="timeline">单局节奏</a>
+    <a href="#tier" data-tab="tier">难度分层</a>
 
     <h4>角色</h4>
-    <a data-tab="characters">角色（3）<span class="badge-new">new</span></a>
+    <a href="#characters" data-tab="characters">角色（3）<span class="badge-new">new</span></a>
 
     <h4>经验 / 升级</h4>
-    <a data-tab="xp">经验 / 升级<span class="badge-new">new</span></a>
+    <a href="#xp" data-tab="xp">经验 / 升级<span class="badge-new">new</span></a>
 
     <h4>战斗</h4>
-    <a data-tab="weapons">武器（12）<span class="badge-new">new</span></a>
-    <a data-tab="tomes">典籍（12）<span class="badge-new">new</span></a>
-    <a data-tab="ext-bonds" class="nav-entry-new">羁绊系统<span class="badge-new">new</span></a>
-    <a data-tab="ext-relics" class="nav-entry-new">遗物 · 宝箱 · 金币<span class="badge-new">new</span></a>
-    <a data-tab="ext-consumables" class="nav-entry-new">消耗品<span class="badge-new">new</span></a>
-    <a data-tab="shop">永久商店</a>
-    <a data-tab="combat">战斗公式</a>
-    <a data-tab="enemies">敌人</a>
-    <a data-tab="boss">Boss</a>
+    <a href="#weapons" data-tab="weapons">武器（12）<span class="badge-new">new</span></a>
+    <a href="#tomes" data-tab="tomes">典籍（12）<span class="badge-new">new</span></a>
+    <a href="#ext-bonds" data-tab="ext-bonds" class="nav-entry-new">羁绊系统<span class="badge-new">new</span></a>
+    <a href="#ext-relics" data-tab="ext-relics" class="nav-entry-new">遗物 · 宝箱 · 金币<span class="badge-new">new</span></a>
+    <a href="#ext-consumables" data-tab="ext-consumables" class="nav-entry-new">消耗品<span class="badge-new">new</span></a>
+    <a href="#shop" data-tab="shop">永久商店</a>
+    <a href="#combat" data-tab="combat">战斗公式</a>
+    <a href="#enemies" data-tab="enemies">敌人</a>
+    <a href="#boss" data-tab="boss">Boss</a>
 
     <h4>系统</h4>
-    <a data-tab="quests">任务 / 银币</a>
-    <a data-tab="teleporter">祭坛 / Boss / 超时</a>
-    <a data-tab="shrine">充能神殿</a>
+    <a href="#quests" data-tab="quests">任务 / 银币</a>
+    <a href="#teleporter" data-tab="teleporter">祭坛 / Boss / 超时</a>
+    <a href="#shrine" data-tab="shrine">充能神殿</a>
 
     <h4>技术</h4>
-    <a data-tab="architecture">架构</a>
-    <a data-tab="gsap-animations">GSAP 动画系统</a>
-    <a data-tab="physics">物理 / 碰撞</a>
-    <a data-tab="performance">性能</a>
-    <a data-tab="dev">开发指南</a>
-    <a data-tab="assets">美术资源</a>
+    <a href="#architecture" data-tab="architecture">架构</a>
+    <a href="#gsap-animations" data-tab="gsap-animations">GSAP 动画系统</a>
+    <a href="#physics" data-tab="physics">物理 / 碰撞</a>
+    <a href="#performance" data-tab="performance">性能</a>
+    <a href="#dev" data-tab="dev">开发指南</a>
+    <a href="#assets" data-tab="assets">美术资源</a>
   </nav>
 </aside>
 
@@ -2928,6 +2928,7 @@ window.__gm.showCollision()</code></pre>
     <li><code>systems/__tests__/horizontalMove.test.ts</code> — helper 4 path fallback</li>
     <li><code>ai/__tests__/_move.test.ts</code> — 敌人接入 wall_ 集成</li>
   </ul>
+
 </section>
 <section id="performance">
   <h2>性能优化</h2>
@@ -3119,7 +3120,6 @@ tv_1.gltf</code></pre>
   策划 v0.5 · <code>index.html</code> — 侧栏紫色 = 全新栏目，<span class="badge-new">new</span> = 相对旧版有修订。
 </footer>
 
-</main>
 </div>
 
 <script id="tab-bootstrap">
@@ -3496,11 +3496,12 @@ safeRender('xpchart', function renderXpChart() {
 });
 
 // ====================== Tab switching ======================
+document.addEventListener('DOMContentLoaded', function() {
 (function initTabs() {
   const navLinks = document.querySelectorAll('#nav a');
   const sections = document.querySelectorAll('main > section');
   const sectionIds = new Set([...sections].map(s => s.id));
-  const TAB_ALIASES = { 'ext-progression': 'xp', 'ext-unlock': 'characters', 'ext-traits': 'characters' };
+  const TAB_ALIASES = { 'ext-progression': 'xp', 'ext-unlock': 'characters', 'ext-traits': 'characters', 'ext-overview': 'ext-overview', 'ext-bonds': 'ext-bonds', 'ext-relics': 'ext-relics', 'ext-consumables': 'ext-consumables' };
 
   function resolveSectionId(raw) {
     if (!raw) return null;
@@ -3582,7 +3583,7 @@ safeRender('xpchart', function renderXpChart() {
   const initial = location.hash.substring(1);
   showTab(initial && resolveSectionId(initial) ? initial : 'overview', initial || null);
 })();
-</script>
+});
 
 </body>
 </html>

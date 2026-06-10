@@ -13,6 +13,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+
 import {
   GameInstance,
   DEFAULT_GAME_CONFIG,
