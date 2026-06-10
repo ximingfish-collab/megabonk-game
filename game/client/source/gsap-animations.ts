@@ -159,10 +159,15 @@ export class GSAPAnimationManager {
     const animationId = 'level-label-pulse';
     this.cancelAnimation(animationId);
 
+    // xPercent:-50 保留元素 CSS 的 translateX(-50%) 水平居中。GSAP 接管 transform 后，
+    // 若不显式带上居中偏移，scale 脉冲会丢掉 -50% 偏移导致标签向右跳半个身位。
+    gsap.set(element, { xPercent: -50 });
+
     const timeline = gsap.timeline({ repeat: -1 });
 
     timeline
       .to(element, {
+        xPercent: -50,
         scale: 1.2,
         color: '#ffff88',
         textShadow: '0 0 16px rgba(255,220,80,0.9),0 0 32px rgba(255,180,40,0.5)',
@@ -170,6 +175,7 @@ export class GSAPAnimationManager {
         ease: "sine.inOut"
       })
       .to(element, {
+        xPercent: -50,
         scale: 1.0,
         color: '#ffcc00',
         textShadow: '0 0 8px rgba(255,200,0,0.4),0 1px 3px rgba(0,0,0,0.8)',
@@ -237,79 +243,6 @@ export class GSAPAnimationManager {
     });
 
     this.animations.set(animationId, tween);
-  }
-
-  /**
-   * 金币拾取动画
-   */
-  animateGoldPickup(element: HTMLElement, targetX: number, targetY: number): void {
-    const animationId = `gold-${element.id}`;
-    this.cancelAnimation(animationId);
-
-    const rect = element.getBoundingClientRect();
-    const startX = rect.left + rect.width / 2;
-    const startY = rect.top + rect.height / 2;
-
-    const tween = gsap.to(element, {
-      x: targetX - startX,
-      y: targetY - startY,
-      scale: 0,
-      opacity: 0,
-      duration: 0.8,
-      ease: "power2.in",
-      onComplete: () => {
-        element.style.display = 'none';
-        this.animations.delete(animationId);
-      }
-    });
-
-    this.animations.set(animationId, tween);
-  }
-
-  /**
-   * 按钮点击反馈动画
-   */
-  buttonClickFeedback(element: HTMLElement): void {
-    const animationId = `button-${element.id}-${Date.now()}`;
-
-    const timeline = gsap.timeline({
-      onComplete: () => this.timelines.delete(animationId)
-    });
-
-    timeline
-      .to(element, { scale: 0.95, duration: 0.1, ease: "power2.out" })
-      .to(element, { scale: 1, duration: 0.1, ease: "power2.in" });
-
-    this.timelines.set(animationId, timeline);
-  }
-
-  /**
-   * 屏幕震动效果
-   */
-  screenShake(intensity: number = 10, duration: number = 0.5): void {
-    const animationId = 'screen-shake';
-    this.cancelAnimation(animationId);
-
-    const gameContainer = document.getElementById('game-container');
-    if (!gameContainer) return;
-
-    const timeline = gsap.timeline({
-      onComplete: () => {
-        gameContainer.style.transform = '';
-        this.timelines.delete(animationId);
-      }
-    });
-
-    timeline.to(gameContainer, {
-      x: `+=${intensity}`,
-      y: `+=${intensity}`,
-      duration: duration / 4,
-      repeat: 3,
-      yoyo: true,
-      ease: "power1.inOut"
-    });
-
-    this.timelines.set(animationId, timeline);
   }
 
   /**
