@@ -79,8 +79,7 @@ export class RapierPhysicsSystem {
       // 设置位置
       colliderDesc.setTranslation(ramp.cx, 0, ramp.cz);
 
-      // 启用连续碰撞检测，防止高速穿透
-      colliderDesc.setCcdEnabled(true);
+      // 静态碰撞体无需 CCD（CCD 仅对动态刚体有效）
       colliderDesc.setFriction(0.7);
       colliderDesc.setRestitution(0.1);
 
@@ -88,7 +87,7 @@ export class RapierPhysicsSystem {
       this.collisionBodies.set(`ramp_${ramp.cx}_${ramp.cz}`, collider);
       return collider;
     } catch (error) {
-      console.warn('高度场创建失败，使用三角网格替代:', error.message);
+      console.warn('高度场创建失败，使用三角网格替代:', (error as Error).message);
       // 回退到三角网格
       return this.createRampTrimesh(ramp);
     }
@@ -127,7 +126,6 @@ export class RapierPhysicsSystem {
     ]);
 
     const colliderDesc = RAPIER.ColliderDesc.trimesh(vertices, indices);
-    colliderDesc.setCcdEnabled(true);
     colliderDesc.setFriction(0.7);
     colliderDesc.setRestitution(0.1);
 
@@ -177,7 +175,6 @@ export class RapierPhysicsSystem {
     );
 
     colliderDesc.setTranslation(rect.cx, rect.height, rect.cz);
-    colliderDesc.setCcdEnabled(true);
 
     const collider = this.getWorld().createCollider(colliderDesc);
     this.collisionBodies.set(`rect_${rect.cx}_${rect.cz}`, collider);
@@ -201,7 +198,6 @@ export class RapierPhysicsSystem {
       climb.bottomY + height / 2,
       climb.cz
     );
-    colliderDesc.setCcdEnabled(true);
 
     const collider = this.getWorld().createCollider(colliderDesc);
     this.collisionBodies.set(`climb_${climb.cx}_${climb.cz}`, collider);
@@ -220,7 +216,8 @@ export class RapierPhysicsSystem {
     const hit = this.getWorld().castRay(ray, maxDistance * 2, true);
 
     if (hit && hit.collider) {
-      return hit.point.y;
+      // rapier 0.19+: 命中点由 ray.pointAt(toi) 计算
+      return ray.pointAt(hit.timeOfImpact).y;
     }
 
     return null;
@@ -281,7 +278,7 @@ export class RapierPhysicsSystem {
 
       if (hit) {
         // 检查碰撞体是否在可迈步范围内
-        const hitPointY = hit.point.y;
+        const hitPointY = ray.pointAt(hit.timeOfImpact).y;
         const stepLimit = position.y + STEP_HEIGHT;
 
         if (hitPointY > stepLimit) {

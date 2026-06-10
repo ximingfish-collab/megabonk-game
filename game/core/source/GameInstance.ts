@@ -147,7 +147,7 @@ export class GameInstance {
       await enhancedCollision.init(this.engine.geo);
       console.log('🎯 增强碰撞系统初始化完成:', enhancedCollision.getStatus());
     } catch (error) {
-      console.warn('⚠️ 增强碰撞系统初始化失败，使用基础碰撞系统:', error.message);
+      console.warn('⚠️ 增强碰撞系统初始化失败，使用基础碰撞系统:', (error as Error).message);
     }
   }
 
