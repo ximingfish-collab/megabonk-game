@@ -12,16 +12,7 @@
  * 详见 docs/contract.md 第二章 "锁定签名"。
  */
 
-import { describe, it, expect, vi } from 'vitest';
-import { enhancedCollision } from '../systems/collisionEnhanced.ts';
-
-// contract test 创建多个 GameInstance, 每个构造时 fire-and-forget 启动 Rapier WASM init.
-// process 退出时多个 GameInstance 共享的 wasm world 上累积的 collider 释放顺序不确定 →
-// __wbg_rawcolliderset_free 抛 "memory access out of bounds" → vitest exit 1.
-// contract 检查不需要真正的 Rapier 行为, stub 掉避免 wasm 介入.
-vi.spyOn(enhancedCollision, 'init').mockResolvedValue();
-vi.spyOn(enhancedCollision, 'setLevelGeometry').mockImplementation(() => {});
-vi.spyOn(enhancedCollision, 'update').mockImplementation(() => {});
+import { describe, it, expect } from 'vitest';
 
 import {
   GameInstance,

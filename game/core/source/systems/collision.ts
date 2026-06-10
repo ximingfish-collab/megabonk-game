@@ -22,7 +22,6 @@
 
 import type { CollisionRect, RampVolume, ClimbVolume, LevelData } from '../types.ts';
 import { STEP_HEIGHT, CLIMB_GRAB_MARGIN } from '../config.ts';
-import { enhancedCollision } from './collisionEnhanced.ts';
 
 type Rect = readonly [number, number, number, number, number];
 
@@ -175,15 +174,6 @@ function rectHeightAt(rect: Rect, x: number, z: number, wysiwyg: boolean): numbe
  * 玩家"掉出关卡 → 复活"语义改由玩家自己读 getSupportHeightAt 判定。
  */
 export function getTerrainHeightAt(geo: LevelGeometry, x: number, z: number): number {
-  // 优先使用增强碰撞系统
-  if (typeof enhancedCollision !== 'undefined' && enhancedCollision.getStatus().rapierEnabled) {
-    const enhancedHeight = enhancedCollision.getTerrainHeightAt(x, z);
-    if (Number.isFinite(enhancedHeight)) {
-      return enhancedHeight;
-    }
-  }
-
-  // 回退到基础系统
   let height = 0; // 统一保底地板，软虚空
   for (const rect of geo.rects) {
     const h = rectHeightAt(rect, x, z, geo.wysiwyg);
@@ -207,15 +197,6 @@ export function getTerrainHeightAt(geo: LevelGeometry, x: number, z: number): nu
  * → 玩家进入下落 / FALL_RESPAWN。
  */
 export function getSupportHeightAt(geo: LevelGeometry, x: number, z: number, feetY: number): number {
-  // 优先使用增强碰撞系统
-  if (typeof enhancedCollision !== 'undefined' && enhancedCollision.getStatus().rapierEnabled) {
-    const enhancedHeight = enhancedCollision.getSupportHeightAt(x, z, feetY);
-    if (Number.isFinite(enhancedHeight)) {
-      return enhancedHeight;
-    }
-  }
-
-  // 回退到基础系统
   const limit = feetY + STEP_HEIGHT;
   let best = 0 <= limit ? 0 : VOID_HEIGHT;
   for (const rect of geo.rects) {
@@ -264,13 +245,6 @@ export function isBlockedHorizontallyAt(
   x: number, z: number, feetY: number,
   includeClimb = true, radius = PLAYER_RADIUS,
 ): boolean {
-  // 优先使用增强碰撞系统
-  if (typeof enhancedCollision !== 'undefined' && enhancedCollision.getStatus().rapierEnabled) {
-    const isBlocked = enhancedCollision.isBlockedHorizontallyAt(x, z, feetY, includeClimb, radius);
-    return isBlocked;
-  }
-
-  // 回退到基础系统
   if (blockedByAny(geo.solidBoxes, x, z, feetY, radius)) return true;
   if (includeClimb && geo.climbs.length > 0) {
     for (const c of geo.climbs) {
