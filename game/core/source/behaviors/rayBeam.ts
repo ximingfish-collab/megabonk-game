@@ -64,6 +64,7 @@ export function rayBeam(_world: GameWorld, ctx: BehaviorContext): void {
     boss.hitFlashTimer = 0.15;
     effects.addDamageDealt(damage);
     effects.addDamageEvent(boss.x, 2, boss.z, damage, isCrit, false, 'ray_gun');
+    effects.bondHit?.(weapon.type, boss, damage, isCrit);
   }
 
   // 视觉：一条沿 dir 的激光线

@@ -645,6 +645,21 @@ export interface BossState {
   hitFlashTimer: number;
   speed: number;
   enraged: boolean;
+  // --- Bond marks（羁绊 T2/T3 机制；boss 同样可被标记/施加，全部 optional）---
+  /** B7 弧光导体：导体标记剩余秒数。 */
+  conductorMarkTimer?: number;
+  /** B6 碎骨震：易伤剩余秒数。 */
+  bondVulnTimer?: number;
+  /** B6 碎骨震：易伤增伤比例。 */
+  bondVulnPct?: number;
+  /** B8 毒师：神经毒素层数。 */
+  neuroStacks?: number;
+  /** B8 毒师：神经毒素剩余秒数。 */
+  neuroTimer?: number;
+  /** B8 毒师：神经毒素周期触发计时器。 */
+  neuroPulseTimer?: number;
+  /** B9 猎标烙印：是否被烙印（boss 免疫处决，但吃 +伤）。 */
+  hunterBranded?: boolean;
 }
 
 // --- Level-up compensation events (empty upgrade pool → gold/silver) ---

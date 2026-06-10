@@ -62,6 +62,7 @@ export function sweepArc(_world: GameWorld, ctx: BehaviorContext): void {
       boss.hitFlashTimer = 0.15;
       effects.addDamageDealt(damage);
       effects.addDamageEvent(boss.x, 2, boss.z, damage, isCrit, false, 'sword');
+      effects.bondHit?.(weapon.type, boss, damage, isCrit);
     }
   }
 }

@@ -140,15 +140,15 @@ function isBuildOption(o: UpgradeOption): boolean {
 
 /**
  * 选出一张「额外」羁绊卡片（不占用常规名额）。
- * 优先随机一个「可激活」羁绊；若没有可激活但有可升级羁绊，则随机一个可升级。
+ * 从「当前所有满足条件、可激活或可升级」的羁绊里**等概率**随机一个 ——
+ * 激活与升级一视同仁，互不阻挡：不会因为存在可激活羁绊就永远不出可升级卡，
+ * 也不会要求先激活某条才出现另一条（每条彼此独立，凭各自条件入池）。
  * 没有任何羁绊目标时返回 null。
  */
 function pickBondExtra(player: PlayerState): UpgradeOption | null {
   const bondOptions = getBondUpgradeOptions(player);
   if (bondOptions.length === 0) return null;
-  const activatable = bondOptions.filter(o => o.kind === 'bond_activate');
-  const pool = activatable.length > 0 ? activatable : bondOptions;
-  return pool[Math.floor(Math.random() * pool.length)];
+  return bondOptions[Math.floor(Math.random() * bondOptions.length)];
 }
 
 export interface GenerateUpgradeOptionsOpts {

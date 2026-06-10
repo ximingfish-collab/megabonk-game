@@ -485,8 +485,8 @@ function makeEffects(engine: Engine): AiEffects {
       engine.state.areaEffects.push({ id, ...a });
       return id;
     },
-    bondHit: (weaponType, enemy, damage, isCrit) => {
-      onBondWeaponHit(engine, weaponType, enemy, damage, isCrit);
+    bondHit: (weaponType, target, damage, isCrit) => {
+      onBondWeaponHit(engine, weaponType, target, damage, isCrit);
     },
     spawnEnemyByType: (type, x, z, opts) => {
       const newEnemy = spawnEnemy(

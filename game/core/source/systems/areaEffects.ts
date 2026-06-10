@@ -54,6 +54,7 @@ export function tickAreaEffects(engine: Engine, dt: number): void {
           // boss 不可中毒 → 直接结算等量直伤
           if (boss && boss.hp > 0 && distanceBetween(ae.x, ae.z, boss.x, boss.z) <= ae.radius) {
             damageBoss(engine, boss, Math.round(dps * (ae.tickInterval ?? 0.5)), ae);
+            onBondWeaponHit(engine, ae.weaponType, boss, Math.round(dps), false);
           }
         }
         break;
@@ -80,6 +81,7 @@ export function tickAreaEffects(engine: Engine, dt: number): void {
           if (distanceBetween(ae.x, ae.z, boss.x, boss.z) <= ae.radius) {
             damageBoss(engine, boss, ae.damage, ae);
             ae.hitEnemyIds.push(-1);
+            onBondWeaponHit(engine, ae.weaponType, boss, ae.damage, ae.isCrit ?? false);
           }
         }
         if (ae.radius >= (ae.maxRadius ?? ae.radius)) {
@@ -101,6 +103,7 @@ export function tickAreaEffects(engine: Engine, dt: number): void {
           }
           if (boss && boss.hp > 0 && distanceBetween(ae.x, ae.z, boss.x, boss.z) <= ae.radius) {
             damageBoss(engine, boss, ae.damage, ae);
+            onBondWeaponHit(engine, ae.weaponType, boss, ae.damage, ae.isCrit ?? false);
           }
         }
         break;

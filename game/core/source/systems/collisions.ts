@@ -60,11 +60,18 @@ export function processCollisions(engine: Engine): void {
 
       // boss 命中
       if (id === -1 && engine.state.boss && engine.state.boss.hp > 0) {
-        engine.state.boss.hp -= proj.damage;
-        engine.state.boss.hitFlashTimer = 0.15;
-        engine.state.stats.damageDealt += proj.damage;
-        addDamageEvent(engine, engine.state.boss.x, 2, engine.state.boss.z, proj.damage, false, false, proj.weaponType);
+        const boss = engine.state.boss;
+        // 投射物 spawn 时已折算无条件加成；此处补「目标相关」的羁绊条件/机制增伤（贴身 / 易伤 / 烙印…）
+        const condInc = bondConditionalDamageInc(player, proj.weaponType, boss);
+        const dmg = condInc !== 0 ? Math.round(proj.damage * (1 + condInc)) : proj.damage;
+        boss.hp -= dmg;
+        boss.hitFlashTimer = 0.15;
+        engine.state.stats.damageDealt += dmg;
+        addDamageEvent(engine, boss.x, 2, boss.z, dmg, false, false, proj.weaponType);
         proj.hitEnemyIds.push(id);
+
+        // 羁绊命中机制（标记 / 易伤 / 烙印 / 神经毒素 / 导体连锁 / 击退冲击 / 余烬引爆）
+        onBondWeaponHit(engine, proj.weaponType, boss, dmg, false);
 
         if (proj.pierceLeft > 0) {
           proj.pierceLeft--;

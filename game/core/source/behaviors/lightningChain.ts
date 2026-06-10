@@ -74,6 +74,7 @@ export function lightningChain(_world: GameWorld, ctx: BehaviorContext): void {
       boss.hitFlashTimer = 0.15;
       effects.addDamageDealt(bossDmg);
       effects.addDamageEvent(boss.x, 2, boss.z, bossDmg, bossCrit, false, 'lightning_staff');
+      effects.bondHit?.(weapon.type, boss, bossDmg, bossCrit);
     }
   }
 }
