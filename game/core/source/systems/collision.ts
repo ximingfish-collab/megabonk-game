@@ -22,7 +22,6 @@
 
 import type { CollisionRect, RampVolume, ClimbVolume, LevelData } from '../types.ts';
 import { STEP_HEIGHT, CLIMB_GRAB_MARGIN } from '../config.ts';
-import { enhancedCollision } from './collisionEnhanced.ts';
 
 type Rect = readonly [number, number, number, number, number];
 
@@ -145,9 +144,13 @@ function rampHeightAt(ramp: RampVolume, x: number, z: number): number | null {
   // 投影到 slopeDir（沿坡道方向） + 法向（slopeDir 旋转 90°）
   const sCoord = dx * ramp.slopeDirX + dz * ramp.slopeDirZ;
   const pCoord = dx * (-ramp.slopeDirZ) + dz * ramp.slopeDirX;
-  if (Math.abs(sCoord) > ramp.halfSlope || Math.abs(pCoord) > ramp.halfPerp) return null;
-  // t: 0 在低端 (-halfSlope)，1 在高端 (+halfSlope)
-  const t = ramp.halfSlope > 0 ? (sCoord + ramp.halfSlope) / (ramp.halfSlope * 2) : 0;
+  // EPS 容差：旋转坡道在精确边角点处，sCoord/pCoord 因浮点累积可能微超 half*，
+  // 不容差会让玩家恰好站在坡顶边角时穿地。
+  const EPS = 1e-6;
+  if (Math.abs(sCoord) > ramp.halfSlope + EPS || Math.abs(pCoord) > ramp.halfPerp + EPS) return null;
+  // t: 0 在低端 (-halfSlope)，1 在高端 (+halfSlope)。clamp 抵消上面 EPS 带来的轻微越界。
+  let t = ramp.halfSlope > 0 ? (sCoord + ramp.halfSlope) / (ramp.halfSlope * 2) : 0;
+  t = Math.max(0, Math.min(1, t));
   return ramp.lowY + (ramp.highY - ramp.lowY) * t;
 }
 
@@ -175,15 +178,6 @@ function rectHeightAt(rect: Rect, x: number, z: number, wysiwyg: boolean): numbe
  * 玩家"掉出关卡 → 复活"语义改由玩家自己读 getSupportHeightAt 判定。
  */
 export function getTerrainHeightAt(geo: LevelGeometry, x: number, z: number): number {
-  // 优先使用增强碰撞系统
-  if (typeof enhancedCollision !== 'undefined' && enhancedCollision.getStatus().rapierEnabled) {
-    const enhancedHeight = enhancedCollision.getTerrainHeightAt(x, z);
-    if (Number.isFinite(enhancedHeight)) {
-      return enhancedHeight;
-    }
-  }
-
-  // 回退到基础系统
   let height = 0; // 统一保底地板，软虚空
   for (const rect of geo.rects) {
     const h = rectHeightAt(rect, x, z, geo.wysiwyg);
@@ -207,15 +201,6 @@ export function getTerrainHeightAt(geo: LevelGeometry, x: number, z: number): nu
  * → 玩家进入下落 / FALL_RESPAWN。
  */
 export function getSupportHeightAt(geo: LevelGeometry, x: number, z: number, feetY: number): number {
-  // 优先使用增强碰撞系统
-  if (typeof enhancedCollision !== 'undefined' && enhancedCollision.getStatus().rapierEnabled) {
-    const enhancedHeight = enhancedCollision.getSupportHeightAt(x, z, feetY);
-    if (Number.isFinite(enhancedHeight)) {
-      return enhancedHeight;
-    }
-  }
-
-  // 回退到基础系统
   const limit = feetY + STEP_HEIGHT;
   let best = 0 <= limit ? 0 : VOID_HEIGHT;
   for (const rect of geo.rects) {
@@ -264,13 +249,6 @@ export function isBlockedHorizontallyAt(
   x: number, z: number, feetY: number,
   includeClimb = true, radius = PLAYER_RADIUS,
 ): boolean {
-  // 优先使用增强碰撞系统
-  if (typeof enhancedCollision !== 'undefined' && enhancedCollision.getStatus().rapierEnabled) {
-    const isBlocked = enhancedCollision.isBlockedHorizontallyAt(x, z, feetY, includeClimb, radius);
-    return isBlocked;
-  }
-
-  // 回退到基础系统
   if (blockedByAny(geo.solidBoxes, x, z, feetY, radius)) return true;
   if (includeClimb && geo.climbs.length > 0) {
     for (const c of geo.climbs) {

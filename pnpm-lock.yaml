@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      '@dimforge/rapier3d-compat':
-        specifier: ^0.19.3
-        version: 0.19.3
       '@eebuk/cli':
         specifier: 1.0.5
         version: 1.0.5(@types/node@20.11.0)
@@ -78,9 +75,6 @@ importers:
 
   game/core:
     dependencies:
-      '@dimforge/rapier3d-compat':
-        specifier: ^0.19.3
-        version: 0.19.3
       miniplex:
         specifier: ^2.0.0
         version: 2.0.0
@@ -114,9 +108,6 @@ importers:
         version: 0.170.0
 
 packages:
-
-  '@dimforge/rapier3d-compat@0.19.3':
-    resolution: {integrity: sha512-mMVdSj1PRTT108s9Swbu2GQOmHbn8kbJANRV5xfczL3s0T4vkgZAuoMRgvBzQcHanpKusbC0ZJj6z3mC3aj3vg==}
 
   '@eebuk/cli@1.0.5':
     resolution: {integrity: sha512-HF1jXs2kW1yyDuCFlY6FkLOR+JwVn3iomy5rLqdeg4Ug7gFNh6WkmZrTkqa15Vc1Vy9isF8Ax/XzOttWJ3xCgw==}
@@ -1829,8 +1820,6 @@ packages:
     resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
 
 snapshots:
-
-  '@dimforge/rapier3d-compat@0.19.3': {}
 
   '@eebuk/cli@1.0.5(@types/node@20.11.0)':
     dependencies:
