@@ -132,6 +132,52 @@ describe('tickConsumablePickups', () => {
     expect(engine.state.consumablePickups).toHaveLength(0);
     expect(engine.state.player.hp).toBe(65);
   });
+
+  it('不受 player.pickupRadius 增大影响，距离较远时不吸附也不拾取', () => {
+    const player = makePlayer({ x: 0, z: 0, pickupRadius: 20, maxHp: 100, hp: 50 });
+    const base = makeEngine();
+    const engine = makeEngine({
+      state: { ...base.state, player, consumablePickups: [] },
+    });
+    engine.state.consumablePickups.push({
+      id: 1,
+      consumableId: 'wild_berry',
+      x: 1.0,
+      y: 0.35,
+      z: 0,
+      lifetime: 10,
+      attracted: false,
+    });
+
+    tickConsumablePickups(engine, 0.1);
+
+    expect(engine.state.consumablePickups).toHaveLength(1);
+    expect(engine.state.consumablePickups[0].attracted).toBe(false);
+    expect(engine.state.player.hp).toBe(50);
+  });
+
+  it('需要几乎触碰才会拾取并生效', () => {
+    const player = makePlayer({ x: 0, z: 0, pickupRadius: 20, maxHp: 100, hp: 50 });
+    const base = makeEngine();
+    const engine = makeEngine({
+      state: { ...base.state, player, consumablePickups: [] },
+    });
+    engine.state.consumablePickups.push({
+      id: 1,
+      consumableId: 'wild_berry',
+      x: 0.4,
+      y: 0.35,
+      z: 0,
+      lifetime: 10,
+      attracted: false,
+    });
+
+    tickConsumablePickups(engine, 0);
+
+    expect(engine.state.consumablePickups).toHaveLength(1);
+    expect(engine.state.consumablePickups[0].attracted).toBe(true);
+    expect(engine.state.player.hp).toBe(50);
+  });
 });
 
 describe('clearConsumableEffects', () => {

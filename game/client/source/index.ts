@@ -19,6 +19,7 @@ import {
   CHARACTER_CONFIGS,
   WEAPON_STATS,
   WEAPON_EVOLUTIONS,
+  TOME_MAX_LEVELS,
   SHOP_UPGRADES,
   QUESTS,
   TIER_CONFIGS,
@@ -39,6 +40,9 @@ import {
   type GameState,
   type GameResult,
   type InputState,
+  type WeaponState,
+  type TomeState,
+  type WeaponLevelStats,
   type EnemyState,
   type EnemyType,
   type ProjectileState,
@@ -265,6 +269,11 @@ const WEAPON_PROJECTILE_COLORS: Record<string, number> = {
   lightning_staff: 0x44aaff,
   flame_ring: 0xff6600,
   shotgun: 0xffee44,
+  ray_gun: 0xff3366,        // 激光红
+  poison_bomb: 0x4caf3a,    // 深绿
+  paralysis_gun: 0xffdd22,  // 麻痹黄
+  void_ripple: 0x00ffff,    // 青色虚空涟漪
+  scorch_boots: 0xff7a1a,   // 灼地橙
 };
 
 const PICKUP_COLORS: Record<string, number> = {
@@ -307,6 +316,7 @@ const CONSUMABLE_EMOJI: Record<string, string> = {
 };
 
 const consumableEmojiTextureCache = new Map<string, THREE.Texture>();
+let paralysisTriangleTexture: THREE.Texture | null = null;
 
 function getConsumableEmojiTexture(consumableId: string): THREE.Texture {
   const cached = consumableEmojiTextureCache.get(consumableId);
@@ -346,6 +356,56 @@ function getConsumableEmojiTexture(consumableId: string): THREE.Texture {
   texture.colorSpace = THREE.SRGBColorSpace;
   consumableEmojiTextureCache.set(consumableId, texture);
   return texture;
+}
+
+function getParalysisTriangleTexture(): THREE.Texture {
+  if (paralysisTriangleTexture) return paralysisTriangleTexture;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, 128, 128);
+
+  ctx.shadowColor = 'rgba(0,0,0,0.75)';
+  ctx.shadowBlur = 10;
+  ctx.fillStyle = 'rgba(30,20,8,0.95)';
+  ctx.beginPath();
+  ctx.moveTo(20, 26);
+  ctx.lineTo(108, 26);
+  ctx.lineTo(64, 110);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(194,128,32,0.92)';
+  ctx.beginPath();
+  ctx.moveTo(29, 34);
+  ctx.lineTo(99, 34);
+  ctx.lineTo(64, 98);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(12,8,4,0.98)';
+  ctx.lineWidth = 8;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(20, 26);
+  ctx.lineTo(108, 26);
+  ctx.lineTo(64, 110);
+  ctx.closePath();
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(238,190,72,0.85)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(38, 43);
+  ctx.lineTo(90, 43);
+  ctx.stroke();
+
+  paralysisTriangleTexture = new THREE.CanvasTexture(canvas);
+  paralysisTriangleTexture.colorSpace = THREE.SRGBColorSpace;
+  return paralysisTriangleTexture;
 }
 
 const RARITY_COLORS: Record<string, string> = {
@@ -765,6 +825,11 @@ const WEAPON_ICONS: Record<string, string> = {
   lightning_staff: '⚡',
   flame_ring: '🔥',
   shotgun: '💥',
+  ray_gun: '🔴',
+  poison_bomb: '☠️',
+  paralysis_gun: '⚠️',
+  void_ripple: '🌀',
+  scorch_boots: '🥾',
 };
 
 const TOME_ICONS: Record<string, string> = {
@@ -796,6 +861,24 @@ const TOME_COLORS: Record<string, string> = {
   knockback_tome: '#88cccc',
   speed_tome: '#44ffaa',
 };
+
+function escapeTooltipText(value: string | number): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatTooltipNumber(value: number, digits = 1): string {
+  if (Number.isInteger(value)) return String(value);
+  return value.toFixed(digits).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+}
+
+function formatTooltipPercent(value: number, digits = 0): string {
+  return `${formatTooltipNumber(value * 100, digits)}%`;
+}
 
 const TIER_COLORS: Record<number, string> = {
   1: '#aaaaaa',
@@ -1551,9 +1634,11 @@ export class GameScene {
   private enemyMixers: Map<number, THREE.AnimationMixer> = new Map(); // id → animation mixer
   private enemyAnimStates: Map<number, string> = new Map(); // id → current anim name
   private enemyAnimActions: Map<number, Map<string, THREE.AnimationAction>> = new Map(); // id → actions map
+  private paralysisTriangleSprites: Map<number, THREE.Sprite[]> = new Map(); // enemy id → paralysis marker sprites
   private projectileMesh!: THREE.InstancedMesh;
   private axeObjects: Map<number, THREE.Object3D> = new Map(); // axe projectile id → cloned model
   private weaponObjects: Map<number, THREE.Object3D> = new Map(); // other weapon projectiles → cloned model
+  private areaEffectObjects: Map<number, THREE.Object3D> = new Map(); // area effect id → mesh (gas/ripple/scorch/beam)
   private pickupMesh!: THREE.InstancedMesh;
   private consumableSprites: Map<number, THREE.Sprite> = new Map();
   private goldMoteTexture!: THREE.Texture;
@@ -1599,6 +1684,8 @@ export class GameScene {
   private weaponSlotsContainer!: HTMLDivElement;
   private tomesSlotsContainer!: HTMLDivElement;
   private relicSlotsContainer!: HTMLDivElement;
+  private itemTooltip: HTMLDivElement | null = null;
+  private itemTooltipContent = new WeakMap<HTMLElement, string>();
   private bossHpContainer!: HTMLDivElement;
   private bossHpBarInner!: HTMLDivElement;
   private bossNameLabel!: HTMLDivElement;
@@ -1796,6 +1883,8 @@ export class GameScene {
     this.shrineIndicator?.remove();
     this.finalSwarmLabel?.remove();
     this.finalSwarmBorder?.remove();
+    this.itemTooltip?.remove();
+    this.itemTooltip = null;
     this.screenFlashEl?.remove();
     this.comboLabel?.remove();
     for (const el of this.damageNums) el.remove();
@@ -2755,18 +2844,35 @@ export class GameScene {
 
     // Weapon slots container (bottom-left)
     this.weaponSlotsContainer = document.createElement('div');
-    this.weaponSlotsContainer.style.cssText = 'position:absolute;bottom:70px;left:12px;display:flex;gap:4px;flex-wrap:wrap;max-width:240px;';
+    this.weaponSlotsContainer.dataset.cameraBlock = 'true';
+    this.weaponSlotsContainer.style.cssText = 'position:absolute;bottom:70px;left:12px;display:flex;gap:4px;flex-wrap:wrap;max-width:240px;pointer-events:auto;';
     this.hudContainer.appendChild(this.weaponSlotsContainer);
 
     // Tome slots container (bottom-right, above mobile buttons)
     this.tomesSlotsContainer = document.createElement('div');
-    this.tomesSlotsContainer.style.cssText = 'position:absolute;bottom:70px;right:12px;display:flex;gap:3px;flex-wrap:wrap;max-width:180px;justify-content:flex-end;';
+    this.tomesSlotsContainer.dataset.cameraBlock = 'true';
+    this.tomesSlotsContainer.style.cssText = 'position:absolute;bottom:70px;right:12px;display:flex;gap:3px;flex-wrap:wrap;max-width:180px;justify-content:flex-end;pointer-events:auto;';
     this.hudContainer.appendChild(this.tomesSlotsContainer);
 
     // Relic stacks (bottom-center above level / XP)
     this.relicSlotsContainer = document.createElement('div');
-    this.relicSlotsContainer.style.cssText = 'position:absolute;bottom:70px;left:50%;transform:translateX(-50%);display:flex;gap:6px;flex-wrap:wrap;max-width:min(420px,70vw);justify-content:center;align-items:center;';
+    this.relicSlotsContainer.dataset.cameraBlock = 'true';
+    this.relicSlotsContainer.style.cssText = 'position:absolute;bottom:70px;left:50%;transform:translateX(-50%);display:flex;gap:6px;flex-wrap:wrap;max-width:min(420px,70vw);justify-content:center;align-items:center;pointer-events:auto;';
     this.hudContainer.appendChild(this.relicSlotsContainer);
+
+    this.itemTooltip = document.createElement('div');
+    this.itemTooltip.style.cssText = `
+      position:fixed;left:0;top:0;display:none;z-index:260;pointer-events:none;
+      max-width:min(320px,calc(100vw - 24px));padding:10px 12px;border-radius:10px;
+      background:linear-gradient(180deg,rgba(18,18,32,0.96),rgba(8,8,16,0.96));
+      border:1px solid rgba(255,255,255,0.18);box-shadow:0 12px 34px rgba(0,0,0,0.55);
+      color:#f5f2ff;font-size:12px;line-height:1.35;text-shadow:0 1px 2px rgba(0,0,0,0.9);
+      backdrop-filter:blur(4px);
+    `;
+    document.body.appendChild(this.itemTooltip);
+    this.installItemTooltipHandlers(this.weaponSlotsContainer);
+    this.installItemTooltipHandlers(this.tomesSlotsContainer);
+    this.installItemTooltipHandlers(this.relicSlotsContainer);
 
     // Boss HP bar (top-center, hidden by default)
     this.bossHpContainer = document.createElement('div');
@@ -3825,10 +3931,69 @@ export class GameScene {
       }
     }
 
+    this.updateParalysisTriangleSprites(enemies);
+
     // Hide InstancedMesh (legacy — keep count at 0)
     for (const [, mesh] of this.enemyMeshes) {
       mesh.count = 0;
       mesh.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  private updateParalysisTriangleSprites(enemies: EnemyState[]): void {
+    const markedIds = new Set<number>();
+    const offsets = [
+      { x: 0.0, y: 1.45, z: 0.0, scale: 0.46, phase: 0.0 },
+      { x: -0.34, y: 1.15, z: 0.18, scale: 0.36, phase: 1.2 },
+      { x: 0.34, y: 1.05, z: -0.18, scale: 0.36, phase: 2.4 },
+      { x: -0.24, y: 0.72, z: -0.24, scale: 0.3, phase: 3.1 },
+      { x: 0.24, y: 0.78, z: 0.24, scale: 0.3, phase: 4.0 },
+    ];
+    const time = performance.now() * 0.004;
+
+    for (const enemy of enemies) {
+      if (enemy.hp <= 0 || (enemy.slowTimer ?? 0) <= 0) continue;
+      markedIds.add(enemy.id);
+
+      let sprites = this.paralysisTriangleSprites.get(enemy.id);
+      if (!sprites) {
+        const texture = getParalysisTriangleTexture();
+        sprites = offsets.map((offset, index) => {
+          const material = new THREE.SpriteMaterial({
+            map: texture,
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.86,
+            depthWrite: false,
+            depthTest: true,
+          });
+          const sprite = new THREE.Sprite(material);
+          sprite.name = `ParalysisTriangle_${enemy.id}_${index}`;
+          sprite.renderOrder = 6;
+          this.scene.add(sprite);
+          return sprite;
+        });
+        this.paralysisTriangleSprites.set(enemy.id, sprites);
+      }
+
+      sprites.forEach((sprite, index) => {
+        const offset = offsets[index];
+        const bob = Math.sin(time * 2.5 + enemy.id * 0.37 + offset.phase) * 0.045;
+        const pulse = 0.88 + Math.sin(time * 3.4 + offset.phase) * 0.12;
+        sprite.position.set(enemy.x + offset.x, enemy.y + offset.y + bob, enemy.z + offset.z);
+        sprite.scale.setScalar(offset.scale * pulse);
+        sprite.material.opacity = 0.74 + Math.sin(time * 5.0 + offset.phase) * 0.16;
+        sprite.visible = true;
+      });
+    }
+
+    for (const [id, sprites] of this.paralysisTriangleSprites) {
+      if (markedIds.has(id)) continue;
+      for (const sprite of sprites) {
+        this.scene.remove(sprite);
+        sprite.material.dispose();
+      }
+      this.paralysisTriangleSprites.delete(id);
     }
   }
 
@@ -4395,6 +4560,11 @@ export class GameScene {
     lightning_staff: [0.3, 0.8, 1.0],
     flame_ring: [1.0, 0.5, 0.0],
     shotgun: [1.0, 0.8, 0.2],
+    ray_gun: [1.0, 0.25, 0.45],
+    poison_bomb: [0.35, 0.8, 0.25],
+    paralysis_gun: [1.0, 0.88, 0.15],
+    void_ripple: [0.0, 1.0, 1.0],
+    scorch_boots: [1.0, 0.5, 0.12],
   };
 
   private static readonly PICKUP_VFX_COLORS: Record<string, [number, number, number]> = {
@@ -4906,6 +5076,8 @@ export class GameScene {
   }
 
   private renderChests(chests: ChestState[]): void {
+    const visibleChestIds = new Set<number>();
+
     for (const chest of chests) {
       let obj = this.chestObjects.get(chest.id);
 
@@ -4919,6 +5091,8 @@ export class GameScene {
         continue;
       }
 
+      visibleChestIds.add(chest.id);
+
       if (!obj) {
         obj = this.createReadableChestObject();
         obj.name = `Chest_${chest.id}`;
@@ -4928,14 +5102,19 @@ export class GameScene {
         const maxDim = Math.max(size.x, size.y, size.z, 0.01);
         const scale = 1.2 / maxDim;
         obj.scale.set(scale, scale, scale);
-        obj.position.set(chest.x, 0.1, chest.z);
         this.scene.add(obj);
         this.chestObjects.set(chest.id, obj);
       }
 
       // Gentle hover animation
       const time = performance.now() * 0.001;
-      obj.position.y = 0.1 + Math.sin(time * 1.5 + chest.id) * 0.05;
+      obj.position.set(chest.x, 0.1 + Math.sin(time * 1.5 + chest.id) * 0.05, chest.z);
+    }
+
+    for (const [id, obj] of this.chestObjects) {
+      if (visibleChestIds.has(id)) continue;
+      this.scene.remove(obj);
+      this.chestObjects.delete(id);
     }
   }
 
@@ -5238,9 +5417,159 @@ export class GameScene {
     }
   }
 
+  /**
+   * 渲染区域特效（毒气云 / 虚空涟漪 / 灼地痕迹 / 激光线）。
+   * 按 id 维护 Mesh，新增即创建、消失即移除，每帧更新位置 / 半径 / 透明度。
+   */
+  private updateAreaEffects(state: GameState, _dt: number): void {
+    const live = new Set<number>();
+
+    for (const ae of state.areaEffects) {
+      live.add(ae.id);
+      let obj = this.areaEffectObjects.get(ae.id);
+      const ratio = ae.maxLifetime > 0 ? Math.max(0, ae.lifetime / ae.maxLifetime) : 1;
+
+      if (!obj) {
+        obj = this.createAreaEffectMesh(ae);
+        this.scene.add(obj);
+        this.areaEffectObjects.set(ae.id, obj);
+      }
+
+      switch (ae.kind) {
+        case 'ray_beam': {
+          // 细长发光盒：从玩家沿 dir 延伸 length，宽度 = width*2
+          const dx = ae.dirX ?? 0, dz = ae.dirZ ?? 1;
+          const len = ae.length ?? 40;
+          obj.position.set(ae.x + dx * len * 0.5, 1.0, ae.z + dz * len * 0.5);
+          obj.rotation.set(0, Math.atan2(dx, dz), 0);
+          const w = (ae.width ?? 0.5) * 2;
+          obj.scale.set(w, w, len);
+          const m = (obj as THREE.Mesh).material as THREE.MeshBasicMaterial;
+          m.opacity = 0.85 * ratio;
+          break;
+        }
+        case 'gas_cloud': {
+          obj.position.set(ae.x, 0.1, ae.z);
+          obj.scale.setScalar(ae.radius);
+          const m = (obj as THREE.Mesh).material as THREE.MeshBasicMaterial;
+          m.opacity = 0.32 * ratio;
+          obj.rotation.z += 0.01;
+          // 飘动的绿色毒气粒子
+          if (state.tick % 3 === 0) {
+            const a = Math.random() * Math.PI * 2;
+            const r = Math.random() * ae.radius;
+            this.spawnParticle(
+              ae.x + Math.cos(a) * r, 0.3 + Math.random() * 0.8, ae.z + Math.sin(a) * r,
+              0, 0.3 + Math.random() * 0.4, 0,
+              0.6, 0.5, 0.25, 0.7, 0.12,
+            );
+          }
+          break;
+        }
+        case 'void_ripple': {
+          obj.position.set(ae.x, 0.08, ae.z);
+          obj.scale.setScalar(Math.max(0.01, ae.radius));
+          const m = (obj as THREE.Mesh).material as THREE.MeshBasicMaterial;
+          m.color.setHex(0x00ffff);
+          m.opacity = 0.6 * ratio;
+          break;
+        }
+        case 'scorch_trail': {
+          obj.position.set(ae.x, 0.06, ae.z);
+          obj.scale.setScalar(ae.radius);
+          const m = (obj as THREE.Mesh).material as THREE.MeshBasicMaterial;
+          m.opacity = 0.7 * ratio;
+          break;
+        }
+      }
+    }
+
+    // 清除已消失的区域特效 mesh
+    for (const [id, obj] of this.areaEffectObjects) {
+      if (!live.has(id)) {
+        this.scene.remove(obj);
+        const mesh = obj as THREE.Mesh;
+        if (mesh.material) (mesh.material as THREE.Material).dispose?.();
+        this.areaEffectObjects.delete(id);
+      }
+    }
+  }
+
+  private createAreaEffectMesh(ae: GameState['areaEffects'][number]): THREE.Object3D {
+    switch (ae.kind) {
+      case 'ray_beam': {
+        // 单位长方体（z 长 1），靠 scale 拉伸；红色激光 + 加色混合
+        const geo = new THREE.BoxGeometry(1, 1, 1);
+        const mat = new THREE.MeshBasicMaterial({
+          color: 0xff3366, transparent: true, opacity: 0.85,
+          blending: THREE.AdditiveBlending, depthWrite: false,
+        });
+        return new THREE.Mesh(geo, mat);
+      }
+      case 'gas_cloud': {
+        const geo = new THREE.CircleGeometry(1, 24);
+        const mat = new THREE.MeshBasicMaterial({
+          color: 0x2f7d24, transparent: true, opacity: 0.3,
+          side: THREE.DoubleSide, depthWrite: false,
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.rotation.x = -Math.PI / 2;
+        return mesh;
+      }
+      case 'void_ripple': {
+        // 单位环（内 0.82 外 1），靠 scale 放大
+        const geo = new THREE.RingGeometry(0.82, 1.0, 48);
+        const mat = new THREE.MeshBasicMaterial({
+          color: 0x00ffff, transparent: true, opacity: 0.6,
+          side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false,
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.rotation.x = -Math.PI / 2;
+        return mesh;
+      }
+      case 'scorch_trail':
+      default: {
+        const geo = new THREE.CircleGeometry(1, 20);
+        const mat = new THREE.MeshBasicMaterial({
+          color: 0xff6a1a, transparent: true, opacity: 0.7,
+          side: THREE.DoubleSide, depthWrite: false,
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.rotation.x = -Math.PI / 2;
+        return mesh;
+      }
+    }
+  }
+
+  /** 给中毒 / 麻痹的敌人喷少量状态粒子（绿色毒雾 / 黄色麻痹电花）。 */
+  private updateEnemyStatusVfx(state: GameState): void {
+    for (const e of state.enemies) {
+      if (e.hp <= 0) continue;
+      if ((e.poisonTimer ?? 0) > 0 && state.tick % 4 === 0) {
+        const a = Math.random() * Math.PI * 2;
+        this.spawnParticle(
+          e.x + Math.cos(a) * 0.4, e.y + 0.6 + Math.random() * 0.6, e.z + Math.sin(a) * 0.4,
+          0, 0.4 + Math.random() * 0.4, 0,
+          0.4, 0.45, 0.3, 0.85, 0.2,
+        );
+      }
+      if ((e.slowTimer ?? 0) > 0 && state.tick % 5 === 0) {
+        const a = Math.random() * Math.PI * 2;
+        this.spawnParticle(
+          e.x + Math.cos(a) * 0.5, e.y + 0.8 + Math.random() * 0.5, e.z + Math.sin(a) * 0.5,
+          (Math.random() - 0.5) * 1.2, 0.6, (Math.random() - 0.5) * 1.2,
+          0.4, 0.18, 1.0, 0.85, 0.1,
+        );
+      }
+    }
+  }
+
   private updateVFX(state: GameState, dt: number): void {
     const enemies = state.enemies;
     const player = state.player;
+
+    this.updateAreaEffects(state, dt);
+    this.updateEnemyStatusVfx(state);
 
     // --- Emit particles based on game events ---
 
@@ -5572,7 +5901,8 @@ export class GameScene {
       const slot = document.createElement('div');
       const borderColor = weapon.evolved ? '#ffcc00' : '#555';
       const borderWidth = weapon.evolved ? '2px' : '2px';
-      slot.style.cssText = `width:44px;height:44px;background:rgba(0,0,0,0.6);border:${borderWidth} solid ${borderColor};border-radius:6px;position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0;`;
+      slot.style.cssText = `width:44px;height:44px;background:rgba(0,0,0,0.6);border:${borderWidth} solid ${borderColor};border-radius:6px;position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:help;`;
+      this.setItemTooltip(slot, this.createWeaponTooltipHtml(weapon));
       // Weapon icon
       const icon = document.createElement('span');
       icon.style.cssText = 'font-size:20px;';
@@ -5598,7 +5928,8 @@ export class GameScene {
     for (const tome of p.tomes) {
       const slot = document.createElement('div');
       const bgColor = TOME_COLORS[tome.type] ?? '#444';
-      slot.style.cssText = `width:36px;height:36px;background:${bgColor}33;border:1px solid ${bgColor};border-radius:5px;position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0;`;
+      slot.style.cssText = `width:36px;height:36px;background:${bgColor}33;border:1px solid ${bgColor};border-radius:5px;position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:help;`;
+      this.setItemTooltip(slot, this.createTomeTooltipHtml(tome));
       const icon = document.createElement('span');
       icon.style.cssText = 'font-size:16px;';
       icon.textContent = TOME_ICONS[tome.type] ?? '📖';
@@ -5619,11 +5950,11 @@ export class GameScene {
       if (!relic) continue;
       const borderColor = RARITY_COLORS[relic.rarity] ?? '#aaaaaa';
       const slot = document.createElement('div');
-      slot.title = `${relic.name} x${count}\n${relic.description}`;
+      this.setItemTooltip(slot, this.createRelicTooltipHtml(id, count, state));
       slot.style.cssText = `
         width:34px;height:34px;background:rgba(10,10,22,0.78);border:1px solid ${borderColor};
         border-radius:8px;position:relative;display:flex;align-items:center;justify-content:center;
-        flex-shrink:0;box-shadow:0 0 10px ${borderColor}40;
+        flex-shrink:0;box-shadow:0 0 10px ${borderColor}40;cursor:help;
       `;
       const icon = document.createElement('span');
       icon.style.cssText = 'font-size:17px;';
@@ -5851,6 +6182,252 @@ export class GameScene {
     const maxCd = 4.0;
     const pct = Math.max(0, Math.min(100, (weapon.cooldownTimer / maxCd) * 100));
     return { cooldownPercent: pct };
+  }
+
+  private installItemTooltipHandlers(container: HTMLElement): void {
+    container.addEventListener('mousemove', (event) => {
+      const target = (event.target as HTMLElement).closest('[data-tooltip-item]') as HTMLElement | null;
+      if (!target || !container.contains(target)) {
+        this.hideItemTooltip();
+        return;
+      }
+      const html = this.itemTooltipContent.get(target);
+      if (!html) {
+        this.hideItemTooltip();
+        return;
+      }
+      this.showItemTooltip(html, event);
+    });
+    container.addEventListener('mouseleave', () => this.hideItemTooltip());
+  }
+
+  private setItemTooltip(el: HTMLElement, html: string): void {
+    el.dataset.tooltipItem = 'true';
+    this.itemTooltipContent.set(el, html);
+  }
+
+  private showItemTooltip(html: string, event: MouseEvent): void {
+    if (!this.itemTooltip) return;
+    if (this.itemTooltip.innerHTML !== html) {
+      this.itemTooltip.innerHTML = html;
+    }
+    this.itemTooltip.style.display = 'block';
+    this.moveItemTooltip(event);
+  }
+
+  private hideItemTooltip(): void {
+    if (!this.itemTooltip) return;
+    this.itemTooltip.style.display = 'none';
+  }
+
+  private moveItemTooltip(event: MouseEvent): void {
+    if (!this.itemTooltip) return;
+    const gap = 16;
+    const margin = 8;
+    const rect = this.itemTooltip.getBoundingClientRect();
+    let x = event.clientX + gap;
+    let y = event.clientY + gap;
+    if (x + rect.width > window.innerWidth - margin) {
+      x = event.clientX - rect.width - gap;
+    }
+    if (y + rect.height > window.innerHeight - margin) {
+      y = event.clientY - rect.height - gap;
+    }
+    this.itemTooltip.style.left = `${Math.max(margin, x)}px`;
+    this.itemTooltip.style.top = `${Math.max(margin, y)}px`;
+  }
+
+  private buildItemTooltipHtml(args: {
+    title: string;
+    subtitle?: string;
+    description?: string;
+    rows: Array<[string, string]>;
+    accent: string;
+  }): string {
+    const rows = args.rows.map(([label, value]) => `
+      <div style="display:flex;justify-content:space-between;gap:18px;margin-top:3px;">
+        <span style="color:#b9b4cc;">${escapeTooltipText(label)}</span>
+        <span style="color:#ffffff;font-weight:700;text-align:right;">${escapeTooltipText(value)}</span>
+      </div>
+    `).join('');
+
+    return `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+        <div style="width:7px;height:24px;border-radius:999px;background:${args.accent};box-shadow:0 0 12px ${args.accent}aa;"></div>
+        <div>
+          <div style="font-size:14px;font-weight:800;color:#fff;">${escapeTooltipText(args.title)}</div>
+          ${args.subtitle ? `<div style="font-size:10px;color:${args.accent};font-weight:700;letter-spacing:0.4px;">${escapeTooltipText(args.subtitle)}</div>` : ''}
+        </div>
+      </div>
+      ${args.description ? `<div style="color:#d8d1ee;margin:6px 0 8px;">${escapeTooltipText(args.description)}</div>` : ''}
+      ${rows ? `<div style="border-top:1px solid rgba(255,255,255,0.12);padding-top:6px;">${rows}</div>` : ''}
+    `;
+  }
+
+  private getEffectiveWeaponStats(weapon: WeaponState): WeaponLevelStats {
+    const levelStats = WEAPON_STATS[weapon.type] ?? WEAPON_STATS.bone_bouncer;
+    const base = levelStats[0];
+    let effective: WeaponLevelStats;
+
+    if (weapon.growth) {
+      const g = weapon.growth;
+      effective = {
+        damage: Math.round(base.damage + g.damage),
+        cooldown: Math.max(0.1, base.cooldown + g.cooldown),
+        projectileCount: Math.floor(base.projectileCount + g.projectileCount),
+        bounces: Math.floor(base.bounces + g.bounces),
+        chains: Math.floor(base.chains + g.chains),
+        range: base.range + g.range,
+        aoeRadius: base.aoeRadius + g.aoeRadius,
+        pierce: Math.floor(base.pierce + g.pierce),
+        speed: base.speed + g.speed,
+      };
+    } else {
+      const idx = Math.max(0, Math.min((weapon.evolved ? levelStats.length - 1 : weapon.level - 1), levelStats.length - 1));
+      effective = levelStats[idx];
+    }
+
+    if (!weapon.evolved) return effective;
+    const evolution = WEAPON_EVOLUTIONS.find(e => e.baseWeapon === weapon.type);
+    if (!evolution) return effective;
+    return {
+      ...effective,
+      damage: Math.round(effective.damage * evolution.damageMultiplier),
+      projectileCount: effective.projectileCount + 1,
+    };
+  }
+
+  private createWeaponTooltipHtml(weapon: WeaponState): string {
+    const stats = this.getEffectiveWeaponStats(weapon);
+    const rows: Array<[string, string]> = [
+      [t('upgrade.stat.damage'), String(stats.damage)],
+      [t('upgrade.stat.cooldown'), `${formatTooltipNumber(stats.cooldown, 2)}s`],
+    ];
+    if (stats.projectileCount > 0) rows.push([t('upgrade.stat.projectiles'), String(stats.projectileCount)]);
+    if (stats.range > 0) rows.push([t('upgrade.stat.range'), formatTooltipNumber(stats.range, 1)]);
+    if (stats.aoeRadius > 0) rows.push([t('upgrade.stat.aoe'), formatTooltipNumber(stats.aoeRadius, 1)]);
+    if (stats.pierce > 0 && stats.pierce < 999) rows.push([t('upgrade.stat.pierce'), String(stats.pierce)]);
+    if (stats.pierce >= 999) rows.push([t('upgrade.stat.pierce'), '∞']);
+    if (stats.bounces > 0) rows.push([t('upgrade.stat.bounces'), String(stats.bounces)]);
+    if (stats.chains > 0) rows.push([t('upgrade.stat.chains'), String(stats.chains)]);
+    if (stats.speed > 0) rows.push([t('upgrade.stat.projSpeed'), formatTooltipNumber(stats.speed, 1)]);
+    if (weapon.cooldownTimer > 0) rows.push(['剩余冷却', `${formatTooltipNumber(weapon.cooldownTimer, 1)}s`]);
+
+    return this.buildItemTooltipHtml({
+      title: `${WEAPON_ICONS[weapon.type] ?? '?'} ${t(`upgrade.weapon.${weapon.type}`)}`,
+      subtitle: weapon.evolved ? `Lv.${weapon.level} · 已进化` : `Lv.${weapon.level}`,
+      description: t(`upgrade.weapon.${weapon.type}_desc`),
+      rows,
+      accent: weapon.evolved ? '#ffcc00' : '#7aa7ff',
+    });
+  }
+
+  private createTomeTooltipHtml(tome: TomeState): string {
+    const power = tome.growth ?? tome.level;
+    const rows: Array<[string, string]> = [];
+    switch (tome.type) {
+      case 'attack_speed_tome':
+        rows.push([t('upgrade.stat.attackSpeed'), `+${formatTooltipPercent(0.10 * power)}`]);
+        break;
+      case 'life_tome':
+        rows.push([t('upgrade.stat.maxHp'), `+${formatTooltipNumber(15 * power, 0)}`]);
+        break;
+      case 'consumable_tome':
+        rows.push([t('upgrade.stat.consumableDrop'), `+${formatTooltipPercent(0.05 * power)}`]);
+        break;
+      case 'luck_tome':
+        rows.push([t('upgrade.stat.luck'), `+${formatTooltipNumber(5 * power, 0)}`]);
+        break;
+      case 'thorns_tome':
+        rows.push([t('upgrade.stat.thorns'), `${formatTooltipNumber(3 * power, 0)}`]);
+        break;
+      case 'shield_tome':
+        rows.push([t('upgrade.stat.armor'), `+${formatTooltipNumber(2 * power, 0)}`]);
+        rows.push([t('upgrade.stat.shieldReduction'), `+${formatTooltipPercent(0.05 * power)}`]);
+        break;
+      case 'xp_gain_tome':
+        rows.push([t('upgrade.stat.xpGain'), `+${formatTooltipPercent(0.15 * power)}`]);
+        break;
+      case 'attraction_tome':
+        rows.push([t('upgrade.stat.pickupRadius'), `+${formatTooltipNumber(1.2 * power, 1)}`]);
+        break;
+      case 'curse_tome':
+        rows.push([t('upgrade.stat.curseSpawn'), `+${formatTooltipPercent(0.10 * power)}`]);
+        rows.push([t('upgrade.stat.xpGain'), `+${formatTooltipPercent(0.20 * power)}`]);
+        break;
+      case 'precision_tome':
+        rows.push([t('upgrade.stat.critChance'), `+${formatTooltipPercent(0.05 * power)}`]);
+        rows.push([t('upgrade.stat.critDamage'), `+${formatTooltipPercent(0.10 * power)}`]);
+        break;
+      case 'knockback_tome':
+        rows.push([t('upgrade.stat.knockback'), `+${formatTooltipPercent(0.30 * power)}`]);
+        break;
+      case 'speed_tome':
+        rows.push([t('upgrade.stat.moveSpeed'), `+${formatTooltipPercent(0.08 * power)}`]);
+        break;
+    }
+
+    return this.buildItemTooltipHtml({
+      title: `${TOME_ICONS[tome.type] ?? '📖'} ${t(`upgrade.tome.${tome.type}`)}`,
+      subtitle: `Lv.${tome.level}/${TOME_MAX_LEVELS[tome.type] ?? 8} · 强度 ${formatTooltipNumber(power, 1)}`,
+      description: t(`upgrade.tome.${tome.type}_desc`),
+      rows,
+      accent: TOME_COLORS[tome.type] ?? '#aa88ff',
+    });
+  }
+
+  private createRelicTooltipHtml(id: RelicId, stacks: number, state: GameState): string {
+    const relic = RELICS[id];
+    const rows: Array<[string, string]> = [];
+    switch (id) {
+      case 'keen_lens':
+        rows.push([t('upgrade.stat.critChance'), `+${formatTooltipPercent(0.03 * stacks)}`]);
+        break;
+      case 'small_shield_charm':
+        rows.push(['护盾值', `+${2 * stacks}`]);
+        rows.push(['最大护盾', `+${5 * stacks}`]);
+        break;
+      case 'blood_fang':
+        rows.push(['击杀回复', `${2 * stacks} HP`]);
+        rows.push(['精英击杀回复', `${6 * stacks} HP`]);
+        break;
+      case 'pact_coin':
+        rows.push(['击杀金币', `+${stacks}`]);
+        break;
+      case 'arsenal_badge': {
+        const level10Weapons = state.player.weapons.filter(w => w.level >= 10).length;
+        rows.push(['每把 Lv10 武器', `+${formatTooltipPercent(0.04 * stacks)} 伤害`]);
+        rows.push(['当前总伤害', `+${formatTooltipPercent(level10Weapons * 0.04 * stacks)}`]);
+        break;
+      }
+      case 'elite_writ':
+        rows.push(['对精英伤害', `+${formatTooltipPercent(0.10 * stacks)}`]);
+        break;
+      case 'regen_core':
+        rows.push(['生命恢复', `+${formatTooltipNumber(0.5 * stacks, 1)}/s`]);
+        break;
+      case 'magazine_expander':
+        rows.push([t('upgrade.stat.projectiles'), `+${stacks}`]);
+        break;
+      case 'hourglass':
+        rows.push(['Overtime 每秒全伤', `+${formatTooltipPercent(0.0012 * stacks, 2)}`]);
+        if (state.overtimeSeconds > 0) {
+          rows.push(['当前全伤', `+${formatTooltipPercent(state.overtimeSeconds * 0.0012 * stacks, 1)}`]);
+        }
+        break;
+      case 'iron_heart':
+        rows.push([t('upgrade.stat.maxHp'), `+${formatTooltipPercent(0.12 * stacks)}`]);
+        rows.push([t('upgrade.stat.armor'), `+${2 * stacks}`]);
+        break;
+    }
+
+    return this.buildItemTooltipHtml({
+      title: `${relic.emoji} ${relic.name}`,
+      subtitle: `${relic.rarity.toUpperCase()} · x${stacks}`,
+      description: relic.description,
+      rows,
+      accent: RARITY_COLORS[relic.rarity] ?? '#aaaaaa',
+    });
   }
 
   // ===========================================================================
@@ -6579,6 +7156,17 @@ function refreshCharacterSelectDetail(): void {
     ));
   }
   mainSection.appendChild(statsEl);
+
+  const traitTitleEl = document.createElement('div');
+  traitTitleEl.style.cssText = detailFont('13px', 'font-weight:bold;margin-top:2px;');
+  traitTitleEl.textContent = t('characterSelect.traitTitle');
+  mainSection.appendChild(traitTitleEl);
+
+  const traitDescEl = document.createElement('p');
+  traitDescEl.style.cssText = detailFont('12px', 'font-weight:bold;');
+  traitDescEl.textContent = t(`character.${id}_trait`);
+  mainSection.appendChild(traitDescEl);
+
   card.appendChild(mainSection);
 
   const weaponSection = document.createElement('div');

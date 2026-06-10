@@ -34,6 +34,7 @@ import { loadSave } from '../save.ts';
 import { getShopBonuses } from '../shop.ts';
 import { computeActiveWeaponSlots, generateUpgradeOptions, xpForLevel } from '../upgrades.ts';
 import { emptyWeaponGrowth } from './weapons.ts';
+import { applyCharacterTrait } from '../stats/applyCharacterTrait.ts';
 import {
   getTerrainHeightAt,
   getSupportHeightAt,
@@ -64,7 +65,7 @@ export function createInitialPlayer(config: GameConfig): PlayerState {
   const startLevel = 1 + (shopBonuses['startLevel'] ?? 0);
   const maxWeaponSlots = ACTIVE_WEAPON_SLOTS_INRUN_MAX + (hasExtraSlot ? 1 : 0);
 
-  return {
+  const player: PlayerState = {
     x: 0, y: 0, z: 0, rotation: 0,
     velocityY: 0, isGrounded: true, isJumping: false,
     isSliding: false, slideTimer: 0, slideSpeedBoost: 0, bunnyHopTimer: 0,
@@ -118,6 +119,9 @@ export function createInitialPlayer(config: GameConfig): PlayerState {
     difficultyMult: 1,
     luckBonus: 0,
   };
+
+  applyCharacterTrait(player, config.character);
+  return player;
 }
 
 export function tickPlayerMovement(engine: Engine, dt: number): void {

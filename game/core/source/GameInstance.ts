@@ -55,6 +55,8 @@ import {
 import { tickWeapons, checkWeaponEvolutions, applyWeaponUpgrade, emptyWeaponGrowth } from './systems/weapons.ts';
 import { tickProjectiles } from './systems/projectiles.ts';
 import { processCollisions } from './systems/collisions.ts';
+import { tickStatusEffects } from './systems/statusEffects.ts';
+import { tickAreaEffects } from './systems/areaEffects.ts';
 import { processDeaths, tickPickups, tickThorns } from './systems/pickups.ts';
 import { applyPlayerHit, tickConsumableEffects, tickConsumablePickups } from './systems/consumables.ts';
 import { tickSpawning, checkBossSpawn } from './systems/spawning.ts';
@@ -82,6 +84,7 @@ export class GameInstance {
       player: {} as PlayerState,  // 占位, start() 会重建
       enemies: [],
       projectiles: [],
+      areaEffects: [],
       pickups: [],
       consumablePickups: [],
       goldMotes: [],
@@ -115,6 +118,7 @@ export class GameInstance {
       nextProjectileId: 1,
       nextPickupId: 1,
       nextChestId: 1,
+      nextAreaEffectId: 1,
       spawnTimer: 1.0,
       chestRespawnTimer: nextChestRespawnDelay(),
       aiGroup: 0,
@@ -187,6 +191,7 @@ export class GameInstance {
     state.tick = 0;
     state.enemies = [];
     state.projectiles = [];
+    state.areaEffects = [];
     state.pickups = [];
     state.consumablePickups = [];
     state.goldMotes = [];
@@ -209,6 +214,7 @@ export class GameInstance {
     engine.nextEnemyId = 1;
     engine.nextProjectileId = 1;
     engine.nextPickupId = 1;
+    engine.nextAreaEffectId = 1;
     engine.nextChestId = nextChestId(state.chests);
     engine.spawnTimer = 1.0;
     engine.chestRespawnTimer = nextChestRespawnDelay();
@@ -265,6 +271,8 @@ export class GameInstance {
     tickEnemyAi(state.enemies, makeAiContext(engine, dt));
     tickWeapons(engine, dt);
     tickProjectiles(engine, dt);
+    tickAreaEffects(engine, dt);
+    tickStatusEffects(engine, dt);
     processCollisions(engine);
     processDeaths(engine);
     tickPickups(engine, dt);
@@ -484,6 +492,11 @@ function makeEffects(engine: Engine): AiEffects {
       if (engine.state.projectiles.length >= MAX_PROJECTILES) return null;
       const id = engine.nextProjectileId++;
       engine.state.projectiles.push({ id, hitEnemyIds: [], ...p });
+      return id;
+    },
+    spawnAreaEffect: (a) => {
+      const id = engine.nextAreaEffectId++;
+      engine.state.areaEffects.push({ id, ...a });
       return id;
     },
     spawnEnemyByType: (type, x, z, opts) => {

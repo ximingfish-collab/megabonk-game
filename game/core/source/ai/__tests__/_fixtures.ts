@@ -87,6 +87,7 @@ export function makeAiEffects(): MockAiEffects {
     applyKnockback: applyKnockbackSpy,
     addDamageDealt: vi.fn(),
     spawnProjectile: spawnProjectileSpy,
+    spawnAreaEffect: vi.fn().mockReturnValue(1),
     spawnEnemyByType: spawnEnemyByTypeSpy,
     damagePlayer: damagePlayerSpy,
     spawnProjectileSpy,

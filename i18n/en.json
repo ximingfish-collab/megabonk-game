@@ -13,6 +13,7 @@
     "confirm": "Confirm",
     "back": "Back",
     "initialWeapon": "Starting Weapon",
+    "traitTitle": "Trait",
     "statLabel": {
       "hp": "HP",
       "speed": "Speed",
@@ -33,10 +34,13 @@
   "character": {
     "megachad": "Megachad",
     "megachad_desc": "Balanced fighter. High damage, standard speed.",
+    "megachad_trait": "Damage multiplier above 1.0 becomes bonus XP gain.",
     "roberto": "Roberto",
     "roberto_desc": "Tanky warrior. Extra HP and armor, slower speed.",
+    "roberto_trait": "Armor grants crit chance; overflow past 100% crit becomes crit damage.",
     "skateboard_skeleton": "Skateboard Skeleton",
     "skateboard_skeleton_desc": "Fast and fragile. High speed and crit, low HP.",
+    "skateboard_skeleton_trait": "Movement speed above base speed increases attack speed.",
     "stat": {
       "hp": "HP: {{value}}",
       "speed": "Speed: {{value}}",
@@ -100,7 +104,17 @@
       "flame_ring": "Flame Ring",
       "flame_ring_desc": "Continuous fire damage around you",
       "shotgun": "Shotgun",
-      "shotgun_desc": "Spread shot in facing direction"
+      "shotgun_desc": "Spread shot in facing direction",
+      "ray_gun": "Ray Gun",
+      "ray_gun_desc": "Instant laser, infinite pierce in a straight line",
+      "poison_bomb": "Poison Bomb",
+      "poison_bomb_desc": "Lobs a gas cloud, poisons enemies over time",
+      "paralysis_gun": "Paralysis Gun",
+      "paralysis_gun_desc": "Auto-aim shots that heavily slow on hit",
+      "void_ripple": "Void Ripple",
+      "void_ripple_desc": "Expanding ring around you, hits closer foes first",
+      "scorch_boots": "Scorch Boots",
+      "scorch_boots_desc": "Leaves a burning trail that scorches passing enemies"
     },
     "tome": {
       "attack_speed_tome": "Attack Speed Tome",
