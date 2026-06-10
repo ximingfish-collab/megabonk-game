@@ -189,6 +189,9 @@ function collectPickup(engine: Engine, pickup: PickupState): void {
   const shopXpBonus = getShopBonuses()['xpGain'] ?? 0;
   if (shopXpBonus > 0) xpValue = Math.floor(xpValue * (1 + shopXpBonus));
 
+  const traitXpBonus = player.characterTraitXpBonus ?? 0;
+  if (traitXpBonus > 0) xpValue = Math.floor(xpValue * (1 + traitXpBonus));
+
   // Combo: 1 + min(comboCount * 0.05, 1.0) → max 2x
   const comboMultiplier = 1 + Math.min(player.comboCount * 0.05, 1.0);
   xpValue = Math.floor(xpValue * comboMultiplier);
