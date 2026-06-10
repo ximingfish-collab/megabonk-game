@@ -132,27 +132,6 @@ export class GSAPAnimationManager {
   }
 
   /**
-   * 升级特效动画
-   */
-  playLevelUpEffect(container: HTMLElement): void {
-    const animationId = 'level-up';
-    this.cancelAnimation(animationId);
-
-    const timeline = gsap.timeline({
-      onComplete: () => this.timelines.delete(animationId)
-    });
-
-    timeline
-      .fromTo(container,
-        { scale: 0.5, opacity: 0 },
-        { scale: 1.2, opacity: 1, duration: 0.3, ease: "back.out(1.7)" }
-      )
-      .to(container, { scale: 1, duration: 0.2, ease: "power2.out" });
-
-    this.timelines.set(animationId, timeline);
-  }
-
-  /**
    * 升级标签脉冲动画
    */
   playLevelLabelPulse(element: HTMLElement): gsap.core.Timeline {

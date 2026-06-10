@@ -1719,7 +1719,6 @@ export class GameScene {
   private damageNumIndex = 0;
   private finalSwarmLabel: HTMLDivElement | null = null;
   private finalSwarmBorder: HTMLDivElement | null = null;
-  private lastXp = 0;
   private xpFlashTimer = 0;
   private seenChestOpenEvents = new Set<string>();
 
@@ -5846,13 +5845,6 @@ export class GameScene {
       this.lastXpPercent = xpPercent;
     }
     this.xpNumbers.textContent = `${p.xp} / ${p.xpToNext}`;
-
-    // XP flash on gain with GSAP
-    if (p.xp !== this.lastXp) {
-      // 使用 GSAP 创建闪光效果
-      gsapAnimations.playLevelUpEffect(this.xpBarInner);
-      this.lastXp = p.xp;
-    }
 
     // Level label with GSAP pulse animation
     this.levelLabel.textContent = t('hud.level', { level: String(p.level) });
