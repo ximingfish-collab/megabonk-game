@@ -43,6 +43,7 @@ import { tickBossAi } from './systems/bossAi.ts';
 
 import type { Engine } from './systems/types.ts';
 import { getTerrainHeightAt, makeLevelGeometry, NEON_CRUCIBLE_GEOMETRY } from './systems/collision.ts';
+import { enhancedCollision } from './systems/collisionEnhanced.ts';
 import {
   createInitialPlayer,
   tickPlayerMovement,
@@ -129,6 +130,21 @@ export class GameInstance {
     this.engine = engine;
 
     this.applyLevelConfig();
+
+    // 初始化增强碰撞系统
+    this.initEnhancedCollision();
+  }
+
+  /**
+   * 初始化增强碰撞系统
+   */
+  private async initEnhancedCollision(): Promise<void> {
+    try {
+      await enhancedCollision.init(this.engine.geo);
+      console.log('🎯 增强碰撞系统初始化完成:', enhancedCollision.getStatus());
+    } catch (error) {
+      console.warn('⚠️ 增强碰撞系统初始化失败，使用基础碰撞系统:', error.message);
+    }
   }
 
   /**
@@ -154,6 +170,9 @@ export class GameInstance {
       setPlayerSpawn(engine.state.player.x, engine.state.player.z);
     }
     engine.state.player.isClimbing = false;
+
+    // 更新增强碰撞系统的关卡几何
+    enhancedCollision.setLevelGeometry(engine.geo);
   }
 
   start(): void {
@@ -215,6 +234,9 @@ export class GameInstance {
 
     const dt = TICK_INTERVAL_MS / 1000;
 
+    // 更新增强碰撞系统
+    enhancedCollision.update(dt);
+
     // Boss intro 倒计时（其它 system 全部跳过）
     if (state.phase === 'boss_intro') {
       state.gameTime += dt;
@@ -273,6 +295,13 @@ export class GameInstance {
 
   applyAction(input: InputState): void {
     this.engine.input = input;
+  }
+
+  /**
+   * 获取增强碰撞系统状态（用于调试和监控）
+   */
+  getEnhancedCollisionStatus(): { rapierEnabled: boolean; levelLoaded: boolean } {
+    return enhancedCollision.getStatus();
   }
 
   selectUpgrade(optionId: string): void {
