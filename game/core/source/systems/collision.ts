@@ -240,7 +240,42 @@ function blockedByAny(
 }
 
 /**
- * 横向是否被挡：col_/wall_ 实体盒永远挡。
+ * (x,z,feetY) 是否被某个 ramp 的楔形实体挡住。
+ *
+ * ramp 是三角棱柱：footprint 内每点从 bottomY 实心填充到该点斜面高度 surfaceY。
+ * 与竖直盒同一套"迈步 / 头顶"规则，只是顶面是随 sCoord 变化的斜面高度：
+ *  - 斜面顶 ≤ feetY + STEP_HEIGHT：可踩上去（站在斜面上 / 从低端走上斜坡），不挡。
+ *  - 楔形整体在头顶之上（底 ≥ 头）：不挡（可从下方穿过）。
+ *  - 否则脚陷在斜面下方的实体里 → 挡。这同时覆盖侧面、高/低端面，以及"已在内部"
+ *    （位置式判定，不依赖运动轨迹），取代旧的 crossesRampSideFromOutside 轨迹 hack。
+ *
+ * footprint 用 +radius 外扩（body 半径）；外扩带内 sCoord 用端点高度（clamp）。
+ */
+function blockedByRamp(
+  ramps: readonly RampVolume[], x: number, z: number, feetY: number, radius: number,
+): boolean {
+  const headY = feetY + PLAYER_BODY_HEIGHT;
+  for (const ramp of ramps) {
+    const dx = x - ramp.cx;
+    const dz = z - ramp.cz;
+    const sCoord = dx * ramp.slopeDirX + dz * ramp.slopeDirZ;
+    const pCoord = dx * (-ramp.slopeDirZ) + dz * ramp.slopeDirX;
+    if (Math.abs(sCoord) > ramp.halfSlope + radius) continue;
+    if (Math.abs(pCoord) > ramp.halfPerp + radius) continue;
+    // 该点斜面高度（clamp 到端点：footprint 外缘 radius 带内用端点高度，形成端面墙）
+    const clampedS = Math.max(-ramp.halfSlope, Math.min(ramp.halfSlope, sCoord));
+    const t = ramp.halfSlope > 0 ? (clampedS + ramp.halfSlope) / (ramp.halfSlope * 2) : 0;
+    const surfaceY = ramp.lowY + (ramp.highY - ramp.lowY) * t;
+    const bottomY = Math.min(ramp.lowY, ramp.highY);
+    if (surfaceY - feetY <= STEP_HEIGHT) continue; // 斜面在迈步内 → 踩上去，不挡
+    if (bottomY >= headY) continue;                // 楔形在头顶之上 → 从下方穿过
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 横向是否被挡：col_/wall_ 实体盒永远挡；ramp_ 楔形体侧/端面也挡（防钻入三角体）。
  * climb_ 攀爬体平时也挡（走不穿）；调用方在蹬墙释放窗口内传 includeClimb=false 放行，
  * 使"跳+方向"能离开 climb 范围下落。
  */
@@ -250,6 +285,7 @@ export function isBlockedHorizontallyAt(
   includeClimb = true, radius = PLAYER_RADIUS,
 ): boolean {
   if (blockedByAny(geo.solidBoxes, x, z, feetY, radius)) return true;
+  if (geo.ramps.length > 0 && blockedByRamp(geo.ramps, x, z, feetY, radius)) return true;
   if (includeClimb && geo.climbs.length > 0) {
     for (const c of geo.climbs) {
       if (

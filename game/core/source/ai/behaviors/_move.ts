@@ -9,7 +9,7 @@
 import type { EnemyState } from '../../types.ts';
 import type { AiContext } from '../types.ts';
 import { tryMoveHorizontally } from '../../systems/horizontalMove.ts';
-import { isBlockedHorizontallyAt } from '../../systems/collision.ts';
+import { isBlockedHorizontallyAt, getSupportHeightAt } from '../../systems/collision.ts';
 import { getTomePower } from '../../tomeProgression.ts';
 import { getSlowMultiplier } from '../../systems/statusEffects.ts';
 import { STEP_HEIGHT } from '../../config.ts';
@@ -79,8 +79,10 @@ export function applyMovement(enemy: EnemyState, ctx: AiContext): void {
   enemy.x = moved.x;
   enemy.z = moved.z;
 
-  // 地形 y 跟随（gargoyle 已经 return 了不会到这）
-  const h = ctx.getTerrainHeight(enemy.x, enemy.z);
+  // 地形 y 跟随（gargoyle 已经 return 了不会到这）。
+  // 用 support 语义（只取脚下 STEP_HEIGHT 内可达面），避免被头顶上方的 ramp / 高架平台
+  // 顶面从下方错误托起；无可达面时（VOID_HEIGHT）保持原 y，不强行贴地。
+  const h = getSupportHeightAt(ctx.geo, enemy.x, enemy.z, enemy.y);
   if (Number.isFinite(h)) {
     enemy.y = h;
   }
