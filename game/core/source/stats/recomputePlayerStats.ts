@@ -100,4 +100,16 @@ export function recomputePlayerStats(
   player.characterTraitCritDamageBonus = 0;
   player.characterTraitAttackSpeedBonus = 0;
   applyCharacterTrait(player, character);
+
+  // ─── 4. charge shrine 加成二次合并 ───
+  // 这 5 项在重算时会被 base+tome+trait 覆盖，故 shrine 奖励累计在 shrineBonuses 里，
+  // 于末尾乘 / 加回最终值，避免 tome 升级 / 开宝箱触发的 recompute 把它们清掉。
+  const sb = player.shrineBonuses;
+  if (sb) {
+    player.damageMultiplier      *= sb.damageMult;
+    player.attackSpeedMultiplier *= sb.attackSpeedMult;
+    player.speed                 *= sb.speedMult;
+    player.pickupRadius          *= sb.pickupRadiusMult;
+    player.critDamage            += sb.critDamageAdd;
+  }
 }

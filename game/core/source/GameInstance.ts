@@ -367,6 +367,9 @@ export class GameInstance {
     if (!option) return;
 
     applyShrineReward(state.player, option.reward, option.value);
+    // damage/attack_speed/movement_speed/pickup_range/crit_damage 奖励累计在 shrineBonuses，
+    // recompute 末尾合并后即时生效（其余奖励已在 applyShrineReward 内直接写字段）。
+    recomputePlayerStats(state.player, engine.config.character, getShopBonuses());
 
     shrine.phase = 'consumed';
     shrine.options = null;

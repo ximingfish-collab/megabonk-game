@@ -211,8 +211,21 @@ export interface PlayerState {
   projectileBonus?: number;
   /** 击退倍率（默认 1.0，shrine 会乘上去）。 */
   knockbackMult?: number;
-  /** 对精英 / 小头目 / boss 的额外伤害倍率（默认 1.0）。 */
+  /** 对精英 / 小头目 / boss 的额外伤害倍率（默认 1.0）。来自 charge shrine 的 elite_damage 奖励；
+   *  与 elite_writ 遗物（按 stack 计）在 applyRelicTargetDamage 里相乘。 */
   eliteDamageMult?: number;
+  /**
+   * Charge shrine 中会被 recomputePlayerStats 重算覆盖的 5 个 stat 的累计加成。
+   * recompute 末尾二次合并，避免被 tome 升级 / 开宝箱触发的 recompute 清掉
+   * （damage / attack_speed / movement_speed / pickup_range / crit_damage shrine 奖励走这里）。
+   */
+  shrineBonuses?: {
+    damageMult: number;
+    attackSpeedMult: number;
+    speedMult: number;
+    pickupRadiusMult: number;
+    critDamageAdd: number;
+  };
   /** 吸血百分比（0..1，造成伤害时按比例回血）。 */
   lifestealPct?: number;
   /** 跳跃高度倍率（默认 1.0）。 */

@@ -46,9 +46,8 @@ export function grantRelic(engine: Engine, relicId: RelicId): void {
     case 'magazine_expander':
       player.projectileBonus = (player.projectileBonus ?? 0) + 1;
       break;
-    case 'elite_writ':
-      player.eliteDamageMult = 1 + next * 0.10;
-      break;
+    // elite_writ 不写 eliteDamageMult —— 其加成在 applyRelicTargetDamage 里按 stack 实时算，
+    // eliteDamageMult 专留给 charge shrine 的 elite_damage 奖励（两者相乘）。
   }
 
   recomputePlayerStats(player, engine.config.character, getShopBonuses());
@@ -99,9 +98,12 @@ export function getRelicDamageMultiplier(engine: Engine): number {
 
 export function applyRelicTargetDamage(engine: Engine, damage: number, enemy: EnemyState): number {
   if (!enemy.isElite && !enemy.isMiniBoss) return damage;
-  const eliteWrit = getRelicStack(engine.state.player, 'elite_writ');
-  if (eliteWrit <= 0) return damage;
-  return Math.round(damage * (1 + eliteWrit * 0.10));
+  const player = engine.state.player;
+  const eliteWrit = getRelicStack(player, 'elite_writ');
+  // elite_writ 遗物（按 stack）× charge shrine 的 elite_damage 奖励（eliteDamageMult）。
+  const mult = (1 + eliteWrit * 0.10) * (player.eliteDamageMult ?? 1);
+  if (mult === 1) return damage;
+  return Math.round(damage * mult);
 }
 
 export function getRelicDef(relicId: RelicId): RelicDef {

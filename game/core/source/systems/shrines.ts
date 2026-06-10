@@ -96,33 +96,37 @@ export function tickShrines(engine: Engine, dt: number): void {
  *   - hp_regen              → hpRegenRate += value (字段单位：HP/秒)
  *   - projectile_count      → projectileBonus += value
  *
- * 注意：damageMultiplier / attackSpeedMultiplier / speed / pickupRadius / critDamage
- * 这些字段会被 recomputePlayerStats 在 tome 升级时重置！为了让 shrine 加成不被吞掉，
- * 也同步累计在专门的 shrine bonus 字段里 ... 但目前实现选择更简单的路：
- * shrine 的修改"附着"在已乘 / 加完 shop+tome 之后的字段上，下一次 tome 升级会清掉。
- *
- * (Phase 8 TODO: 把 shrine 加成存为独立的 ShrineBonus 数据，让 recomputePlayerStats 二次合并。)
+ * damageMultiplier / attackSpeedMultiplier / speed / pickupRadius / critDamage 这 5 个字段
+ * 会被 recomputePlayerStats（tome 升级 / 开宝箱拿遗物时触发）从 base 重算覆盖。为避免 shrine
+ * 加成被吞掉，这 5 项累计到独立的 player.shrineBonuses，由 recomputePlayerStats 末尾二次合并；
+ * 调用方（selectShrineReward）在本函数后立刻 recompute 让加成即时生效。
+ * 其余 reward（shield / hp_regen / knockback / elite_damage / ... ）写的字段不在 recompute
+ * 管辖内，直接 mutate 即可、不会被清。
  */
 export function applyShrineReward(
   player: PlayerState,
   reward: import('../types.ts').ShrineRewardType,
   value: number,
 ): void {
+  // recompute 管辖的 5 项 → 累计到 shrineBonuses（recompute 末尾合并），不直接写字段
+  const sb = (player.shrineBonuses ??= {
+    damageMult: 1, attackSpeedMult: 1, speedMult: 1, pickupRadiusMult: 1, critDamageAdd: 0,
+  });
   switch (reward) {
     case 'damage':
-      player.damageMultiplier *= 1 + value;
+      sb.damageMult *= 1 + value;
       break;
     case 'attack_speed':
-      player.attackSpeedMultiplier *= 1 + value;
+      sb.attackSpeedMult *= 1 + value;
       break;
     case 'movement_speed':
-      player.speed *= 1 + value;
+      sb.speedMult *= 1 + value;
       break;
     case 'pickup_range':
-      player.pickupRadius *= 1 + value;
+      sb.pickupRadiusMult *= 1 + value;
       break;
     case 'crit_damage':
-      player.critDamage += value;
+      sb.critDamageAdd += value;
       break;
     case 'shield': {
       const cur = player.maxShield ?? 0;
