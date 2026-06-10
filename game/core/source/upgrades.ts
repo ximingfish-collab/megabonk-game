@@ -33,15 +33,15 @@ export function xpForLevel(level: number): number {
 }
 
 /**
- * 局内武器槽解锁：1 起步，10/20/30/40 级各 +1（最高 5）。
+ * 局内武器槽解锁：1 起步，5/10/20/30 级各 +1（最高 5）。
  * 第 6 槽仅在 maxWeaponSlots ≥ 6（完成「7 把不同武器」任务）且 50 级时解锁。
  */
 export function computeActiveWeaponSlots(level: number, maxWeaponSlots: number): number {
   let slots = 1;
+  if (level >= 5) slots++;
   if (level >= 10) slots++;
   if (level >= 20) slots++;
   if (level >= 30) slots++;
-  if (level >= 40) slots++;
   if (level >= 50 && maxWeaponSlots >= MAX_WEAPONS_CAP) slots++;
   return Math.min(maxWeaponSlots, slots);
 }
@@ -131,12 +131,80 @@ function buildAvailableOptions(player: PlayerState): UpgradeOption[] {
   return options;
 }
 
+export interface GenerateUpgradeOptionsOpts {
+  /** F09 预言之书：全部 ≥ uncommon 且至少 1 rare。 */
+  prophecy?: boolean;
+}
+
+const RARITY_RANK: Record<UpgradeRarity, number> = {
+  common: 0,
+  uncommon: 1,
+  rare: 2,
+  legendary: 3,
+};
+
+function rollProphecyRarity(luckLevel: number, requireRare: boolean, slotIndex: number): UpgradeRarity {
+  if (requireRare && slotIndex === 0) return 'rare';
+  const roll = Math.random();
+  if (roll < 0.08 + luckLevel * 0.01) return 'legendary';
+  if (roll < 0.38 + luckLevel * 0.02) return 'rare';
+  return 'uncommon';
+}
+
+function buildProphecyOptions(player: PlayerState, count: number): UpgradeOption[] {
+  const luckLevel = getTomePower(player.tomes.find(t => t.type === 'luck_tome'));
+  const allOptions = buildAvailableOptions(player);
+  if (allOptions.length === 0) return [];
+
+  const weaponOptions = allOptions.filter(o => o.kind === 'weapon_upgrade' || o.kind === 'new_weapon');
+  const result: UpgradeOption[] = [];
+  const usedIds = new Set<string>();
+
+  if (weaponOptions.length > 0) {
+    const pick = weaponOptions[Math.floor(Math.random() * weaponOptions.length)];
+    result.push({ ...pick, rarity: rollProphecyRarity(luckLevel, true, 0) });
+    usedIds.add(pick.id);
+  }
+
+  const remaining = allOptions.filter(o => !usedIds.has(o.id));
+  let attempts = 0;
+  while (result.length < count && remaining.length > 0 && attempts < 200) {
+    attempts++;
+    const idx = Math.floor(Math.random() * remaining.length);
+    const pick = remaining[idx];
+    if (!usedIds.has(pick.id)) {
+      result.push({
+        ...pick,
+        rarity: rollProphecyRarity(luckLevel, result.every(o => RARITY_RANK[o.rarity] < 2), result.length),
+      });
+      usedIds.add(pick.id);
+      remaining.splice(idx, 1);
+    }
+  }
+
+  if (!result.some(o => RARITY_RANK[o.rarity] >= 2) && result.length > 0) {
+    result[0] = { ...result[0], rarity: 'rare' };
+  }
+  for (const opt of result) {
+    if (RARITY_RANK[opt.rarity] < 1) opt.rarity = 'uncommon';
+  }
+  return result;
+}
+
 /**
  * Generate upgrade options for level-up screen.
  * Guarantees at least 1 weapon-related option if possible.
  * Each option has a unique id.
  */
-export function generateUpgradeOptions(player: PlayerState, count: number): UpgradeOption[] {
+export function generateUpgradeOptions(
+  player: PlayerState,
+  count: number,
+  opts?: GenerateUpgradeOptionsOpts,
+): UpgradeOption[] {
+  if (opts?.prophecy) {
+    return buildProphecyOptions(player, count);
+  }
+
   const allOptions = buildAvailableOptions(player);
   if (allOptions.length === 0) return [];
 

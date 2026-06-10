@@ -18,7 +18,7 @@
  */
 import type { Engine } from './types.ts';
 import { consumePortalUsed, generateAltars } from './altars.ts';
-import { generateChests } from './chests.ts';
+import { generateChests, nextChestId, nextChestRespawnDelay } from './chests.ts';
 import type { DifficultyTier } from '../types.ts';
 
 export function tickTierTransition(engine: Engine): void {
@@ -35,8 +35,12 @@ export function tickTierTransition(engine: Engine): void {
   state.enemies = [];
   state.projectiles = [];
   state.pickups = [];
+  state.consumablePickups = [];
+  state.goldMotes = [];
   state.damageEvents = [];
   state.levelUpCompensationEvents = [];
+  state.chestOpenEvents = [];
+  state.pendingChestReward = null;
   state.boss = null;
   state.upgradeOptions = null;
   state.waveIndex = 0;
@@ -47,6 +51,8 @@ export function tickTierTransition(engine: Engine): void {
   // 重新生成祭坛和宝箱
   state.altars = generateAltars(config);
   state.chests = generateChests(config);
+  engine.nextChestId = nextChestId(state.chests);
+  engine.chestRespawnTimer = nextChestRespawnDelay();
 
   // engine 内部计时器复位
   engine.spawnTimer = 1.0;

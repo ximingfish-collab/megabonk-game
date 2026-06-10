@@ -735,6 +735,7 @@
 
     <h4>技术</h4>
     <a data-tab="architecture">架构</a>
+    <a data-tab="gsap-animations">GSAP 动画系统</a>
     <a data-tab="physics">物理 / 碰撞</a>
     <a data-tab="performance">性能</a>
     <a data-tab="dev">开发指南</a>
@@ -1034,7 +1035,7 @@ export {
 
   <div class="timeline-wrap">
     <div class="timeline">
-      <div class="tl-marker" style="left: 0%"><span class="lbl">0s</span><span class="ev">骷髅步兵<br>祭坛 + 宝箱已生成</span></div>
+      <div class="tl-marker" style="left: 0%"><span class="lbl">0s</span><span class="ev">骷髅步兵<br>祭坛 + 6 宝箱已生成</span></div>
       <div class="tl-marker" style="left: 11.1%"><span class="lbl">60s</span><span class="ev">+ 僵尸<br>5% 精英</span></div>
       <div class="tl-marker" style="left: 33.3%"><span class="lbl">180s</span><span class="ev">+ 弓手<br>Mini-Boss 启动</span></div>
       <div class="tl-marker" style="left: 55.5%"><span class="lbl">300s</span><span class="ev">15% 精英</span></div>
@@ -1518,7 +1519,7 @@ actualTargetCount = floor(storedTargetCount)
   <h3>⑤ 银币结算（局末）</h3>
   <pre><code>baseSilver  = floor(killCount × 0.5 + level × 5)
 victoryBonus = phase === 'victory' ? 100 : 0
-runSilver   = silverEarned                        // 局内拾取/宝箱/任务
+runSilver   = silverEarned                        // 局内精英拾取/空池/任务
 totalSilver = round((baseSilver + victoryBonus + runSilver) × tier.silverMultiplier)</code></pre>
 </section>
 
@@ -1691,10 +1692,10 @@ portal_used    终态；tier 推进流程消费它（清场 + 重生新祭坛）
   <p>玩家在 <code>portal_ready</code> 阶段按 <code>[E]</code> → 祭坛切到 <code>portal_used</code> → <code>tickTierTransition</code> 在本帧末尾消费它：</p>
   <ul>
     <li><code>config.tier++</code>（最高 3，已是 3 时只重置时间）</li>
-    <li>清场：<code>enemies / projectiles / pickups / boss / damageEvents / waveIndex / finalSwarm / overtimeSeconds = 0</code></li>
+    <li>清场：<code>enemies / projectiles / pickups / goldMotes / boss / damageEvents / waveIndex / finalSwarm / overtimeSeconds = 0</code></li>
     <li><code>gameTime = 0</code>（进入新一关的"常规生存期"）</li>
-    <li>重新生成祭坛 + 宝箱</li>
-    <li><b>保留</b>：玩家 HP / 武器 / 典籍 / 等级 / XP / silver</li>
+    <li>重新生成祭坛 + 6 宝箱（<code>generateChests</code>）</li>
+    <li><b>保留</b>：玩家 HP / 武器 / 典籍 / 等级 / XP / 金币 / 遗物层数（<code>relicStacks</code>）/ silver</li>
     <li><code>phase = 'playing'</code></li>
   </ul>
 
@@ -1712,17 +1713,31 @@ portal_used    终态；tier 推进流程消费它（清场 + 重生新祭坛）
     <li><b>Mobile</b>：交互半径内出现屏幕中下方圆形按钮，文案随阶段切换：<code>altar.prompt.summon</code> ↔ <code>altar.prompt.enterPortal</code></li>
     <li><b>HUD</b>：屏幕中上方指南针文字 + 距离；Overtime 时屏幕顶部黄色横幅显示 <code>mm:ss</code></li>
     <li><b>3D 表现</b>：祭坛底色按阶段切换（青蓝 ready / 金黄 summoning / 红 boss_active / 紫 portal_ready）</li>
+    <li><b>GSAP 动画系统</b>：所有 UI 元素使用 GSAP 动画，包括：
+      <ul>
+        <li>Boss 血条淡入淡出 + 宽度动画</li>
+        <li>传送门指示器淡入淡出</li>
+        <li>超时横幅弹跳效果</li>
+        <li>交互按钮弹跳动画</li>
+        <li>组合标签缩放淡入淡出</li>
+        <li>消耗品标签缩放动画</li>
+        <li>最终蜂群脉冲效果</li>
+        <li>屏幕闪光淡出效果</li>
+        <li>吐司通知弹跳动画</li>
+      </ul>
+    </li>
   </ul>
 
   <h3>银币来源（关卡内）</h3>
   <table>
     <tr><th>来源</th><th>数额</th></tr>
-    <tr><td>银币拾取</td><td><code>pickup.value</code></td></tr>
+    <tr><td>精英击杀银币拾取</td><td>固定 <code>5</code>（<code>pickup.type = silver</code>）</td></tr>
     <tr><td>幸运典籍每级附赠</td><td>+ luckTome.level / 拾取</td></tr>
-    <tr><td>宝箱（4 个 / 局）</td><td>50 ~ 200 随机</td></tr>
+    <tr><td>空升级池</td><td>50% 概率 roll 银币（见 <a href="#" data-tab="xp">经验 / 升级</a>）</td></tr>
     <tr><td>击败 Boss</td><td>+50（即时进 <code>stats.silverEarned</code>）</td></tr>
     <tr><td>任务 q26 / q27 / q29</td><td>100 / 250 / 1000</td></tr>
   </table>
+  <p style="color:var(--dim);font-size:13px;">注：宝箱已改为消耗<strong>金币</strong>抽取遗物，不再产出银币。开局 6 个宝箱，场上未开启宝箱上限 6，开启后 30～60s 补刷。</p>
 
   <h3>存档结构 <code>save.ts</code></h3>
   <pre><code>interface SaveData {
@@ -1860,12 +1875,33 @@ luck 来源 = luck_tome.level + floor(player.luckBonus * 100)</code></pre>
 
   <h3>6. UI 流程</h3>
   <table>
-    <tr><th>阶段</th><th>显示</th><th>i18n key</th></tr>
-    <tr><td>接近未充能圣殿（&lt; 30m）</td><td>HUD：<code>充能神殿: {dist}m</code></td><td><code>shrine.indicator_far</code></td></tr>
-    <tr><td>站立充能中</td><td>HUD：<code>充能中... {percent}%</code> + 3D 蓝紫脉动</td><td><code>shrine.indicator_charging</code></td></tr>
-    <tr><td>充满</td><td>弹出 4 选 1 卡片面板（rarity 边框 + emoji + 数值）</td><td><code>shrine.title</code> + <code>shrine.reward.*</code></td></tr>
-    <tr><td>选完</td><td>卡片消失、圣殿变灰、玩家继续战斗</td><td>—</td></tr>
+    <tr><th>阶段</th><th>显示</th><th>i18n key</th><th>GSAP 动画</th></tr>
+    <tr><td>接近未充能圣殿（&lt; 30m）</td><td>HUD：<code>充能神殿: {dist}m</code></td><td><code>shrine.indicator_far</code></td><td>传送门指示器淡入淡出</td></tr>
+    <tr><td>站立充能中</td><td>HUD：<code>充能中... {percent}%</code> + 3D 蓝紫脉动</td><td><code>shrine.indicator_charging</code></td><td>进度条平滑过渡</td></tr>
+    <tr><td>充满</td><td>弹出 4 选 1 卡片面板（rarity 边框 + emoji + 数值）</td><td><code>shrine.title</code> + <code>shrine.reward.*</code></td><td>卡片弹跳淡入效果</td></tr>
+    <tr><td>选完</td><td>卡片消失、圣殿变灰、玩家继续战斗</td><td>—</td><td>卡片缩放淡出效果</td></tr>
   </table>
+
+  <h4>GSAP 动画系统集成</h4>
+  <div class="card">
+    <p><strong>🎯 动画完成状态：</strong>所有 UI 动画已从 CSS 过渡迁移到 GSAP 系统</p>
+    <p><strong>📊 迁移统计：</strong>12 个主要 UI 元素，100% 完成率</p>
+
+    <h5>主要动画效果</h5>
+    <ul>
+      <li><strong>淡入淡出</strong> - 使用 <code>power2.out</code> 和 <code>power2.in</code> 缓动</li>
+      <li><strong>弹跳效果</strong> - 使用 <code>back.out(1.2)</code> 缓动</li>
+      <li><strong>缩放动画</strong> - 配合淡入淡出增强视觉冲击力</li>
+      <li><strong>脉冲效果</strong> - 使用 <code>sine.inOut</code> 缓动实现循环动画</li>
+    </ul>
+
+    <h5>性能优化</h5>
+    <ul>
+      <li>自动资源清理机制</li>
+      <li>动画取消和复用机制</li>
+      <li>统一的动画管理接口</li>
+    </ul>
+  </div>
 
   <h3>7. 与 <code>level_up</code> 的协同</h3>
   <table>
@@ -1893,7 +1929,7 @@ luck 来源 = luck_tome.level + floor(player.luckBonus * 100)</code></pre>
 <!-- ============= EXTENSION OVERVIEW ============= -->
 <section id="ext-overview">
   <h2>扩展设计总览 <span class="badge-new">new</span></h2>
-  <p class="sub">相较当前已落地代码的<strong>策划草案 v0.4（ximing 修订）</strong> — 尚未实现，供战斗设计与程序对齐。</p>
+  <p class="sub">相较当前已落地代码的<strong>策划草案 v0.4（ximing 修订）</strong> — 部分模块已落地（金币 / 宝箱 / 遗物），其余供战斗设计与程序对齐。</p>
 
   <div class="hero">
     <h1>构筑扩展 v0.4</h1>
@@ -1907,7 +1943,7 @@ luck 来源 = luck_tome.level + floor(player.luckBonus * 100)</code></pre>
   </div>
 
   <div class="note" style="border-left: 4px solid var(--accent-2); background: var(--accent-2-soft); padding: 12px 16px; border-radius: 8px; margin-bottom: 24px;">
-    <b>状态：</b>设计文档 only。v0.4 核心变更：<strong>取消升级自动加血/加 maxHp</strong>、<strong>用羁绊激活替代 21 条双武融合</strong>、<strong>宝箱改消耗金币</strong>、<strong>空池 roll 金币/银币</strong>。
+    <b>状态：</b>混合文档。<strong>已落地</strong>：金币击杀掉落（<code>goldMotes</code>）、宝箱金币开箱 + <code>chest_reward</code> 留下/丢弃、10 个可叠层遗物（<code>relicStacks</code>）、空池 roll 金币/银币。<strong>仍为草案</strong>：100 级曲线、羁绊激活、消耗品、槽位拆分、天赋转模等 — 见各页标注。
   </div>
 
   <h3>机制分类（策划填表用）</h3>
@@ -1917,7 +1953,7 @@ luck 来源 = luck_tome.level + floor(player.luckBonus * 100)</code></pre>
     <tr><td><strong>伤害提升类</strong></td><td>全局伤害、暴击、攻速、羁绊增伤</td><td><code>precision_tome</code>、<code>attack_speed_tome</code>、羁绊、遗物、消耗品</td></tr>
     <tr><td><strong>削弱敌方类</strong></td><td>毒气持续伤、强减速、攻击减慢、击退、诅咒（敌加速但多经验）</td><td>新武器（毒气弹/麻痹枪）、<code>knockback_tome</code>、<code>curse_tome</code>、羁绊感官机制</td></tr>
     <tr><td><strong>速度类</strong></td><td>移速、冲刺相关、灼地轨迹</td><td><code>speed_tome</code>、羁绊、消耗品、灼地靴</td></tr>
-    <tr><td><strong>资源类</strong></td><td>金币、银币、经验、拾取半径</td><td>击杀掉落、空池 roll、宝箱、<code>attraction_tome</code>、<code>xp_gain_tome</code>、<code>luck_tome</code></td></tr>
+    <tr><td><strong>资源类</strong></td><td>金币、银币、经验、拾取半径</td><td>击杀金币 mote、精英银币拾取、空池 roll、宝箱<strong>消耗</strong>金币、<code>attraction_tome</code>、<code>xp_gain_tome</code>、<code>luck_tome</code></td></tr>
     <tr><td><strong>槽位与构筑类</strong></td><td>局外 max 槽、局内 active 槽、武器/典籍/羁绊</td><td><code>save.extraWeaponSlots</code>、等级解锁、升级 3 选 1</td></tr>
     <tr><td><strong>遗物类</strong></td><td>不占武器槽；<strong>同 ID 可叠加</strong>；机制可更激进</td><td>金币开箱、击杀间接增益</td></tr>
     <tr><td><strong>消耗品类</strong></td><td>怪物概率掉落；拾荒典籍提高掉落概率</td><td><code>consumable_tome</code>、精英/Mini-Boss 掉落、地图消耗品点</td></tr>
@@ -1942,8 +1978,8 @@ luck 来源 = luck_tome.level + floor(player.luckBonus * 100)</code></pre>
       <p><a href="#" data-tab="ext-bonds">→ 详见</a></p>
     </div>
     <div class="card">
-      <h4>遗物 · 金币 · 宝箱</h4>
-      <p>遗物<strong>不占武器槽</strong>，<strong>同 ID 可叠加</strong>（重复开箱同种遗物 → 层数 +1，效果累加）。击杀掉<strong>金币</strong>。开箱需<strong>消耗金币</strong>，费用随玩家等级增长。</p>
+      <h4>遗物 · 金币 · 宝箱 <span class="badge-new">已实现</span></h4>
+      <p>遗物<strong>不占武器槽</strong>，<strong>同 ID 可叠加</strong>。击杀生成<strong>金币 mote</strong>自动飞向玩家。开箱按「等级曲线 + 本关已开启宝箱数」扣金币并进入 <code>chest_reward</code>；只有<strong>留下</strong>才写入 <code>relicStacks</code> 并生效。</p>
       <p><a href="#" data-tab="ext-relics">→ 详见</a></p>
     </div>
     <div class="card">
@@ -1971,21 +2007,22 @@ luck 来源 = luck_tome.level + floor(player.luckBonus * 100)</code></pre>
     <tr><td>选项池空 → 静默升级</td><td>roll <strong>金币或银币</strong></td></tr>
     <tr><td>旧武器进化 + 典籍门槛</td><td><strong>删除</strong>；统一改为羁绊激活（减少融合配方数量）</td></tr>
     <tr><td>21 条 <code>weapon_fusion</code></td><td>改为 <code>bond_activate</code> / <code>bond_upgrade</code></td></tr>
-    <tr><td>宝箱免费开 → 银币</td><td>消耗<strong>金币</strong> → roll 遗物（可叠层）</td></tr>
-    <tr><td>仅精英掉银币</td><td>全怪物掉金币 + 保留银币来源</td></tr>
+    <tr><td>宝箱免费开 → 银币</td><td><strong>已实现</strong>：消耗金币 → <code>chest_reward</code> 抽遗物 → 留下才 <code>grantRelic</code>，丢弃不生效</td></tr>
+    <tr><td>仅精英掉银币</td><td><strong>已实现</strong>：全怪物掉金币 mote + 精英仍掉银币拾取</td></tr>
     <tr><td>5/10/20/30 级开槽 = maxWeaponSlots</td><td>局外 max + 局内 active 分离</td></tr>
   </table>
 
   <h3>系统关系</h3>
-  <pre><code>击杀 → XP + 金币掉落（按怪物等级）
-         ↓
+  <pre><code>击杀 → XP pickup + goldMote（按 tier / 精英 / Mini-Boss；契约硬币每层 +1）
+         ↓ goldMote 自动飞向玩家 → player.gold
   level++（上限 100，无自动治疗）
          ↓
   buildAvailableOptions → 有选项？→ 3 选 1（upgrade / new_weapon / tome / bond_activate / bond_upgrade）
          ↓ 无
   roll 金币 or 银币（50/50，数量随 level 缩放）
 
-  宝箱 ──→ 消耗 gold ──→ 遗物 roll（同 ID 叠层，效果累加）
+  宝箱 ──→ 消耗 gold（等级曲线 + 已开启宝箱数递增）──→ chest_reward 暂停 ──→ 留下：grantRelic / 丢弃：不记录
+         ↓ 场上未开 &lt; 6 时 30～60s 补刷 1 个
   怪物 ──→ 概率掉落消耗品（consumable_tome 提高掉落率）
 
   羁绊 ──→ 条件满足 → bond_activate/upgrade；T1 数值 → T2 机制 → T3 升格
@@ -1996,8 +2033,8 @@ luck 来源 = luck_tome.level + floor(player.luckBonus * 100)</code></pre>
   <ol>
     <li>100 级 + 移除升级治疗 + 空池 roll 金币/银币 + 槽位拆分</li>
     <li><code>life_tome</code> / <code>consumable_tome</code></li>
-    <li>金币掉落 + 宝箱改金币消耗</li>
-    <li>遗物（可叠加、不占槽）</li>
+    <li><s>金币掉落 + 宝箱改金币消耗</s> ✅ 已落地</li>
+    <li><s>遗物（可叠加、不占槽）</s> ✅ 已落地（10 件 + emoji HUD）</li>
     <li>消耗品掉落 + 使用</li>
     <li>羁绊 v0.5d（9 条 · T1 激活瞬时 / T2 机制 / T3 升格）+ 羁绊激活选项（替代融合）</li>
     <li>选角解锁 + 天赋转模</li>
@@ -2282,55 +2319,71 @@ on bond_upgrade 2→3:
 <!-- ============= EXT RELICS ============= -->
 <section id="ext-relics">
   <h2>遗物 · 宝箱 · 金币 <span class="badge-new">new</span></h2>
-  <p class="sub">v0.4：遗物<strong>不占武器槽</strong>；<strong>同 ID 可无限叠加</strong>（无种类上限、无替换 UI）。开箱消耗<strong>金币</strong>，费用随玩家等级增长。</p>
+  <p class="sub">v0.4 设计 + <strong>当前代码已落地</strong>：遗物<strong>不占武器槽</strong>；<strong>同 ID 可无限叠加</strong>（无种类上限、无替换 UI）。开箱消耗<strong>金币</strong>，费用随玩家等级平滑增长，且<strong>本关每多开 1 个宝箱额外 +20 金币</strong>，抑制连续开箱滚雪球。</p>
 
-  <div class="note bad">
-    <b>当前代码：</b>宝箱（<code>systems/chests.ts</code>）免费开 → 仅银币。v0.4 改为 <code>player.gold</code> 支付 + 遗物 roll；击杀需新增金币掉落。
+  <div class="note">
+    <b>当前实现：</b>击杀生成 <code>GameState.goldMotes[]</code>（Canvas 金币 sprite，自动飞向玩家到账，<strong>不是</strong> <code>pickups</code> 里的 gold 拾取物）。靠近未开启宝箱按交互键 → 立刻扣金币、<code>chest.opened = true</code>、<code>phase = chest_reward</code>（主循环暂停，等同 <code>level_up</code>）。客户端播放稀有度闪烁动画后弹出<strong>留下 / 丢弃</strong>；<code>GameInstance.selectChestReward(keep)</code> 仅在 <code>keep === true</code> 时调用 <code>grantRelic</code> 写入 <code>player.relicStacks</code>。丢弃不记录、不生效，但金币已扣、宝箱已开。
   </div>
+
+  <h3>代码落点</h3>
+  <table>
+    <tr><th>路径</th><th>职责</th></tr>
+    <tr><td><code>data/relics.ts</code></td><td>10 件遗物表（<code>RELICS</code>）、稀有度权重、<code>rollRelic</code>（未拥有优先 + 重复降权）</td></tr>
+    <tr><td><code>systems/relics.ts</code></td><td><code>getChestGoldCost(level, openedChestCount)</code> / <code>rollRelicForPlayer</code> / <code>grantRelic</code>；击杀/伤害钩子（<strong>无</strong> <code>tickRelics</code>）</td></tr>
+    <tr><td><code>systems/chests.ts</code></td><td><code>generateChests</code> / <code>tickChests</code>（交互开箱 + 补刷）</td></tr>
+    <tr><td><code>systems/pickups.ts</code></td><td><code>spawnGoldMoteFromEnemy</code> / <code>tickGoldMotes</code>；精英仍掉银币 <code>pickup</code></td></tr>
+    <tr><td><code>GameInstance.ts</code></td><td><code>chest_reward</code> 阶段跳过 tick；<code>selectChestReward</code></td></tr>
+    <tr><td><code>client/source/index.ts</code></td><td>金币 HUD、遗物 emoji 槽（XP 条上方）、宝箱交互文案、开箱奖励面板</td></tr>
+  </table>
 
   <h3>叠加规则</h3>
   <table>
     <tr><th>项</th><th>说明</th></tr>
-    <tr><td>数据结构</td><td><code>player.relicStacks: Record&lt;relicId, number&gt;</code>；开箱命中已有 ID 则 <code>count++</code></td></tr>
-    <tr><td>数值效果</td><td>线性叠加（如 3 层锐眼透镜 → 暴击率 +9%）</td></tr>
-    <tr><td>触发 / 机制效果</td><td>按层数增强：概率独立 roll、CD 不叠、或每层 +固定幅度（见下表备注）</td></tr>
-    <tr><td>击杀收益</td><td>如契约硬币：每层让击杀敌人额外 +1 金币，避免金币开箱形成过强正反馈</td></tr>
-    <tr><td>上限</td><td><strong>无种类上限、无总层数硬 cap</strong>；个别 Legendary 的内置效果上限仍按单件描述（如 overtime 全伤 +36% 为每层独立计时或取 max，数值待定）</td></tr>
+    <tr><td>数据结构</td><td><code>player.relicStacks: Partial&lt;Record&lt;RelicId, number&gt;&gt;</code>；<strong>留下</strong>时 <code>grantRelic</code> → <code>relicStacks[id]++</code></td></tr>
+    <tr><td>抽取保护</td><td>先按玩家等级 / 幸运 roll 稀有度；同稀有度内优先抽<strong>未拥有</strong>遗物。该稀有度全部拥有后才允许重复，权重 <code>1 / (stacks + 1)²</code></td></tr>
+    <tr><td>数值效果</td><td>线性叠加（如 3 层锐眼透镜 → 暴击率 +9%）；在 <code>grantRelic</code> 或事件钩子中应用</td></tr>
+    <tr><td>触发 / 机制效果</td><td>事件驱动：<code>applyRelicKillEffects</code>（嗜血牙）、<code>getRelicDamageMultiplier</code>（武库徽章/时间沙漏）、<code>applyRelicTargetDamage</code>（精英猎令）</td></tr>
+    <tr><td>击杀收益</td><td>契约硬币：每层击杀额外 +1 金币（计入 goldMote <code>value</code>）</td></tr>
+    <tr><td>上限</td><td><strong>无种类上限、无总层数硬 cap</strong></td></tr>
   </table>
 
   <h3>金币经济</h3>
   <table>
     <tr><th>来源</th><th>规则</th></tr>
-    <tr><td>普通怪击杀</td><td><code>gold += floor(1 + enemyTier × 0.4 + rand(0..2))</code></td></tr>
-    <tr><td>精英击杀</td><td>×3～5 倍 + 保底 +3</td></tr>
-    <tr><td>Mini-Boss</td><td>固定 15～25 + 等级缩放</td></tr>
+    <tr><td>普通怪击杀</td><td>生成 goldMote：<code>floor(1 + tier × 0.4 + rand(0..2))</code> + 契约硬币层数</td></tr>
+    <tr><td>精英击杀</td><td>×3～5 倍 + 保底 +3（仍生成 goldMote；<strong>另</strong>掉银币 pickup <code>value=5</code>）</td></tr>
+    <tr><td>Mini-Boss</td><td><code>round(15 + rand(0..10) + level × 0.2)</code></td></tr>
+    <tr><td>到账方式</td><td><code>tickGoldMotes</code>：mote 加速飞向玩家，距离 &lt; 0.45 或寿命耗尽 → <code>player.gold += value</code></td></tr>
     <tr><td>空升级池</td><td>50% 概率 roll 金币（见 <a href="#" data-tab="xp">经验 / 升级</a>）</td></tr>
-    <tr><td>银币</td><td>保留：空池 50%、精英、结算；与金币并行，不互相替代</td></tr>
+    <tr><td>银币</td><td>并行经济：空池 50%、精英拾取、Boss/任务/结算；与金币不互相替代</td></tr>
   </table>
 
   <h3>宝箱（金币消耗）</h3>
   <table>
     <tr><th>项</th><th>说明</th></tr>
-    <tr><td>费用</td><td><code>cost = floor(35 × (1 + player.level × 0.08))</code>（比旧草案更陡，防止遗物滚雪球过快）</td></tr>
-    <tr><td>交互</td><td>靠近 + 确认；<code>gold &lt; cost</code> 时 UI 灰显</td></tr>
-    <tr><td>产出</td><td>按稀有度权重 roll 1 种遗物 → 对应 <code>relicStacks[id]++</code>；已拥有则<strong>叠层</strong>而非替换</td></tr>
+    <tr><td>初始数量</td><td>开局 / tier 切换 <code>generateChests</code> → <strong>6</strong> 个（<code>CHEST_COUNT</code>）；有关卡 <code>chestSpawns</code> 时优先用手摆点</td></tr>
+    <tr><td>补刷</td><td>场上未开启宝箱 &lt; <code>CHEST_MAX_ACTIVE</code>（6）时，每 30～60s 在玩家 12～35 单位外补 1 个</td></tr>
+    <tr><td>费用</td><td><code>cost = floor(35 + level × 3 + pow(level, 1.25) × 0.75 + openedChestCount × 20)</code>；<code>openedChestCount</code> = 本关已开启宝箱数（<code>chests.filter(c =&gt; c.opened).length</code>）。例：Lv10 第 1 箱 ≈ 78 金，第 4 箱 ≈ 138 金</td></tr>
+    <tr><td>交互</td><td>距离 &lt; <code>CHEST_INTERACT_RADIUS</code>（2.5）+ <code>interact</code>；<code>gold &lt; cost</code> 时按钮灰显；足够时立刻扣费并进入 <code>chest_reward</code></td></tr>
+    <tr><td>产出</td><td><code>rollRelicForPlayer</code> → 写入 <code>pendingChestReward</code>；<strong>留下</strong> → <code>grantRelic</code>；<strong>丢弃</strong> → 不记录</td></tr>
     <tr><td>金币不足</td><td>无法开启；无「遗物栏满」fallback（因为无上限）</td></tr>
+    <tr><td>视觉</td><td>客户端 procedural 暖棕木箱 + 金边；已开启宝箱保留在列表中（<code>opened: true</code>）</td></tr>
   </table>
 
   <h3>10 个遗物（v0.5 · 可叠层）</h3>
-  <p>同 ID 重复获得 → 层数 +1，<strong>每层增量相同</strong>（无「首层 / 叠层」两套规则）。效果尽量简短。</p>
+  <p>同 ID 重复获得 → 层数 +1，<strong>每层增量相同</strong>。HUD 以 emoji 显示（定义于 <code>data/relics.ts</code>）。</p>
   <table>
-    <tr><th>ID</th><th>名称</th><th>稀有度</th><th>每层效果（× 层数）</th></tr>
-    <tr><td>R01</td><td>锐眼透镜</td><td><span class="pill">Common</span></td><td>暴击率 +3%</td></tr>
-    <tr><td>R02</td><td>小盾护符</td><td><span class="pill">Common</span></td><td>护盾值 +2，最大护盾值 +5</td></tr>
-    <tr><td>R03</td><td>嗜血牙</td><td><span class="pill">Uncommon</span></td><td>击杀回 2 HP（精英 +6）</td></tr>
-    <tr><td>R04</td><td>契约硬币</td><td><span class="pill">Common</span></td><td>击杀敌人额外 +1 金币</td></tr>
-    <tr><td>R05</td><td>武库徽章</td><td><span class="pill">Rare</span></td><td>每把 Lv10 武器全局伤害 +4%</td></tr>
-    <tr><td>R06</td><td>精英猎令</td><td><span class="pill">Uncommon</span></td><td>对精英伤害 +10%</td></tr>
-    <tr><td>R07</td><td>再生核心</td><td><span class="pill">Uncommon</span></td><td>hpRegen +0.5/s</td></tr>
-    <tr><td>R08</td><td>弹匣扩槽</td><td><span class="pill">Rare</span></td><td>projectileBonus +1（待定）</td></tr>
-    <tr><td>R09</td><td>时间沙漏</td><td><span class="pill">Legendary</span></td><td>overtime 内全伤 +0.12%/s（按层累加）</td></tr>
-    <tr><td>R10</td><td>铁心</td><td><span class="pill">Legendary</span></td><td>maxHp +12%；护甲 +2</td></tr>
+    <tr><th>ID</th><th>代码 ID</th><th>名称</th><th>emoji</th><th>稀有度</th><th>每层效果（× 层数）</th></tr>
+    <tr><td>R01</td><td><code>keen_lens</code></td><td>锐眼透镜</td><td>🔍</td><td><span class="pill">Common</span></td><td>暴击率 +3%</td></tr>
+    <tr><td>R02</td><td><code>small_shield_charm</code></td><td>小盾护符</td><td>🔰</td><td><span class="pill">Common</span></td><td>护盾值 +2，最大护盾值 +5</td></tr>
+    <tr><td>R03</td><td><code>blood_fang</code></td><td>嗜血牙</td><td>🦷</td><td><span class="pill">Uncommon</span></td><td>击杀回 2 HP（精英 +6）</td></tr>
+    <tr><td>R04</td><td><code>pact_coin</code></td><td>契约硬币</td><td>🪙</td><td><span class="pill">Common</span></td><td>击杀敌人额外 +1 金币</td></tr>
+    <tr><td>R05</td><td><code>arsenal_badge</code></td><td>武库徽章</td><td>🎖️</td><td><span class="pill">Rare</span></td><td>每把 Lv10 武器全局伤害 +4%</td></tr>
+    <tr><td>R06</td><td><code>elite_writ</code></td><td>精英猎令</td><td>📜</td><td><span class="pill">Uncommon</span></td><td>对精英伤害 +10%</td></tr>
+    <tr><td>R07</td><td><code>regen_core</code></td><td>再生核心</td><td>💚</td><td><span class="pill">Uncommon</span></td><td>hpRegen +0.5/s</td></tr>
+    <tr><td>R08</td><td><code>magazine_expander</code></td><td>弹匣扩槽</td><td>🧰</td><td><span class="pill">Rare</span></td><td>projectileBonus +1</td></tr>
+    <tr><td>R09</td><td><code>hourglass</code></td><td>时间沙漏</td><td>⏳</td><td><span class="pill">Legendary</span></td><td>overtime 内全伤 +0.12%/s（按层累加）</td></tr>
+    <tr><td>R10</td><td><code>iron_heart</code></td><td>铁心</td><td>🫀</td><td><span class="pill">Legendary</span></td><td>maxHp +12%；护甲 +2</td></tr>
   </table>
 
   <h3>稀有度权重 — 按玩家等级</h3>
@@ -2421,6 +2474,7 @@ player.consumableDropMult?: number       // consumable_tome</code></pre>
           <li>VFX 粒子（500 池）</li>
           <li>HUD / 升级 / 商店 / 任务 UI</li>
           <li>相机系统（屏震 / 顿帧 / 动态 FOV）</li>
+          <li>GSAP 动画系统（UI 动画管理）</li>
           <li>读取 GameState 渲染（不写）</li>
         </ul>
       </div>
@@ -2441,6 +2495,57 @@ player.consumableDropMult?: number       // consumable_tome</code></pre>
     </div>
   </div>
 
+  <h3>GSAP 动画系统</h3>
+  <div class="card">
+    <p><strong>🎯 完成状态：</strong>所有 UI 动画已从 CSS 过渡迁移到 GSAP 系统</p>
+    <p><strong>📊 迁移统计：</strong>12 个主要 UI 元素，100% 完成率</p>
+
+    <h4>迁移的 UI 元素</h4>
+    <div class="grid cols-2">
+      <div>
+        <ul>
+          <li>Boss 血条动画</li>
+          <li>传送门指示器动画</li>
+          <li>超时横幅动画</li>
+          <li>交互按钮动画</li>
+          <li>组合标签动画</li>
+          <li>消耗品标签动画</li>
+        </ul>
+      </div>
+      <div>
+        <ul>
+          <li>最终蜂群动画</li>
+          <li>屏幕闪光效果</li>
+          <li>吐司通知动画</li>
+          <li>金币拾取动画</li>
+          <li>健康条动画</li>
+          <li>伤害数字动画</li>
+        </ul>
+      </div>
+    </div>
+
+    <h4>GSAP 动画方法</h4>
+    <p><code>game/client/source/gsap-animations.ts</code> 提供 12 个专业动画方法：</p>
+    <ul>
+      <li><code>fadeInElement()</code> / <code>fadeOutElement()</code> - 基础淡入淡出</li>
+      <li><code>animateHealthBar()</code> - 健康条平滑过渡</li>
+      <li><code>showDamageNumber()</code> - 伤害数字特效</li>
+      <li><code>playLevelUpEffect()</code> - 升级特效</li>
+      <li><code>animateTeleporterIndicator()</code> - 传送门指示器</li>
+      <li><code>animateOvertimeBanner()</code> - 超时横幅</li>
+      <li><code>screenFlash()</code> - 屏幕闪光</li>
+      <li><code>showToast()</code> - 吐司通知</li>
+    </ul>
+
+    <h4>技术优势</h4>
+    <ul>
+      <li><strong>统一的动画接口</strong> - 所有动画使用一致的 GSAP 方法</li>
+      <li><strong>性能优化</strong> - 自动资源清理和动画取消机制</li>
+      <li><strong>丰富的动画效果</strong> - 淡入淡出、缩放、弹跳、脉冲等多种效果</li>
+      <li><strong>可维护性提升</strong> - 清晰的动画方法命名和参数配置</li>
+    </ul>
+  </div>
+
   <h3>core 内部目录树</h3>
   <pre><code>game/core/source/
 ├── index.ts                  ← 公开 API（不变, contract 锁定）
@@ -2452,6 +2557,7 @@ player.consumableDropMult?: number       // consumable_tome</code></pre>
 │   ├── weapons.ts            ← WeaponDef + WEAPONS table
 │   ├── enemies.ts            ← EnemyDef + ENEMIES table (单一 source of truth)
 │   ├── tomes.ts              ← TomeDef + TOMES table (Phase 5)
+│   ├── relics.ts             ← RelicDef + RELICS table + rollRelic / rollRelicRarity
 │   └── shrineRewards.ts      ← Charge Shrine 奖励池 + rollShrineOptions
 │
 ├── stats/                    ← 4 层 stat 管线 (Phase 1)
@@ -2486,10 +2592,11 @@ player.consumableDropMult?: number       // consumable_tome</code></pre>
     ├── player.ts             ← createInitialPlayer / tickPlayerMovement / tickDash / tickTimers / tickLevelUp
     ├── projectiles.ts        ← tickProjectiles (移动 / 寿命 / 出界)
     ├── collisions.ts         ← processCollisions (4 类碰撞)
-    ├── pickups.ts            ← processDeaths / tickPickups / tickThorns
+    ├── pickups.ts            ← processDeaths / tickPickups / tickGoldMotes / tickThorns
+    ├── relics.ts             ← getChestGoldCost / grantRelic / rollRelicForPlayer + 击杀/伤害钩子
     ├── spawning.ts           ← tickSpawning / checkBossSpawn (波次 + mini-boss + final swarm)
     ├── altars.ts             ← tickAltars / generateAltars / onBossDefeated / consumePortalUsed (5 阶段状态机)
-    ├── chests.ts             ← tickChests / generateChests
+    ├── chests.ts             ← tickChests / generateChests / 补刷 (CHEST_MAX_ACTIVE=6)
     ├── teleporters.ts        ← @deprecated re-export shim → altars.ts + chests.ts
     ├── overtime.ts           ← tickOvertime (gameTime ≥ 540 累加 overtimeSeconds)
     ├── tierTransition.ts     ← tickTierTransition (portal_used → tier++ + 重置场景)
@@ -2514,7 +2621,8 @@ tickLevelUp(engine);               // xp ≥ xpToNext → 进 level_up phase
 tickSpawning(engine, dt);          // wave + mini-boss + final swarm
 tickAltars(engine, dt);            // 祭坛 / 传送门状态机（按 [E] 召唤 / 进入）
 tickShrines(engine, dt);           // 充能神殿状态机 / charging→ready→consumed
-tickChests(engine);
+tickChests(engine, dt);            // 交互开箱 → chest_reward 时本帧后续逻辑跳过
+if (phase === 'chest_reward') return false;
 checkBossSpawn(engine);            // 仅当祭坛 boss_active 时 spawn
 if (state.boss && phase === 'boss_fight') tickBossAi(state.boss, ctx);
 tickThorns(engine);
@@ -2560,6 +2668,100 @@ engine.aiGroup = (engine.aiGroup + 1) % 4;  // 错峰组循环</code></pre>
         <li>❌ 在热路径里 <code>new Vector3()</code></li>
       </ul>
     </div>
+  </div>
+</section>
+
+<!-- ============= GSAP ANIMATION SYSTEM ============= -->
+<section id="gsap-animations">
+  <h2>GSAP 动画系统 <span class="badge-new">new</span></h2>
+  <p class="sub">所有 UI 动画已从 CSS 过渡迁移到 GSAP 系统，提供更流畅、更专业的动画效果。</p>
+
+  <h3>动画演示</h3>
+  <div class="card">
+    <p><strong>🎯 测试页面：</strong> <a href="../test-gsap.html" target="_blank">test-gsap.html</a> - 独立的 GSAP 动画测试页面</p>
+    <p><strong>📊 迁移状态：</strong>12 个主要 UI 元素，100% 完成率</p>
+
+    <h4>可测试的动画效果</h4>
+    <div class="grid cols-2">
+      <div>
+        <ul>
+          <li><strong>健康条动画</strong> - 平滑宽度过渡</li>
+          <li><strong>经验条动画</strong> - 平滑进度更新</li>
+          <li><strong>伤害数字动画</strong> - 暴击特效</li>
+          <li><strong>升级特效</strong> - 弹跳缩放效果</li>
+        </ul>
+      </div>
+      <div>
+        <ul>
+          <li><strong>淡入淡出动画</strong> - UI 元素显示/隐藏</li>
+          <li><strong>弹跳效果</strong> - 按钮和通知动画</li>
+          <li><strong>脉冲效果</strong> - 循环动画（如最终蜂群）</li>
+          <li><strong>缩放动画</strong> - 组合标签效果</li>
+        </ul>
+      </div>
+    </div>
+
+    <h4>GSAP 动画方法</h4>
+    <pre><code>// 基础动画方法
+fadeInElement(element: HTMLElement, duration?: number): void
+fadeOutElement(element: HTMLElement, duration?: number): void
+
+// 特定 UI 动画
+animateHealthBar(element: HTMLElement, newHealthPercent: number): void
+showDamageNumber(element: HTMLElement, options: DamageNumberOptions): void
+playLevelUpEffect(container: HTMLElement): void
+playLevelLabelPulse(element: HTMLElement): gsap.core.Timeline
+
+// 高级动画
+animateTeleporterIndicator(element: HTMLElement, show: boolean, duration?: number): void
+animateOvertimeBanner(element: HTMLElement, show: boolean, duration?: number): void
+animateComboLabel(element: HTMLElement, show: boolean, duration?: number): void
+animateConsumableLabel(element: HTMLElement, show: boolean, duration?: number): void
+animateInteractButton(element: HTMLElement, show: boolean, duration?: number): void
+animateFinalSwarmBorder(element: HTMLElement, intensity: number, duration?: number): void
+animateFinalSwarmLabel(element: HTMLElement, intensity: number, duration?: number): void
+screenFlash(color: string, duration?: number): void
+showToast(element: HTMLElement, duration?: number): void
+
+// 管理方法
+cancelAnimation(id: string): void
+cleanup(): void</code></pre>
+
+    <h4>技术优势</h4>
+    <ul>
+      <li><strong>性能优化</strong> - 自动资源清理和动画取消机制</li>
+      <li><strong>统一接口</strong> - 所有动画使用一致的 GSAP 方法</li>
+      <li><strong>丰富的缓动函数</strong> - power2.out、back.out、sine.inOut 等</li>
+      <li><strong>时间轴动画</strong> - 支持复杂的序列动画</li>
+      <li><strong>循环动画</strong> - 支持持续的效果（如脉冲）</li>
+    </ul>
+  </div>
+
+  <h3>集成示例</h3>
+  <div class="card">
+    <h4>Boss 血条动画集成</h4>
+    <pre><code>// 原 CSS 过渡方式
+this.bossHpContainer.style.display = 'block';
+this.bossHpBarInner.style.width = `${bossHpPercent}%`;
+
+// 迁移后的 GSAP 方式
+gsapAnimations.fadeInElement(this.bossHpContainer, 0.2);
+gsapAnimations.animateBossHealthBar(this.bossHpBarInner, bossHpPercent);</code></pre>
+
+    <h4>传送门指示器动画集成</h4>
+    <pre><code>// 原方式
+this.teleporterIndicator.style.display = 'block';
+
+// 迁移后的 GSAP 方式
+gsapAnimations.animateTeleporterIndicator(this.teleporterIndicator, true, 0.2);</code></pre>
+
+    <h4>屏幕闪光效果集成</h4>
+    <pre><code>// 原方式（CSS 过渡）
+this.screenFlashEl.style.opacity = '0';
+setTimeout(() => this.screenFlashEl.remove(), duration * 1000 + 50);
+
+// 迁移后的 GSAP 方式
+gsapAnimations.screenFlash(color, duration);</code></pre>
   </div>
 </section>
 

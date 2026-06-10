@@ -8,6 +8,8 @@ export const MAX_PICKUPS = 300;
 
 export const PLAYER_BASE_HP = 100;
 export const PLAYER_BASE_SPEED = 4.0;
+/** 默认移动速度倍率：旧 Shift/slide 加速手感现在并入基础速度。 */
+export const PLAYER_MOVE_SPEED_MULTIPLIER = 1.6;
 export const PLAYER_BASE_CRIT_CHANCE = 0.05;
 export const PLAYER_BASE_CRIT_DAMAGE = 1.5;
 export const PLAYER_PICKUP_RADIUS = 2.0;
@@ -29,7 +31,8 @@ export const CLIMB_SPEED = 4.0;
 /** 攀爬抓取水平margin：玩家中心进入 climb_ 体积外扩此距离即可抓墙。 */
 export const CLIMB_GRAB_MARGIN = 0.6;
 export const SLIDE_DURATION = 0.5;
-export const SLIDE_SPEED_MULTIPLIER = 1.6;
+/** @deprecated slide 不再额外提速；使用 PLAYER_MOVE_SPEED_MULTIPLIER 表示基础速度倍率。 */
+export const SLIDE_SPEED_MULTIPLIER = PLAYER_MOVE_SPEED_MULTIPLIER;
 export const SLIDE_COOLDOWN = 0.3;
 export const BUNNY_HOP_WINDOW = 0.15; // seconds after landing to chain jump
 export const BUNNY_HOP_BONUS = 1.2; // extra jump height multiplier for bunny hops
@@ -62,7 +65,10 @@ export const HEALTH_DROP_CHANCE = 0.03;       // 3% chance for full heart (50 HP
 export const HEALTH_SMALL_DROP_CHANCE = 0.08; // 8% chance for half heart (25 HP)
 
 // Chest settings
-export const CHEST_COUNT = 4;                 // Number of chests per game
+export const CHEST_COUNT = 6;                 // Initial chests per game
+export const CHEST_MAX_ACTIVE = 6;            // Maximum unopened chests in the field
+export const CHEST_RESPAWN_MIN_SECONDS = 30;
+export const CHEST_RESPAWN_MAX_SECONDS = 60;
 export const CHEST_INTERACT_RADIUS = 2.5;
 export const CHEST_SILVER_MIN = 50;
 export const CHEST_SILVER_MAX = 200;

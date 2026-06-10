@@ -98,6 +98,21 @@ export interface TomeState {
 // Legacy alias
 export type PassiveState = TomeState;
 
+// --- Relics ---
+export type RelicRarity = 'common' | 'uncommon' | 'rare' | 'legendary';
+
+export type RelicId =
+  | 'keen_lens'
+  | 'small_shield_charm'
+  | 'blood_fang'
+  | 'pact_coin'
+  | 'arsenal_badge'
+  | 'elite_writ'
+  | 'regen_core'
+  | 'magazine_expander'
+  | 'hourglass'
+  | 'iron_heart';
+
 // --- Player ---
 export interface PlayerState {
   x: number;
@@ -115,6 +130,26 @@ export interface PlayerState {
   maxHp: number;
   /** 消耗品掉落倍率（base 1.0，consumable_tome 等来源会提高）。 */
   consumableDropMult?: number;
+  /** 当前生效的消耗品（timed / one_shot 待触发）；新拾取覆盖旧。 */
+  activeConsumable?: ActiveConsumableState | null;
+  /** F04 硬面包：下一次受伤归零。 */
+  nextHitNullify?: boolean;
+  /** F09 预言之书：下一次升级选项保底稀有度。 */
+  nextLevelUpReroll?: boolean;
+  /** F10 匠神锤：下一次武器升级额外 +N 级。 */
+  nextWeaponUpgradeBonus?: number;
+  /** F06 磁铁：仅扩大 XP 宝石拾取半径（默认 1）。 */
+  xpPickupRadiusMult?: number;
+  /** timed 消耗品派生：移速倍率（默认 1）。 */
+  consumableSpeedMult?: number;
+  /** timed 消耗品派生：攻速倍率（默认 1）。 */
+  consumableAttackSpeedMult?: number;
+  /** timed 消耗品派生：额外护甲（默认 0）。 */
+  consumableArmorBonus?: number;
+  /** timed 消耗品派生：伤害倍率（默认 1）。 */
+  consumableDamageMult?: number;
+  /** timed 消耗品派生：受伤倍率（默认 1，狂怒药 +10%）。 */
+  consumableDamageTakenMult?: number;
   level: number;
   xp: number;
   xpToNext: number;
@@ -141,6 +176,8 @@ export interface PlayerState {
   activeWeaponSlots: number;
   /** 局内金币（宝箱 / 空池补偿等）。 */
   gold: number;
+  /** 已获得遗物层数。同 ID 可无限叠加。 */
+  relicStacks: Partial<Record<RelicId, number>>;
   comboCount: number;
   comboTimer: number;
   // --- Shrine bonuses (累积来自 Charge Shrine 的奖励) ---
@@ -294,6 +331,35 @@ export interface ProjectileState {
   gravityStrength?: number;
 }
 
+// --- Consumables ---
+export type ConsumableId =
+  | 'wild_berry'
+  | 'hot_soup'
+  | 'mint_candy'
+  | 'hard_bread'
+  | 'energy_bar'
+  | 'magnet'
+  | 'iron_meal'
+  | 'rage_potion'
+  | 'prophecy_book'
+  | 'craftsman_hammer';
+
+export interface ActiveConsumableState {
+  id: ConsumableId;
+  /** timed 剩余秒数；-1 表示 one_shot 待触发。 */
+  remaining: number;
+}
+
+export interface ConsumablePickupState {
+  id: number;
+  consumableId: ConsumableId;
+  x: number;
+  y: number;
+  z: number;
+  lifetime: number;
+  attracted: boolean;
+}
+
 // --- Pickups ---
 export type PickupType = 'xp_green' | 'xp_blue' | 'xp_purple' | 'xp_orange' | 'silver' | 'health' | 'health_small';
 
@@ -308,13 +374,37 @@ export interface PickupState {
   attracted: boolean;
 }
 
+export interface GoldMoteState {
+  id: number;
+  x: number;
+  y: number;
+  z: number;
+  value: number;
+  lifetime: number;
+}
+
 // --- Chest ---
 export interface ChestState {
   id: number;
   x: number;
   z: number;
   opened: boolean;
-  reward: number; // silver amount
+  relicId?: RelicId;
+  relicRarity?: RelicRarity;
+}
+
+export interface ChestOpenEvent {
+  chestId: number;
+  x: number;
+  y: number;
+  z: number;
+  cost: number;
+  relicId: RelicId;
+  rarity: RelicRarity;
+}
+
+export interface PendingChestReward extends ChestOpenEvent {
+  returnPhase: GamePhase;
 }
 
 // --- Altar (formerly Teleporter) ---
@@ -405,15 +495,18 @@ export interface DamageEvent {
   isPlayerDamage: boolean;
   /** Optional source weapon — used by client to drive weapon-specific VFX. */
   weaponType?: WeaponType;
+  /** Shield absorption feedback uses a separate visual style from HP damage. */
+  isShield?: boolean;
 }
 
 // --- Game State ---
-export type GamePhase = 'menu' | 'playing' | 'level_up' | 'shrine_reward' | 'boss_intro' | 'boss_fight' | 'portal_open' | 'victory' | 'defeat' | 'paused';
+export type GamePhase = 'menu' | 'playing' | 'level_up' | 'shrine_reward' | 'chest_reward' | 'boss_intro' | 'boss_fight' | 'portal_open' | 'victory' | 'defeat' | 'paused';
 
 export interface GameStats {
   killCount: number;
   damageDealt: number;
   damageTaken: number;
+  shieldAbsorbed: number;
   silverEarned: number;
 }
 
@@ -434,12 +527,18 @@ export interface GameState {
   enemies: EnemyState[];
   projectiles: ProjectileState[];
   pickups: PickupState[];
+  consumablePickups: ConsumablePickupState[];
+  goldMotes: GoldMoteState[];
   chests: ChestState[];
   boss: BossState | null;
   upgradeOptions: UpgradeOption[] | null;
   damageEvents: DamageEvent[];
   /** 空池升级补偿事件（client 读完后由 tick 清空）。 */
   levelUpCompensationEvents: LevelUpCompensationEvent[];
+  /** 宝箱开启事件（client 读完后由 tick 清空，用于揭示动画）。 */
+  chestOpenEvents: ChestOpenEvent[];
+  /** 已消耗金币和宝箱、等待玩家留下/丢弃的遗物。 */
+  pendingChestReward: PendingChestReward | null;
   stats: GameStats;
   waveIndex: number;
   /**

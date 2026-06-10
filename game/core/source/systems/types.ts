@@ -30,9 +30,11 @@ export interface Engine {
   nextEnemyId: number;
   nextProjectileId: number;
   nextPickupId: number;
+  nextChestId: number;
 
   // ─── 时序 / 帧间状态 ───
   spawnTimer: number;
+  chestRespawnTimer: number;
   /** 错峰组 0..3, 每帧末 cycle. ranged/chase 行为用 (i % 4 === aiGroup) 错峰 */
   aiGroup: number;
   miniBossTimer: number;

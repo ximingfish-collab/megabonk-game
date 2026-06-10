@@ -1,8 +1,8 @@
 /**
  * 拾取系统 + 敌人死亡 + 反伤。
  *
- * - processDeaths: 扫 enemies, hp ≤ 0 的 → spawn pickup → kill++ → combo++ → splice
- * - tickPickups:    寿命衰减 + 拾取半径吸附 + 距离 < 0.5 时 collect
+ * - processDeaths: 扫 enemies, hp ≤ 0 的 → spawn XP/掉落 + gold mote → kill++ → combo++ → splice
+ * - tickPickups:    寿命衰减 + 拾取半径吸附 + 距离 < 0.5 时 collect；gold mote 自动飞向玩家到账
  * - tickThorns:     扫附近 enemies，thorns_tome 等级 × 3 反伤
  *
  * 拾取类型：xp_orange/purple/blue/green / silver / health / health_small.
@@ -22,6 +22,8 @@ import {
 import { ENEMIES } from '../data/enemies.ts';
 import { getShopBonuses } from '../shop.ts';
 import { getTomePower } from '../tomeProgression.ts';
+import { applyRelicKillEffects, getRelicBonusGoldOnKill, rollGoldForEnemy } from './relics.ts';
+import { getXpPickupRadius, isXpPickupType, spawnConsumablesFromEnemy } from './consumables.ts';
 import type { EnemyState, PickupState, PickupType } from '../types.ts';
 import type { Engine } from './types.ts';
 
@@ -31,6 +33,9 @@ export function processDeaths(engine: Engine): void {
     const enemy = enemies[i];
     if (enemy.hp <= 0) {
       spawnPickupFromEnemy(engine, enemy);
+      spawnConsumablesFromEnemy(engine, enemy);
+      applyRelicKillEffects(engine, enemy);
+      spawnGoldMoteFromEnemy(engine, enemy);
       engine.state.stats.killCount++;
       engine.state.player.comboCount++;
       engine.state.player.comboTimer = 2.0;
@@ -40,8 +45,6 @@ export function processDeaths(engine: Engine): void {
 }
 
 function spawnPickupFromEnemy(engine: Engine, enemy: EnemyState): void {
-  if (engine.state.pickups.length >= MAX_PICKUPS) return;
-
   const cfg = ENEMIES[enemy.type];
   if (!cfg) return;
 
@@ -55,14 +58,16 @@ function spawnPickupFromEnemy(engine: Engine, enemy: EnemyState): void {
   else if (xpReward >= 3) pickupType = 'xp_blue';
   else pickupType = 'xp_green';
 
-  engine.state.pickups.push({
-    id: engine.nextPickupId++,
-    type: pickupType,
-    x: enemy.x, y: 0.2, z: enemy.z,
-    value: XP_VALUES[pickupType] ?? 1,
-    lifetime: PICKUP_LIFETIME,
-    attracted: false,
-  });
+  if (engine.state.pickups.length < MAX_PICKUPS) {
+    engine.state.pickups.push({
+      id: engine.nextPickupId++,
+      type: pickupType,
+      x: enemy.x, y: 0.2, z: enemy.z,
+      value: XP_VALUES[pickupType] ?? 1,
+      lifetime: PICKUP_LIFETIME,
+      attracted: false,
+    });
+  }
 
   // Elite 掉 silver
   if (enemy.isElite && engine.state.pickups.length < MAX_PICKUPS) {
@@ -103,9 +108,24 @@ function spawnPickupFromEnemy(engine: Engine, enemy: EnemyState): void {
   }
 }
 
+function spawnGoldMoteFromEnemy(engine: Engine, enemy: EnemyState): void {
+  const value = rollGoldForEnemy(engine, enemy) + getRelicBonusGoldOnKill(engine);
+  if (value <= 0) return;
+  engine.state.goldMotes.push({
+    id: engine.nextPickupId++,
+    x: enemy.x,
+    y: 0.7,
+    z: enemy.z,
+    value,
+    lifetime: 1.5,
+  });
+}
+
 export function tickPickups(engine: Engine, dt: number): void {
   const player = engine.state.player;
   if (!player.alive) return;
+
+  tickGoldMotes(engine, dt);
 
   const pickups = engine.state.pickups;
   for (let i = pickups.length - 1; i >= 0; i--) {
@@ -118,13 +138,18 @@ export function tickPickups(engine: Engine, dt: number): void {
     }
 
     const dist = distanceBetween(player.x, player.z, pickup.x, pickup.z);
-    if (dist < player.pickupRadius) {
+    const attractRadius = isXpPickupType(pickup.type)
+      ? getXpPickupRadius(player)
+      : player.pickupRadius;
+    if (dist < attractRadius) {
       pickup.attracted = true;
     }
 
     if (pickup.attracted) {
       // 加速吸附：起步慢, 越靠近越快
-      const maxDist = player.pickupRadius;
+      const maxDist = isXpPickupType(pickup.type)
+        ? getXpPickupRadius(player)
+        : player.pickupRadius;
       const t = Math.max(0, 1 - dist / maxDist);
       const attractSpeed = PICKUP_ATTRACT_SPEED * (0.3 + t * t * 2.0);
 
@@ -171,6 +196,26 @@ function collectPickup(engine: Engine, pickup: PickupState): void {
   // Tier multiplier
   xpValue = Math.floor(xpValue * TIER_CONFIGS[engine.config.tier].xpMultiplier);
   player.xp += xpValue;
+}
+
+function tickGoldMotes(engine: Engine, dt: number): void {
+  const player = engine.state.player;
+  const motes = engine.state.goldMotes;
+  for (let i = motes.length - 1; i >= 0; i--) {
+    const mote = motes[i];
+    mote.lifetime -= dt;
+    const dist = distanceBetween(player.x, player.z, mote.x, mote.z);
+    const dir = normalizeDirection(player.x - mote.x, player.z - mote.z);
+    const speed = 7 + Math.max(0, 1.5 - mote.lifetime) * 12 + Math.max(0, 3 - dist) * 2;
+    mote.x += dir.x * speed * dt;
+    mote.z += dir.z * speed * dt;
+    mote.y += ((player.y ?? 0) + 1.0 - mote.y) * Math.min(1, dt * 8);
+
+    if (dist < 0.45 || mote.lifetime <= 0) {
+      player.gold += mote.value;
+      motes.splice(i, 1);
+    }
+  }
 }
 
 /** Thorns_tome: 1.5 单位内对 enemy 反伤 (level × 3). */

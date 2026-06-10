@@ -2,12 +2,12 @@
  * 玩家系统 —— 初始化、移动、dash、计时器、升级判定。
  *
  * - createInitialPlayer: 用 charCfg + shopBonuses 构造起手 PlayerState（startingWeapon 装好）
- * - tickPlayerMovement:  bunny hop / 跳 / 重力 / slide / 加速度 / 朝向 / 边界 clamp
+ * - tickPlayerMovement:  bunny hop / 跳 / 重力 / slide 状态 / 加速度 / 朝向 / 边界 clamp
  * - tickDash:            dash 短无敌 + DASH_DURATION 内沿 facing 高速移动
  * - tickTimers:          dashCooldown / invincible / combo 倒计时 + enemy / boss hitFlash + attackCooldown
  * - tickLevelUp:         扫多级（一次 collect 可能跨多级）, 满则进入 'level_up' phase + 生成 upgrade options
  *
- * MegaBonk 移动特性: bunny hop (落地后 0.3s 内再跳获 1.4× 高度), slide 加速, 严格地形高度。
+ * MegaBonk 移动特性: bunny hop (落地后 0.3s 内再跳获 1.4× 高度), 严格地形高度。
  */
 import { applyMovement3D, normalizeDirection } from '../physics.ts';
 import {
@@ -21,6 +21,7 @@ import {
   GRAVITY,
   SLIDE_DURATION,
   SLIDE_SPEED_MULTIPLIER,
+  PLAYER_MOVE_SPEED_MULTIPLIER,
   BUNNY_HOP_WINDOW,
   BUNNY_HOP_BONUS,
   MAX_LEVEL,
@@ -70,10 +71,20 @@ export function createInitialPlayer(config: GameConfig): PlayerState {
     hp: charCfg.hp + (shopBonuses['maxHp'] ?? 0),
     maxHp: charCfg.hp + (shopBonuses['maxHp'] ?? 0),
     consumableDropMult: 1,
+    activeConsumable: null,
+    nextHitNullify: false,
+    nextLevelUpReroll: false,
+    nextWeaponUpgradeBonus: 0,
+    xpPickupRadiusMult: 1,
+    consumableSpeedMult: 1,
+    consumableAttackSpeedMult: 1,
+    consumableArmorBonus: 0,
+    consumableDamageMult: 1,
+    consumableDamageTakenMult: 1,
     level: startLevel,
     xp: 0,
     xpToNext: xpForLevel(startLevel),
-    speed: charCfg.speed + (shopBonuses['speed'] ?? 0),
+    speed: (charCfg.speed + (shopBonuses['speed'] ?? 0)) * PLAYER_MOVE_SPEED_MULTIPLIER,
     currentSpeed: 0,
     damageMultiplier: charCfg.damage + (shopBonuses['damage'] ?? 0),
     attackSpeedMultiplier: 1.0,
@@ -89,6 +100,7 @@ export function createInitialPlayer(config: GameConfig): PlayerState {
     maxWeaponSlots,
     activeWeaponSlots: computeActiveWeaponSlots(startLevel, maxWeaponSlots),
     gold: 0,
+    relicStacks: {},
     comboCount: 0, comboTimer: 0,
     // Shrine bonuses (默认值；charge shrine 奖励会累计到这些字段上)
     shield: 0,
@@ -245,9 +257,8 @@ export function tickPlayerMovement(engine: Engine, dt: number): void {
     }
   }
 
-  // 水平移动 (加速度)
-  const speedMultiplier = player.isSliding ? player.slideSpeedBoost : 1.0;
-  const targetSpeed = player.speed * speedMultiplier;
+  // 水平移动 (加速度)。默认速度已经吸收了旧 slide 加速倍率；slide 不再额外提速。
+  const targetSpeed = player.speed * (player.consumableSpeedMult ?? 1);
 
   if (isMoving) {
     player.currentSpeed += (targetSpeed - player.currentSpeed) * Math.min(1, 12.0 * dt);
@@ -329,6 +340,16 @@ export function tickTimers(engine: Engine, dt: number): void {
   if (player.dashCooldown > 0) player.dashCooldown = Math.max(0, player.dashCooldown - dt);
   if (player.invincibleTimer > 0) player.invincibleTimer = Math.max(0, player.invincibleTimer - dt);
 
+  const hpRegenRate = player.hpRegenRate ?? 0;
+  if (hpRegenRate > 0 && player.hp < player.maxHp) {
+    player.hpRegenAccum = (player.hpRegenAccum ?? 0) + hpRegenRate * dt;
+    const heal = Math.floor(player.hpRegenAccum);
+    if (heal > 0) {
+      player.hp = Math.min(player.maxHp, player.hp + heal);
+      player.hpRegenAccum -= heal;
+    }
+  }
+
   if (player.comboTimer > 0) {
     player.comboTimer -= dt;
     if (player.comboTimer <= 0) {
@@ -389,7 +410,14 @@ export function tickLevelUp(engine: Engine): void {
     player.xpToNext = xpForLevel(player.level);
     player.activeWeaponSlots = computeActiveWeaponSlots(player.level, player.maxWeaponSlots);
 
-    const options = generateUpgradeOptions(player, 3);
+    const useProphecy = player.nextLevelUpReroll === true;
+    if (useProphecy) {
+      player.nextLevelUpReroll = false;
+      if (player.activeConsumable?.id === 'prophecy_book') {
+        player.activeConsumable = null;
+      }
+    }
+    const options = generateUpgradeOptions(player, 3, useProphecy ? { prophecy: true } : undefined);
     if (options.length > 0) {
       engine.state.upgradeOptions = options;
       engine.state.phase = 'level_up';

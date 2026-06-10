@@ -13,11 +13,13 @@
  */
 import { StatBlock } from './StatBlock.ts';
 import { TOMES } from '../data/tomes.ts';
+import { getRelicStack } from '../data/relics.ts';
 import { getTomePower } from '../tomeProgression.ts';
 import {
   PLAYER_BASE_CRIT_DAMAGE,
   PLAYER_PICKUP_RADIUS,
   CHARACTER_CONFIGS,
+  PLAYER_MOVE_SPEED_MULTIPLIER,
 } from '../config.ts';
 import type { PlayerState, CharacterType } from '../types.ts';
 
@@ -49,7 +51,7 @@ export function recomputePlayerStats(
   const block = new StatBlock();
 
   // ─── 1. base ───
-  block.setBase('moveSpeed',     charCfg.speed       + (shop.speed       ?? 0));
+  block.setBase('moveSpeed',     (charCfg.speed      + (shop.speed       ?? 0)) * PLAYER_MOVE_SPEED_MULTIPLIER);
   block.setBase('damageMult',    charCfg.damage      + (shop.damage      ?? 0));
   block.setBase('maxHp',         charCfg.hp          + (shop.maxHp       ?? 0));
   block.setBase('attackSpeed',   1.0);
@@ -66,6 +68,17 @@ export function recomputePlayerStats(
     for (const m of def.modifiers(getTomePower(tome))) {
       block.applyModifier(m);
     }
+  }
+
+  const keenLens = getRelicStack(player, 'keen_lens');
+  if (keenLens > 0) {
+    block.applyModifier({ kind: 'added', stat: 'critChance', value: 0.03 * keenLens });
+  }
+
+  const ironHeart = getRelicStack(player, 'iron_heart');
+  if (ironHeart > 0) {
+    block.applyModifier({ kind: 'increased', stat: 'maxHp', value: 0.12 * ironHeart });
+    block.applyModifier({ kind: 'added', stat: 'armor', value: 2 * ironHeart });
   }
 
   // ─── 3. finalize → 写回 player ───

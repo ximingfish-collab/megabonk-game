@@ -22,13 +22,18 @@ import {
   SHOP_UPGRADES,
   QUESTS,
   TIER_CONFIGS,
+  CHEST_INTERACT_RADIUS,
+  RELICS,
+  getChestGoldCost,
   loadSave,
   purchaseUpgrade,
   getUpgradeCost,
   canAfford,
   getQuestProgress,
-  getCompletedQuestCount,
   checkQuestCompletion,
+  claimQuest,
+  type Quest,
+  type QuestProgress,
   getUpgradePreviewLines,
   type GameConfig,
   type GameState,
@@ -38,10 +43,13 @@ import {
   type EnemyType,
   type ProjectileState,
   type PickupState,
+  type GoldMoteState,
   type PickupType,
   type BossState,
   type DamageEvent,
   type LevelUpCompensationEvent,
+  type ChestOpenEvent,
+  type PendingChestReward,
   type UpgradeOption,
   type GamePhase,
   type UpgradeRarity,
@@ -52,13 +60,15 @@ import {
   type ShrineState,
   type ShrineRewardOption,
   type LevelData,
+  type RelicId,
   type RampVolume,
 } from '@minigame/core';
 import { PlatformInput } from '@minigame/platform';
 import { installThreeHighDpi } from '@minigame/render-adapter';
-import { initI18n, t, mountDevtools } from '@minigame/i18n';
+import { initI18n, t, getLocale, setLocale, getAvailableLocales, getMode } from '@minigame/i18n';
 import { CameraOrbit } from './systems/cameraOrbit.ts';
 import { PlayerInvincibilityFx } from './systems/playerFx.ts';
+import { gsapAnimations } from './gsap-animations.ts';
 import type { I18nMode } from '@minigame/i18n';
 import { EventEmitter } from './session/EventEmitter.ts';
 
@@ -184,6 +194,10 @@ export class LocalGameSession {
     this.game.selectShrineReward(id);
   }
 
+  selectChestReward(keep: boolean): void {
+    this.game.selectChestReward(keep);
+  }
+
   getRenderState(): GameState {
     return this.game.getState();
   }
@@ -258,10 +272,81 @@ const PICKUP_COLORS: Record<string, number> = {
   xp_blue: 0x22aaff,
   xp_purple: 0xcc44ff,
   xp_orange: 0xffaa00,
+  gold: 0xffcc33,
   silver: 0xeeeeee,
   health: 0xff2222,
   health_small: 0xff6666,
 };
+
+const MAX_CONSUMABLE_PICKUPS = 50;
+
+const CONSUMABLE_COLORS: Record<string, number> = {
+  wild_berry: 0xcc44aa,
+  hot_soup: 0xff8844,
+  mint_candy: 0x66ddff,
+  hard_bread: 0xddbb88,
+  energy_bar: 0xffcc33,
+  magnet: 0x4488ff,
+  iron_meal: 0x8899aa,
+  rage_potion: 0xff3344,
+  prophecy_book: 0xaa66ff,
+  craftsman_hammer: 0xffaa44,
+};
+
+const CONSUMABLE_EMOJI: Record<string, string> = {
+  wild_berry: '🫐',
+  hot_soup: '🍲',
+  mint_candy: '🍬',
+  hard_bread: '🥖',
+  energy_bar: '🍫',
+  magnet: '🧲',
+  iron_meal: '🍱',
+  rage_potion: '💢',
+  prophecy_book: '📖',
+  craftsman_hammer: '🔨',
+};
+
+const consumableEmojiTextureCache = new Map<string, THREE.Texture>();
+
+function getConsumableEmojiTexture(consumableId: string): THREE.Texture {
+  const cached = consumableEmojiTextureCache.get(consumableId);
+  if (cached) return cached;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, 128, 128);
+
+  const glow = CONSUMABLE_COLORS[consumableId] ?? 0xcc66ff;
+  const r = ((glow >> 16) & 0xff);
+  const g = ((glow >> 8) & 0xff);
+  const b = (glow & 0xff);
+  const grad = ctx.createRadialGradient(64, 64, 10, 64, 64, 58);
+  grad.addColorStop(0, `rgba(${r},${g},${b},0.55)`);
+  grad.addColorStop(0.55, `rgba(${r},${g},${b},0.22)`);
+  grad.addColorStop(1, 'rgba(20,10,40,0.05)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(64, 64, 56, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = `rgba(${r},${g},${b},0.75)`;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(64, 64, 54, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.font = '68px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(CONSUMABLE_EMOJI[consumableId] ?? '✨', 64, 66);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  consumableEmojiTextureCache.set(consumableId, texture);
+  return texture;
+}
 
 const RARITY_COLORS: Record<string, string> = {
   common: '#aaaaaa',
@@ -308,6 +393,8 @@ const CHARACTER_FULL_PATHS: Record<CharacterType, string> = {
 };
 
 const CHARACTER_SELECT_BACK_ICON = '/ui/button/back.png';
+const LANG_BUTTON_CN = '/ui/button/btn_lang_cn.png';
+const LANG_BUTTON_EN = '/ui/button/btn_lang_en.png';
 const CHARACTER_DETAIL_PANEL_BG = '/ui/panel/character_detail.png';
 /** character_detail.png 原图 820×820，文本 inset 按原图像素换算为百分比 */
 const CHARACTER_DETAIL_PANEL_PX = 820;
@@ -333,6 +420,48 @@ const TIER_PANEL_SIZE: Record<DifficultyTier, { w: number; h: number }> = {
   2: { w: 580, h: 920 },
   3: { w: 584, h: 919 },
 };
+
+const SHOP_ITEM_LIST_PANEL_BG = '/ui/shop/shop_panel_itemlist.png';
+/** shop_panel_itemlist.png 原图 966×646，用于 aspect-ratio，避免拉伸 */
+const SHOP_ITEM_LIST_PANEL_SIZE = { w: 966, h: 646 } as const;
+
+const SHOP_ITEM_PANEL_BG = '/ui/shop/shop_item_bg.png';
+/** shop_item_bg.png 原图 353×331，用于 aspect-ratio，避免拉伸 */
+const SHOP_ITEM_PANEL_SIZE = { w: 353, h: 331 } as const;
+const SHOP_BUY_BUTTON_FRAME = '/ui/button/button_green.png';
+const SHOP_BUY_BUTTON_PRESSED_FRAME = '/ui/button/button_green_pressed.png';
+const SHOP_ITEM_TITLE_COLOR = '#1a3a6e';
+
+const SHOP_ITEM_ICONS: Record<string, string> = {
+  max_hp: '/ui/shop/shop_item_hp.png',
+  damage: '/ui/shop/shop_item_atk.png',
+  speed: '/ui/shop/shop_item_spd.png',
+  crit: '/ui/shop/shop_item_crit.png',
+  pickup_radius: '/ui/shop/shop_item_range.png',
+  armor: '/ui/shop/shop_item_armor.png',
+  xp_gain: '/ui/shop/shop_item_exp.png',
+  starting_level: '/ui/shop/shop_item_lv.png',
+};
+
+const SHOP_LEVEL_SEGMENT_GREEN = '#44aa44';
+const SHOP_LEVEL_SEGMENT_GRAY = '#c0c8d4';
+
+function createShopLevelSegments(currentLevel: number, maxLevel: number): HTMLDivElement {
+  const container = document.createElement('div');
+  container.style.cssText = `
+    display:flex;align-items:stretch;gap:clamp(1px,0.3vw,2px);
+    flex:1;min-width:0;height:clamp(5px,1.2vw,7px);
+  `;
+  for (let i = 0; i < maxLevel; i++) {
+    const seg = document.createElement('div');
+    seg.style.cssText = `
+      flex:1;min-width:0;height:100%;border-radius:1px;
+      background:${i < currentLevel ? SHOP_LEVEL_SEGMENT_GREEN : SHOP_LEVEL_SEGMENT_GRAY};
+    `;
+    container.appendChild(seg);
+  }
+  return container;
+}
 
 const TIER_MONSTER_FRAME = '/ui/panel/frame_monster.png';
 const TIER_MONSTER_FRAME_SIZE = { w: 692, h: 922 };
@@ -385,11 +514,29 @@ const STAT_BAR_FILL = '#3b7ddd';
 
 const TITLE_IMAGE_PATH = '/ui/title/megabonk_title.png';
 const LOBBY_BG_PATH = '/ui/common/bg_lobby.png';
+const SHOP_BG_PATH = '/ui/common/bg_shop.png';
+const QUESTS_BG_PATH = '/ui/common/bg_quests.png';
+const QUEST_LIST_PANEL_BG = '/ui/quests/task_panel_list.png';
+/** task_panel_list.png 原图 966×646，用于 aspect-ratio，避免拉伸 */
+const QUEST_LIST_PANEL_SIZE = { w: 966, h: 646 } as const;
+const QUEST_ITEM_BG = '/ui/quests/task_item_bg.png';
+/** 滚动区相对 panel 图片内容区的内边距比例 */
+const QUEST_LIST_SCROLL_INSET = { top: 0.11, right: 0.09, bottom: 0.11, left: 0.09 } as const;
+/** 分类列表相对 panel 图片顶部的额外下移比例 */
+const QUEST_CATEGORY_SIDEBAR_OFFSET_RATIO = 0.05;
 
 const MENU_BUTTON_FRAME = '/ui/button/button.png';
 const CHARACTER_CONFIRM_BUTTON_FRAME = '/ui/button/button_orange.png';
 const TIER_SELECT_BUTTON_NORMAL = '/ui/button/button_orange.png';
 const TIER_SELECT_BUTTON_PRESSED = '/ui/button/button_orange_pressed.png';
+const QUEST_CATEGORY_BUTTON_NORMAL = '/ui/button/button_gray.png';
+const QUEST_ACTION_BUTTON_ORANGE = '/ui/button/button_orange.png';
+const QUEST_ACTION_BUTTON_ORANGE_PRESSED = '/ui/button/button_orange_pressed.png';
+const QUEST_ACTION_BUTTON_GREEN = '/ui/button/button_green.png';
+const QUEST_ACTION_BUTTON_GREEN_PRESSED = '/ui/button/button_green_pressed.png';
+const QUEST_ACTION_BUTTON_GRAY = '/ui/button/button_gray.png';
+const QUEST_ACTION_BUTTON_GRAY_PRESSED = '/ui/button/button_gray_pressed.png';
+const QUEST_TEXT_COLOR = '#1a3a6e';
 const MENU_BUTTON_ICONS = {
   start: '/ui/button/pause.png',
   shop: '/ui/button/shop.png',
@@ -405,20 +552,20 @@ function createSilverBadge(count: number, prefix = ''): HTMLDivElement {
   const badge = document.createElement('div');
   badge.dataset.silverBadge = '1';
   badge.style.cssText = `
-    display:inline-flex;align-items:center;gap:clamp(5px,1.5vw,8px);
+    display:inline-flex;align-items:center;gap:8px;
     background:${SILVER_BADGE_BG};border-radius:9999px;box-sizing:border-box;
-    padding:0 clamp(10px,2.5vw,14px) 0 clamp(2px,0.6vw,4px);
+    padding:0 14px 0 4px;
   `;
 
   const icon = document.createElement('img');
   icon.src = SILVER_COIN_ICON_PATH;
   icon.alt = '';
   icon.draggable = false;
-  icon.style.cssText = 'width:clamp(28px,7.5vw,36px);height:clamp(28px,7.5vw,36px);object-fit:contain;flex-shrink:0;display:block;';
+  icon.style.cssText = 'width:36px;height:36px;object-fit:contain;flex-shrink:0;display:block;';
 
   const amount = document.createElement('span');
   amount.className = 'silver-badge-amount';
-  amount.style.cssText = 'color:#ffffff;font-size:clamp(13px,3.4vw,17px);font-weight:bold;line-height:1;white-space:nowrap;';
+  amount.style.cssText = 'color:#ffffff;font-size:17px;font-weight:bold;line-height:1;white-space:nowrap;';
   amount.textContent = `${prefix}${count}`;
 
   badge.appendChild(icon);
@@ -431,15 +578,70 @@ function setSilverBadgeAmount(badge: HTMLDivElement, count: number, prefix = '')
   if (amount) amount.textContent = `${prefix}${count}`;
 }
 
-const I18N_DEVTOOLS_ID = '__i18n_devtools__';
+function createGoldBadge(count: number): HTMLDivElement {
+  const badge = document.createElement('div');
+  badge.dataset.goldBadge = '1';
+  badge.style.cssText = `
+    display:inline-flex;align-items:center;gap:6px;
+    background:rgba(84,54,10,0.86);border:1px solid rgba(255,204,51,0.55);
+    border-radius:9999px;box-sizing:border-box;padding:5px 12px;
+    color:#ffe28a;font-size:15px;font-weight:bold;line-height:1;
+    text-shadow:0 1px 3px rgba(0,0,0,0.85);
+    box-shadow:0 0 12px rgba(255,190,40,0.18);
+  `;
+  const icon = document.createElement('span');
+  icon.textContent = '🪙';
+  icon.style.cssText = 'font-size:17px;line-height:1;';
+  const amount = document.createElement('span');
+  amount.className = 'gold-badge-amount';
+  amount.textContent = String(count);
+  badge.appendChild(icon);
+  badge.appendChild(amount);
+  return badge;
+}
 
-/** Reposition i18n dev language button (package default is bottom-right). */
-function positionLanguageSwitcher(): void {
-  const btn = document.getElementById(I18N_DEVTOOLS_ID);
-  if (!btn) return;
-  btn.style.right = 'auto';
-  btn.style.left = 'max(12px, env(safe-area-inset-left, 0px))';
-  btn.style.bottom = 'max(12px, env(safe-area-inset-bottom, 0px))';
+function setGoldBadgeAmount(badge: HTMLDivElement, count: number): void {
+  const amount = badge.querySelector('.gold-badge-amount');
+  if (amount) amount.textContent = String(count);
+}
+
+function languageButtonIconSrc(): string {
+  return getLocale() === 'zh' ? LANG_BUTTON_CN : LANG_BUTTON_EN;
+}
+
+/** Icon-based language switcher; skipped when i18n mode is locked or only one locale. */
+function createLanguageSwitcherButton(): HTMLButtonElement | null {
+  if (getMode() === 'locked') return null;
+  const locales = getAvailableLocales();
+  if (locales.length < 2) return null;
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.setAttribute('aria-label', 'Switch language / 切换语言');
+  btn.title = 'Switch language / 切换语言';
+  btn.style.cssText = `
+    min-width:44px;min-height:44px;padding:0;border:none;background:transparent;cursor:pointer;
+    touch-action:manipulation;display:flex;align-items:center;justify-content:center;flex-shrink:0;
+    transition:transform 0.15s;
+  `;
+
+  const img = document.createElement('img');
+  img.src = languageButtonIconSrc();
+  img.alt = '';
+  img.draggable = false;
+  img.style.cssText = 'width:44px;height:44px;object-fit:contain;pointer-events:none;';
+  btn.appendChild(img);
+
+  btn.addEventListener('click', () => {
+    const current = getLocale();
+    const idx = locales.indexOf(current);
+    const next = locales[(idx + 1) % locales.length];
+    setLocale(next);
+    location.reload();
+  });
+  btn.addEventListener('mouseenter', () => { btn.style.transform = 'scale(1.05)'; });
+  btn.addEventListener('mouseleave', () => { btn.style.transform = 'scale(1)'; });
+  return btn;
 }
 
 const GROUND_SIZE = 120;
@@ -524,6 +726,34 @@ function brightenWeaponMaterials(root: THREE.Object3D): void {
       return newMat;
     });
     mesh.material = lifted.length === 1 ? lifted[0] : lifted;
+  });
+}
+
+function applyChestGoldMaterials(root: THREE.Object3D): void {
+  let meshIndex = 0;
+  root.traverse((child) => {
+    if (!(child as THREE.Mesh).isMesh) return;
+    const mesh = child as THREE.Mesh;
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    const lifted = mats.map((mat, matIndex) => {
+      const source = mat as THREE.MeshToonMaterial;
+      const sourceColor = source.color ?? new THREE.Color(0x8a4a20);
+      const isMetal = meshIndex % 3 === 0 || matIndex > 0 || sourceColor.r > sourceColor.g;
+      const color = isMetal ? new THREE.Color(0xffc44d) : new THREE.Color(0x9a5528);
+      const emissive = isMetal ? new THREE.Color(0x7a4a10) : new THREE.Color(0x261006);
+      const chestMat = new THREE.MeshToonMaterial({
+        color,
+        emissive,
+        gradientMap: toonGradientMap,
+        side: source.side ?? THREE.FrontSide,
+        transparent: source.transparent ?? false,
+        opacity: source.opacity ?? 1,
+      });
+      chestMat.name = `ChestReadable_${meshIndex}_${matIndex}`;
+      return chestMat;
+    });
+    mesh.material = lifted.length === 1 ? lifted[0] : lifted;
+    meshIndex++;
   });
 }
 
@@ -1029,7 +1259,6 @@ let crystal4Geometry: THREE.BufferGeometry | null = null;
 let crystal5Geometry: THREE.BufferGeometry | null = null;
 let heartGeometry: THREE.BufferGeometry | null = null;
 let boneGeometry: THREE.BufferGeometry | null = null;
-let coinGeometry: THREE.BufferGeometry | null = null;
 let axeModel: THREE.Group | null = null; // Full model with materials
 let swordModel: THREE.Group | null = null;
 let katanaModel: THREE.Group | null = null;
@@ -1080,7 +1309,7 @@ async function loadObjItems(): Promise<void> {
     }
   };
 
-  [crystalGeometry, heartGeometry, boneGeometry, crystal2Geometry, crystal3Geometry, crystal4Geometry, crystal5Geometry, coinGeometry] = await Promise.all([
+  [crystalGeometry, heartGeometry, boneGeometry, crystal2Geometry, crystal3Geometry, crystal4Geometry, crystal5Geometry] = await Promise.all([
     loadAndNormalize('/models/items/Crystal1.obj', 0.4),
     loadAndNormalize('/models/items/Heart.obj', 0.5),
     loadAndNormalize('/models/items/Bone.obj', 0.5),
@@ -1088,7 +1317,6 @@ async function loadObjItems(): Promise<void> {
     loadAndNormalize('/models/items/Crystal3.obj', 0.4),
     loadAndNormalize('/models/items/Crystal4.obj', 0.4),
     loadAndNormalize('/models/items/Crystal5.obj', 0.4),
-    loadAndNormalize('/models/items/Coin.obj', 0.3),
   ]);
 
   // Helper: load full model with materials (MTL + OBJ)
@@ -1193,6 +1421,7 @@ async function loadObjItems(): Promise<void> {
     const chestClosed = await closedObjLoader.loadAsync('/models/items/Chest_Closed.obj') as THREE.Group;
     chestClosed.name = 'ChestClosed';
     convertToToonMaterials(chestClosed);
+    applyChestGoldMaterials(chestClosed);
     chestClosedObj = chestClosed;
 
     const openMtl = await mtlLoader.loadAsync('/models/items/Chest_Open.mtl');
@@ -1202,6 +1431,7 @@ async function loadObjItems(): Promise<void> {
     const chestOpen = await openObjLoader.loadAsync('/models/items/Chest_Open.obj') as THREE.Group;
     chestOpen.name = 'ChestOpen';
     convertToToonMaterials(chestOpen);
+    applyChestGoldMaterials(chestOpen);
     chestOpenObj = chestOpen;
 
     console.log('[OBJ] Loaded chest models with materials');
@@ -1283,6 +1513,12 @@ export class GameScene {
   private lastPhase: GamePhase = 'playing';
   private screenFlashEl: HTMLDivElement | null = null;
 
+  // GSAP animation state
+  private lastHpPercent = 100;
+  private lastXpPercent = 0;
+  private lastBossHpPercent = 100;
+  private levelPulseAnimation: any = null;
+
   // Player skeletal animation
   private playerMixer: THREE.AnimationMixer | null = null;
   private playerAnimations: Map<string, THREE.AnimationAction> = new Map();
@@ -1304,6 +1540,8 @@ export class GameScene {
 
   // Chest rendering
   private chestObjects: Map<number, THREE.Object3D> = new Map();
+  private chestRewardPanel: HTMLDivElement | null = null;
+  private chestRewardPanelKey: string | null = null;
 
   // InstancedMeshes
   // Enemy rendering — individual cloned models (preserves full materials)
@@ -1317,6 +1555,9 @@ export class GameScene {
   private axeObjects: Map<number, THREE.Object3D> = new Map(); // axe projectile id → cloned model
   private weaponObjects: Map<number, THREE.Object3D> = new Map(); // other weapon projectiles → cloned model
   private pickupMesh!: THREE.InstancedMesh;
+  private consumableSprites: Map<number, THREE.Sprite> = new Map();
+  private goldMoteTexture!: THREE.Texture;
+  private goldMoteSprites: Map<number, THREE.Sprite> = new Map();
 
   // VFX Particle System
   private readonly MAX_PARTICLES = 500;
@@ -1352,9 +1593,12 @@ export class GameScene {
   private levelLabel!: HTMLDivElement;
   private timerLabel!: HTMLDivElement;
   private killLabel!: HTMLDivElement;
+  private goldLabel!: HTMLDivElement;
   private silverLabel!: HTMLDivElement;
+  private consumableLabel!: HTMLDivElement;
   private weaponSlotsContainer!: HTMLDivElement;
   private tomesSlotsContainer!: HTMLDivElement;
+  private relicSlotsContainer!: HTMLDivElement;
   private bossHpContainer!: HTMLDivElement;
   private bossHpBarInner!: HTMLDivElement;
   private bossNameLabel!: HTMLDivElement;
@@ -1366,17 +1610,18 @@ export class GameScene {
   private pauseBtn!: HTMLDivElement;
   private upgradePanel: HTMLDivElement | null = null;
   private gameOverPanel: HTMLDivElement | null = null;
+  private questCompleteAtRunStart: Set<string> = new Set();
   private damageNums: HTMLDivElement[] = [];
   private damageNumIndex = 0;
   private finalSwarmLabel: HTMLDivElement | null = null;
   private finalSwarmBorder: HTMLDivElement | null = null;
   private lastXp = 0;
   private xpFlashTimer = 0;
+  private seenChestOpenEvents = new Set<string>();
 
   // State
   private isPaused = false;
   private jumpKeyDown = false;
-  private slideKeyDown = false;
   /**
    * 交互按键的边缘状态。`interactKeyPressed` 在按下的那一帧为 true，
    * 发完一帧后立即清零，避免长按反复触发祭坛召唤。
@@ -1483,7 +1728,6 @@ export class GameScene {
     // Keyboard bindings
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Space') { this.jumpKeyDown = true; e.preventDefault(); }
-      if (e.code === 'ShiftLeft' || e.code === 'ControlLeft') { this.slideKeyDown = true; }
       if (e.code === 'KeyE') {
         // 边缘触发：keydown 那一帧标记为 pressed；发送过 input 后会清零（见 handleInput）
         if (!e.repeat) this.interactKeyPressed = true;
@@ -1491,7 +1735,6 @@ export class GameScene {
     });
     window.addEventListener('keyup', (e) => {
       if (e.code === 'Space') { this.jumpKeyDown = false; }
-      if (e.code === 'ShiftLeft' || e.code === 'ControlLeft') { this.slideKeyDown = false; }
     });
 
     // 镜头视图系统：FPS pointer lock + 拖拽 + 手机右半屏滑动 + pitch 夹紧。
@@ -1500,6 +1743,9 @@ export class GameScene {
   }
 
   start(): void {
+    this.questCompleteAtRunStart = new Set(
+      getQuestProgress().filter(p => p.completed).map(p => p.questId),
+    );
     this.setupLighting();
     this.setupGround();
     this.setupPlayer();
@@ -1507,6 +1753,7 @@ export class GameScene {
     this.setupEnemyMeshes();
     this.setupProjectileMesh();
     this.setupPickupMesh();
+    this.setupGoldMoteMesh();
     this.setupVFX();
     this.setupHUD();
     this.setupDamageNumbers();
@@ -1545,6 +1792,7 @@ export class GameScene {
     this.upgradePanel?.remove();
     this.gameOverPanel?.remove();
     this.shrinePanel?.remove();
+    this.chestRewardPanel?.remove();
     this.shrineIndicator?.remove();
     this.finalSwarmLabel?.remove();
     this.finalSwarmBorder?.remove();
@@ -2191,6 +2439,42 @@ export class GameScene {
     this.scene.add(this.pickupMesh);
   }
 
+  private setupGoldMoteMesh(): void {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d')!;
+    ctx.clearRect(0, 0, 64, 64);
+
+    const coin = ctx.createRadialGradient(24, 20, 4, 32, 32, 28);
+    coin.addColorStop(0.0, '#fff28a');
+    coin.addColorStop(0.34, '#ffd21a');
+    coin.addColorStop(0.72, '#e79800');
+    coin.addColorStop(1.0, '#9a5a00');
+    ctx.fillStyle = coin;
+    ctx.beginPath();
+    ctx.arc(32, 32, 25, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = '#ffe066';
+    ctx.stroke();
+
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#a86400';
+    ctx.beginPath();
+    ctx.arc(32, 32, 15, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(255,255,210,0.85)';
+    ctx.beginPath();
+    ctx.ellipse(25, 22, 8, 4, -0.65, 0, Math.PI * 2);
+    ctx.fill();
+
+    this.goldMoteTexture = new THREE.CanvasTexture(canvas);
+    this.goldMoteTexture.colorSpace = THREE.SRGBColorSpace;
+  }
+
   private setupVFX(): void {
     // Pre-allocate particle pool
     for (let i = 0; i < this.MAX_PARTICLES; i++) {
@@ -2438,25 +2722,36 @@ export class GameScene {
     this.levelLabel.style.cssText = 'position:absolute;bottom:42px;left:50%;transform:translateX(-50%);color:#ffcc00;font-size:18px;font-weight:bold;text-shadow:0 0 8px rgba(255,200,0,0.4),0 1px 3px rgba(0,0,0,0.8);transition:color 0.3s;';
     this.hudContainer.appendChild(this.levelLabel);
 
-    // Timer (top-right, pill background)
+    // Top-right HUD column — flex stack avoids silver badge overlapping consumable row
+    const rightHudStack = document.createElement('div');
+    rightHudStack.style.cssText = 'position:absolute;top:12px;right:16px;display:flex;flex-direction:column;align-items:flex-end;gap:8px;pointer-events:none;';
+
     this.timerLabel = document.createElement('div');
-    this.timerLabel.style.cssText = 'position:absolute;top:12px;right:16px;color:#ffffff;font-size:clamp(10px, 2.5vw, 18px);font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.8);background:rgba(20,20,40,0.7);padding:4px 12px;border-radius:12px;';
-    this.hudContainer.appendChild(this.timerLabel);
+    this.timerLabel.style.cssText = 'color:#ffffff;font-size:clamp(10px, 2.5vw, 18px);font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.8);background:rgba(20,20,40,0.7);padding:4px 12px;border-radius:12px;';
+    rightHudStack.appendChild(this.timerLabel);
 
-    // Kill count (below timer)
     this.killLabel = document.createElement('div');
-    this.killLabel.style.cssText = 'position:absolute;top:42px;right:16px;color:#cccccc;font-size:clamp(10px, 2.5vw, 14px);text-shadow:0 1px 3px rgba(0,0,0,0.8);';
-    this.hudContainer.appendChild(this.killLabel);
+    this.killLabel.style.cssText = 'color:#cccccc;font-size:clamp(10px, 2.5vw, 14px);text-shadow:0 1px 3px rgba(0,0,0,0.8);';
+    rightHudStack.appendChild(this.killLabel);
 
-    // Silver earned this run (below kills)
     this.silverLabel = createSilverBadge(0);
-    this.silverLabel.style.cssText += 'position:absolute;top:62px;right:16px;';
-    this.hudContainer.appendChild(this.silverLabel);
+    rightHudStack.appendChild(this.silverLabel);
+
+    this.consumableLabel = document.createElement('div');
+    this.consumableLabel.style.cssText = 'display:none;flex-direction:column;align-items:flex-end;gap:2px;background:rgba(20,20,40,0.82);padding:6px 12px;border-radius:12px;border:1px solid rgba(180,120,255,0.4);color:#e8d8ff;font-size:clamp(11px,2.8vw,13px);font-weight:600;text-shadow:0 1px 3px rgba(0,0,0,0.8);max-width:min(260px,48vw);';
+    rightHudStack.appendChild(this.consumableLabel);
+
+    this.hudContainer.appendChild(rightHudStack);
 
     // Tier badge (top-left small)
     this.tierBadge = document.createElement('div');
     this.tierBadge.style.cssText = 'position:absolute;top:12px;left:16px;color:#ffffff;font-size:11px;font-weight:bold;background:rgba(40,40,60,0.8);padding:3px 8px;border-radius:4px;border:1px solid #555;';
     this.hudContainer.appendChild(this.tierBadge);
+
+    // Gold this run (used to open chests)
+    this.goldLabel = createGoldBadge(0);
+    this.goldLabel.style.cssText += 'position:absolute;top:40px;left:16px;';
+    this.hudContainer.appendChild(this.goldLabel);
 
     // Weapon slots container (bottom-left)
     this.weaponSlotsContainer = document.createElement('div');
@@ -2467,6 +2762,11 @@ export class GameScene {
     this.tomesSlotsContainer = document.createElement('div');
     this.tomesSlotsContainer.style.cssText = 'position:absolute;bottom:70px;right:12px;display:flex;gap:3px;flex-wrap:wrap;max-width:180px;justify-content:flex-end;';
     this.hudContainer.appendChild(this.tomesSlotsContainer);
+
+    // Relic stacks (bottom-center above level / XP)
+    this.relicSlotsContainer = document.createElement('div');
+    this.relicSlotsContainer.style.cssText = 'position:absolute;bottom:70px;left:50%;transform:translateX(-50%);display:flex;gap:6px;flex-wrap:wrap;max-width:min(420px,70vw);justify-content:center;align-items:center;';
+    this.hudContainer.appendChild(this.relicSlotsContainer);
 
     // Boss HP bar (top-center, hidden by default)
     this.bossHpContainer = document.createElement('div');
@@ -2735,6 +3035,8 @@ export class GameScene {
     this.renderEnemies(state.enemies);
     this.renderProjectiles(state.projectiles);
     this.renderPickups(state.pickups);
+    this.renderConsumablePickups(state.consumablePickups ?? []);
+    this.renderGoldMotes(state.goldMotes ?? []);
     this.renderBoss(state.boss);
     this.renderTeleporters(state.altars);
     this.renderChests(state.chests);
@@ -2796,7 +3098,7 @@ export class GameScene {
       skill1: raw.action3 ?? false,
       skill2: false,
       jump: this.jumpKeyDown || (raw.action1 ?? false),
-      slide: this.slideKeyDown || (raw.action2 ?? false),
+      slide: raw.action2 ?? false,
       interact: this.interactKeyPressed || (this.mobileInteractPressed ?? false),
     };
     // 边缘触发：发出后立即清零，避免长按反复触发
@@ -3337,24 +3639,14 @@ export class GameScene {
   }
 
   private triggerScreenFlash(color: string, duration: number): void {
+    // 使用 GSAP 屏幕闪光动画
+    gsapAnimations.screenFlash(color, duration);
+
+    // 清理旧的屏幕闪光元素（如果有）
     if (this.screenFlashEl) {
       this.screenFlashEl.remove();
+      this.screenFlashEl = null;
     }
-    this.screenFlashEl = document.createElement('div');
-    this.screenFlashEl.style.cssText = `position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:150;background:${color};opacity:0.4;transition:opacity ${duration}s ease-out;`;
-    document.body.appendChild(this.screenFlashEl);
-
-    // Force reflow then fade out
-    void this.screenFlashEl.offsetWidth;
-    this.screenFlashEl.style.opacity = '0';
-
-    const el = this.screenFlashEl;
-    setTimeout(() => {
-      el.remove();
-      if (this.screenFlashEl === el) {
-        this.screenFlashEl = null;
-      }
-    }, duration * 1000 + 50);
   }
 
   private renderEnemies(enemies: EnemyState[]): void {
@@ -3739,10 +4031,54 @@ export class GameScene {
     }
   }
 
+  private renderConsumablePickups(pickups: NonNullable<GameState['consumablePickups']>): void {
+    const time = performance.now() * 0.004;
+    const active = new Set<number>();
+    for (const pickup of pickups) {
+      if (active.size >= MAX_CONSUMABLE_PICKUPS) break;
+      active.add(pickup.id);
+
+      let sprite = this.consumableSprites.get(pickup.id);
+      const texture = getConsumableEmojiTexture(pickup.consumableId);
+      if (!sprite) {
+        const mat = new THREE.SpriteMaterial({
+          map: texture,
+          color: 0xffffff,
+          transparent: true,
+          opacity: 1,
+          depthWrite: false,
+          depthTest: true,
+          toneMapped: false,
+        });
+        sprite = new THREE.Sprite(mat);
+        sprite.name = `Consumable_${pickup.id}`;
+        this.scene.add(sprite);
+        this.consumableSprites.set(pickup.id, sprite);
+      } else if (sprite.material.map !== texture) {
+        sprite.material.map = texture;
+        sprite.material.needsUpdate = true;
+      }
+
+      const bob = Math.sin(time * 1.8 + pickup.id) * 0.22;
+      const baseScale = pickup.attracted ? 0.62 : 0.72;
+      const pulse = baseScale + Math.sin(time * 5 + pickup.id) * (pickup.attracted ? 0.08 : 0.05);
+      sprite.position.set(pickup.x, 0.75 + bob, pickup.z);
+      sprite.scale.set(pulse, pulse, pulse);
+    }
+
+    for (const [id, sprite] of this.consumableSprites) {
+      if (active.has(id)) continue;
+      this.scene.remove(sprite);
+      sprite.material.dispose();
+      this.consumableSprites.delete(id);
+    }
+  }
+
   private renderPickups(pickups: PickupState[]): void {
     let count = 0;
     const time = performance.now() * 0.004; // Faster spin
     for (const pickup of pickups) {
+      if (count >= MAX_PICKUPS) break;
       // Larger bobbing amplitude (0.3) for more visual pop
       const bob = Math.sin(time * 1.5 + pickup.id) * 0.3;
       this._dummy.position.set(pickup.x, 0.4 + bob, pickup.z);
@@ -3765,6 +4101,40 @@ export class GameScene {
     this.pickupMesh.count = count;
     this.pickupMesh.instanceMatrix.needsUpdate = true;
     if (this.pickupMesh.instanceColor) this.pickupMesh.instanceColor.needsUpdate = true;
+  }
+
+  private renderGoldMotes(goldMotes: GoldMoteState[]): void {
+    const time = performance.now() * 0.004;
+    const active = new Set<number>();
+    for (const mote of goldMotes) {
+      active.add(mote.id);
+      let sprite = this.goldMoteSprites.get(mote.id);
+      if (!sprite) {
+        const mat = new THREE.SpriteMaterial({
+          map: this.goldMoteTexture,
+          color: 0xffffff,
+          transparent: true,
+          opacity: 1,
+          depthWrite: false,
+          depthTest: true,
+          toneMapped: false,
+        });
+        sprite = new THREE.Sprite(mat);
+        sprite.name = `GoldMote_${mote.id}`;
+        this.scene.add(sprite);
+        this.goldMoteSprites.set(mote.id, sprite);
+      }
+      const pulse = 0.85 + Math.sin(time * 9 + mote.id) * 0.25;
+      sprite.position.set(mote.x, mote.y, mote.z);
+      sprite.scale.set(0.36 * pulse, 0.36 * pulse, 0.36 * pulse);
+      sprite.material.rotation = time * 5 + mote.id;
+    }
+    for (const [id, sprite] of this.goldMoteSprites) {
+      if (active.has(id)) continue;
+      this.scene.remove(sprite);
+      sprite.material.dispose();
+      this.goldMoteSprites.delete(id);
+    }
   }
 
   private renderBoss(boss: BossState | null): void {
@@ -4032,6 +4402,7 @@ export class GameScene {
     xp_blue: [0.2, 0.7, 1.0],
     xp_purple: [0.8, 0.3, 1.0],
     xp_orange: [1.0, 0.7, 0.0],
+    gold: [1.0, 0.8, 0.15],
     silver: [0.9, 0.9, 0.9],
   };
 
@@ -4230,6 +4601,149 @@ export class GameScene {
     }
   }
 
+  private playChestOpenFx(evt: ChestOpenEvent): void {
+    this.emitCompensationBurst(evt.x, evt.y, evt.z, 'gold');
+    this.triggerScreenFlash(RARITY_COLORS[evt.rarity] ?? '#ffcc00', 0.18);
+    if (this.goldLabel) {
+      this.goldLabel.style.transition = 'transform 0.15s';
+      this.goldLabel.style.transform = 'scale(1.2)';
+      setTimeout(() => {
+        if (this.goldLabel) this.goldLabel.style.transform = 'scale(1)';
+      }, 180);
+    }
+  }
+
+  private handleChestRewardPhaseChange(state: GameState): void {
+    const reward = state.pendingChestReward;
+    if (state.phase === 'chest_reward' && reward) {
+      const key = `${reward.chestId}:${reward.relicId}`;
+      if (!this.chestRewardPanel || this.chestRewardPanelKey !== key) {
+        this.hideChestRewardPanel();
+        this.showChestRewardPanel(reward);
+      }
+      return;
+    }
+    if (this.chestRewardPanel) this.hideChestRewardPanel();
+  }
+
+  private showChestRewardPanel(reward: PendingChestReward): void {
+    const relic = RELICS[reward.relicId];
+    if (!relic) return;
+
+    const overlay = document.createElement('div');
+    this.chestRewardPanel = overlay;
+    this.chestRewardPanelKey = `${reward.chestId}:${reward.relicId}`;
+    overlay.style.cssText = `
+      position:fixed;inset:0;z-index:320;pointer-events:auto;
+      display:flex;align-items:center;justify-content:center;
+      background:radial-gradient(circle at 50% 45%, rgba(255,220,120,0.16), rgba(0,0,0,0.78) 62%);
+      font-family:Arial,sans-serif;
+    `;
+
+    const card = document.createElement('div');
+    card.style.cssText = `
+      width:230px;min-height:250px;padding:22px 18px;box-sizing:border-box;
+      background:rgba(12,12,28,0.96);border:3px solid #aaaaaa;border-radius:18px;
+      box-shadow:0 0 34px rgba(255,255,255,0.18), inset 0 0 20px rgba(255,255,255,0.06);
+      display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
+      transform:scale(0.8) rotate(-2deg);opacity:0;
+      transition:transform 0.22s cubic-bezier(0.2,1.5,0.4,1), opacity 0.18s ease-out, border-color 0.08s;
+    `;
+
+    const rarity = document.createElement('div');
+    rarity.style.cssText = 'font-size:11px;text-transform:uppercase;letter-spacing:2px;font-weight:bold;margin-bottom:10px;color:#aaaaaa;';
+    rarity.textContent = '???';
+
+    const icon = document.createElement('div');
+    icon.style.cssText = 'font-size:58px;line-height:1;margin:8px 0 12px;text-shadow:0 0 18px rgba(255,255,255,0.28);';
+    icon.textContent = '?';
+
+    const name = document.createElement('div');
+    name.style.cssText = 'color:#ffffff;font-size:22px;font-weight:bold;text-shadow:0 2px 8px rgba(0,0,0,0.9);';
+    name.textContent = '遗物';
+
+    const desc = document.createElement('div');
+    desc.style.cssText = 'color:#cfd3ff;font-size:13px;line-height:1.45;margin-top:12px;min-height:36px;';
+    desc.textContent = `消耗 ${reward.cost} 金币`;
+
+    const buttonRow = document.createElement('div');
+    buttonRow.style.cssText = 'display:none;gap:12px;margin-top:18px;';
+
+    const discardBtn = document.createElement('button');
+    discardBtn.type = 'button';
+    discardBtn.textContent = '丢弃';
+    discardBtn.style.cssText = `
+      padding:9px 18px;border-radius:999px;border:1px solid rgba(255,255,255,0.35);
+      background:rgba(40,40,52,0.95);color:#ddd;font-weight:bold;cursor:pointer;
+    `;
+    discardBtn.addEventListener('click', () => {
+      this.session.selectChestReward(false);
+      this.hideChestRewardPanel();
+    });
+
+    const keepBtn = document.createElement('button');
+    keepBtn.type = 'button';
+    keepBtn.textContent = '留下';
+    keepBtn.style.cssText = `
+      padding:9px 18px;border-radius:999px;border:1px solid #ffd35a;
+      background:linear-gradient(180deg,#ffd35a,#b87800);color:#241200;font-weight:bold;cursor:pointer;
+      box-shadow:0 0 18px rgba(255,180,0,0.35);
+    `;
+    keepBtn.addEventListener('click', () => {
+      this.session.selectChestReward(true);
+      this.hideChestRewardPanel();
+    });
+
+    buttonRow.appendChild(discardBtn);
+    buttonRow.appendChild(keepBtn);
+
+    card.appendChild(rarity);
+    card.appendChild(icon);
+    card.appendChild(name);
+    card.appendChild(desc);
+    card.appendChild(buttonRow);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    requestAnimationFrame(() => {
+      card.style.opacity = '1';
+      card.style.transform = 'scale(1) rotate(0deg)';
+    });
+
+    const rarities = ['common', 'uncommon', 'rare', 'legendary'] as const;
+    let flashes = 0;
+    const flashTimer = window.setInterval(() => {
+      const r = rarities[flashes % rarities.length];
+      const color = RARITY_COLORS[r] ?? '#aaaaaa';
+      card.style.borderColor = color;
+      card.style.boxShadow = `0 0 32px ${color}88, inset 0 0 20px ${color}22`;
+      rarity.style.color = color;
+      rarity.textContent = r.toUpperCase();
+      icon.textContent = '?';
+      flashes++;
+      if (flashes >= 9) {
+        window.clearInterval(flashTimer);
+        const finalColor = RARITY_COLORS[reward.rarity] ?? '#aaaaaa';
+        card.style.borderColor = finalColor;
+        card.style.boxShadow = `0 0 42px ${finalColor}aa, inset 0 0 24px ${finalColor}22`;
+        rarity.style.color = finalColor;
+        rarity.textContent = reward.rarity.toUpperCase();
+        icon.textContent = relic.emoji;
+        name.textContent = relic.name;
+        desc.textContent = relic.description;
+        card.style.transform = 'scale(1.12) rotate(0deg)';
+        setTimeout(() => { card.style.transform = 'scale(1) rotate(0deg)'; }, 140);
+        buttonRow.style.display = 'flex';
+      }
+    }, 70);
+  }
+
+  private hideChestRewardPanel(): void {
+    this.chestRewardPanel?.remove();
+    this.chestRewardPanel = null;
+    this.chestRewardPanelKey = null;
+  }
+
   private spawnCompensationFloatText(evt: LevelUpCompensationEvent): void {
     const el = this.damageNums[this.damageNumIndex];
     this.damageNumIndex = (this.damageNumIndex + 1) % DAMAGE_NUM_POOL_SIZE;
@@ -4271,7 +4785,6 @@ export class GameScene {
       position:fixed;top:18%;left:50%;transform:translateX(-50%) scale(0.85);
       z-index:250;pointer-events:none;text-align:center;
       font-family:Arial,sans-serif;opacity:0;
-      transition:opacity 0.2s ease-out, transform 0.25s cubic-bezier(0.2,1.4,0.4,1);
     `;
 
     const title = document.createElement('div');
@@ -4297,15 +4810,9 @@ export class GameScene {
     toast.appendChild(sub);
 
     document.body.appendChild(toast);
-    void toast.offsetWidth;
-    toast.style.opacity = '1';
-    toast.style.transform = 'translateX(-50%) scale(1)';
 
-    setTimeout(() => {
-      toast.style.opacity = '0';
-      toast.style.transform = 'translateX(-50%) scale(0.95) translateY(-12px)';
-    }, 900);
-    setTimeout(() => toast.remove(), 1200);
+    // 使用 GSAP 吐司通知动画
+    gsapAnimations.showToast(toast, 1.2);
   }
 
   private emitFlameRingParticles(x: number, y: number, z: number, radius: number): void {
@@ -4350,6 +4857,54 @@ export class GameScene {
     }
   }
 
+  private createReadableChestObject(): THREE.Object3D {
+    const group = new THREE.Group();
+
+    const bodyMat = new THREE.MeshToonMaterial({
+      color: 0x7a3f20,
+      emissive: 0x1a0804,
+      gradientMap: toonGradientMap,
+    });
+    const lidMat = new THREE.MeshToonMaterial({
+      color: 0x9a5528,
+      emissive: 0x221006,
+      gradientMap: toonGradientMap,
+    });
+    const trimMat = new THREE.MeshToonMaterial({
+      color: 0xd99a2b,
+      emissive: 0x3a2406,
+      gradientMap: toonGradientMap,
+    });
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.55, 0.75), bodyMat);
+    body.position.y = 0.3;
+    group.add(body);
+
+    const lid = new THREE.Mesh(new THREE.BoxGeometry(1.16, 0.24, 0.82), lidMat);
+    lid.position.y = 0.72;
+    group.add(lid);
+
+    const frontBand = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.08, 0.04), trimMat);
+    frontBand.position.set(0, 0.52, -0.42);
+    group.add(frontBand);
+
+    const lidBand = new THREE.Mesh(new THREE.BoxGeometry(1.18, 0.06, 0.86), trimMat);
+    lidBand.position.set(0, 0.86, 0);
+    group.add(lidBand);
+
+    for (const x of [-0.38, 0.38]) {
+      const strap = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.82, 0.04), trimMat);
+      strap.position.set(x, 0.52, -0.43);
+      group.add(strap);
+    }
+
+    const lock = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.06), trimMat);
+    lock.position.set(0, 0.42, -0.46);
+    group.add(lock);
+
+    return group;
+  }
+
   private renderChests(chests: ChestState[]): void {
     for (const chest of chests) {
       let obj = this.chestObjects.get(chest.id);
@@ -4365,24 +4920,7 @@ export class GameScene {
       }
 
       if (!obj) {
-        // Use loaded chest model
-        if (chestClosedObj) {
-          obj = cloneSkeleton(chestClosedObj) as THREE.Object3D;
-        } else {
-          // Fallback: brown+gold box
-          const group = new THREE.Group();
-          const bodyGeo = new THREE.BoxGeometry(1.0, 0.6, 0.7);
-          const bodyMat = new THREE.MeshToonMaterial({ color: 0x6B3A2A, gradientMap: toonGradientMap });
-          const body = new THREE.Mesh(bodyGeo, bodyMat);
-          body.position.y = 0.3;
-          group.add(body);
-          const lidGeo = new THREE.BoxGeometry(1.05, 0.25, 0.75);
-          const lidMat = new THREE.MeshToonMaterial({ color: 0xDAA520, gradientMap: toonGradientMap });
-          const lid = new THREE.Mesh(lidGeo, lidMat);
-          lid.position.y = 0.72;
-          group.add(lid);
-          obj = group;
-        }
+        obj = this.createReadableChestObject();
         obj.name = `Chest_${chest.id}`;
         // Normalize to ~1.2 units
         const box = new THREE.Box3().setFromObject(obj);
@@ -4949,36 +5487,41 @@ export class GameScene {
     const p = state.player;
     const time = performance.now();
 
-    // HP bar
+    // HP bar with GSAP animation
     const hpPercent = Math.max(0, Math.min(100, (p.hp / p.maxHp) * 100));
-    this.hpBarInner.style.width = `${hpPercent}%`;
+    if (hpPercent !== this.lastHpPercent) {
+      gsapAnimations.animateHealthBar(this.hpBarInner, hpPercent);
+      this.lastHpPercent = hpPercent;
+    }
 
-    // XP bar with exact numbers
+    // XP bar with exact numbers and GSAP animation
     const xpPercent = p.xpToNext > 0 ? Math.max(0, Math.min(100, (p.xp / p.xpToNext) * 100)) : 0;
-    this.xpBarInner.style.width = `${xpPercent}%`;
+    if (xpPercent !== this.lastXpPercent) {
+      gsapAnimations.animateHealthBar(this.xpBarInner, xpPercent);
+      this.lastXpPercent = xpPercent;
+    }
     this.xpNumbers.textContent = `${p.xp} / ${p.xpToNext}`;
 
-    // XP flash on gain
+    // XP flash on gain with GSAP
     if (p.xp !== this.lastXp) {
-      this.xpFlashTimer = 0.4;
+      // 使用 GSAP 创建闪光效果
+      gsapAnimations.playLevelUpEffect(this.xpBarInner);
       this.lastXp = p.xp;
     }
-    if (this.xpFlashTimer > 0) {
-      this.xpFlashTimer -= 1 / 60;
-      this.xpBarInner.style.background = 'linear-gradient(90deg,#ffdd00,#ffff44)';
-    } else {
-      this.xpBarInner.style.background = 'linear-gradient(90deg,#cc9900,#ffcc00)';
-    }
 
-    // Level label（空池升级时脉冲高亮）
+    // Level label with GSAP pulse animation
     this.levelLabel.textContent = t('hud.level', { level: String(p.level) });
     if (this.levelCompPulseTimer > 0) {
       this.levelCompPulseTimer -= 1 / 60;
-      const pulse = 1 + Math.sin(this.levelCompPulseTimer * 28) * 0.12;
-      this.levelLabel.style.transform = `translateX(-50%) scale(${pulse})`;
-      this.levelLabel.style.color = '#ffff88';
-      this.levelLabel.style.textShadow = '0 0 16px rgba(255,220,80,0.9),0 0 32px rgba(255,180,40,0.5)';
+      // 使用 GSAP 实现平滑脉冲效果
+      if (!this.levelPulseAnimation) {
+        this.levelPulseAnimation = gsapAnimations.playLevelLabelPulse(this.levelLabel);
+      }
     } else {
+      if (this.levelPulseAnimation) {
+        this.levelPulseAnimation.kill();
+        this.levelPulseAnimation = null;
+      }
       this.levelLabel.style.transform = 'translateX(-50%) scale(1)';
       this.levelLabel.style.color = '#ffcc00';
       this.levelLabel.style.textShadow = '0 0 8px rgba(255,200,0,0.4),0 1px 3px rgba(0,0,0,0.8)';
@@ -4996,6 +5539,32 @@ export class GameScene {
 
     // Silver this run
     setSilverBadgeAmount(this.silverLabel, state.stats.silverEarned);
+    setGoldBadgeAmount(this.goldLabel, p.gold);
+
+    // Active consumable buff (below silver)
+    const active = p.activeConsumable;
+    if (active) {
+      const emoji = CONSUMABLE_EMOJI[active.id] ?? '✨';
+      const name = t(`consumable.${active.id}`);
+      const desc = t(`consumable.${active.id}_desc`);
+      const timerText = active.remaining < 0
+        ? t('consumable.pending')
+        : t('consumable.timer', { seconds: String(Math.ceil(active.remaining)) });
+      // 使用 GSAP 动画显示消耗品标签
+      gsapAnimations.animateConsumableLabel(this.consumableLabel, true, 0.3);
+      this.consumableLabel.innerHTML = `
+        <div style="display:flex;align-items:center;gap:6px;width:100%;justify-content:flex-end;">
+          <span style="font-size:18px;line-height:1;flex-shrink:0;">${emoji}</span>
+          <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</span>
+          <span style="opacity:0.85;font-size:11px;flex-shrink:0;">${timerText}</span>
+        </div>
+        <div style="font-size:10px;font-weight:500;opacity:0.88;color:#d8c8ff;text-align:right;line-height:1.3;max-width:100%;">${desc}</div>
+      `;
+    } else {
+      // 使用 GSAP 动画隐藏消耗品标签
+      gsapAnimations.animateConsumableLabel(this.consumableLabel, false, 0.3);
+      this.consumableLabel.innerHTML = '';
+    }
 
     // --- Weapon Icons Bar (bottom-left) ---
     this.weaponSlotsContainer.innerHTML = '';
@@ -5042,12 +5611,48 @@ export class GameScene {
       this.tomesSlotsContainer.appendChild(slot);
     }
 
-    // --- Boss HP Bar ---
+    // --- Relic Icons Bar (bottom-center) ---
+    this.relicSlotsContainer.innerHTML = '';
+    for (const [id, count] of Object.entries(p.relicStacks ?? {}) as Array<[RelicId, number]>) {
+      if (!count) continue;
+      const relic = RELICS[id];
+      if (!relic) continue;
+      const borderColor = RARITY_COLORS[relic.rarity] ?? '#aaaaaa';
+      const slot = document.createElement('div');
+      slot.title = `${relic.name} x${count}\n${relic.description}`;
+      slot.style.cssText = `
+        width:34px;height:34px;background:rgba(10,10,22,0.78);border:1px solid ${borderColor};
+        border-radius:8px;position:relative;display:flex;align-items:center;justify-content:center;
+        flex-shrink:0;box-shadow:0 0 10px ${borderColor}40;
+      `;
+      const icon = document.createElement('span');
+      icon.style.cssText = 'font-size:17px;';
+      icon.textContent = relic.emoji;
+      slot.appendChild(icon);
+      const stack = document.createElement('span');
+      stack.style.cssText = 'position:absolute;right:-4px;bottom:-5px;min-width:15px;height:15px;padding:0 3px;border-radius:999px;background:rgba(0,0,0,0.82);border:1px solid rgba(255,255,255,0.35);color:#fff;font-size:9px;font-weight:bold;display:flex;align-items:center;justify-content:center;text-shadow:0 1px 2px #000;';
+      stack.textContent = String(count);
+      slot.appendChild(stack);
+      this.relicSlotsContainer.appendChild(slot);
+    }
+
+    // --- Boss HP Bar with GSAP animation ---
     if (state.boss && state.boss.hp > 0) {
-      this.bossHpContainer.style.display = 'block';
+      // 使用 GSAP 淡入显示
+      if (this.bossHpContainer.style.display === 'none') {
+        gsapAnimations.fadeInElement(this.bossHpContainer, 0.2);
+      }
+
       const bossHpPercent = Math.max(0, Math.min(100, (state.boss.hp / state.boss.maxHp) * 100));
-      this.bossHpBarInner.style.width = `${bossHpPercent}%`;
+
+      // 使用 GSAP 动画更新血条宽度
+      if (bossHpPercent !== this.lastBossHpPercent) {
+        gsapAnimations.animateBossHealthBar(this.bossHpBarInner, bossHpPercent);
+        this.lastBossHpPercent = bossHpPercent;
+      }
+
       this.bossNameLabel.textContent = `${t('boss.anubis')} - Phase ${state.boss.phase}`;
+
       // Pulsing glow when enraged
       if (state.boss.enraged) {
         const pulse = 0.6 + Math.sin(time * 0.008) * 0.4;
@@ -5056,15 +5661,39 @@ export class GameScene {
         this.bossHpContainer.style.boxShadow = 'none';
       }
     } else {
-      this.bossHpContainer.style.display = 'none';
+      // 使用 GSAP 淡出隐藏
+      if (this.bossHpContainer.style.display !== 'none') {
+        gsapAnimations.fadeOutElement(this.bossHpContainer, 0.2);
+      }
     }
 
     // --- Altar / Portal Indicator ---
-    // 显示距离最近的祭坛（或玩家在交互半径里时的 prompt）。
+    // 显示距离最近的祭坛 / 宝箱（或玩家在交互半径里时的 prompt）。
     // 跳过终态：boss_active（Boss 战中无意义）/ portal_used（即将被消费）。
+    const nearestChest = state.chests
+      .filter(c => !c.opened)
+      .map(c => ({ chest: c, dist: Math.hypot(c.x - p.x, c.z - p.z) }))
+      .sort((a, b) => a.dist - b.dist)[0] ?? null;
+    const openedChestCount = state.chests.filter(c => c.opened).length;
+    const chestCost = getChestGoldCost(p.level, openedChestCount);
+    const chestInRange = nearestChest != null && nearestChest.dist <= CHEST_INTERACT_RADIUS;
     const visibleAltar = state.altars.find(a => a.phase !== 'boss_active' && a.phase !== 'portal_used');
-    if (visibleAltar) {
-      this.teleporterIndicator.style.display = 'block';
+    if (chestInRange && nearestChest) {
+      // 使用 GSAP 动画显示传送门指示器
+      gsapAnimations.animateTeleporterIndicator(this.teleporterIndicator, true, 0.2);
+      const canAfford = p.gold >= chestCost;
+      this.teleporterIndicator.style.color = canAfford ? '#ffdd66' : '#999999';
+      this.teleporterIndicator.style.textShadow = canAfford
+        ? '0 0 8px #ffcc33,0 1px 3px rgba(0,0,0,0.8)'
+        : '0 1px 3px rgba(0,0,0,0.8)';
+      this.teleporterIndicator.textContent = canAfford
+        ? `🎁 [E] 开启宝箱 - ${chestCost} 金币`
+        : `🎁 金币不足 ${p.gold}/${chestCost}`;
+    } else if (visibleAltar) {
+      // 使用 GSAP 动画显示传送门指示器
+      gsapAnimations.animateTeleporterIndicator(this.teleporterIndicator, true, 0.2);
+      this.teleporterIndicator.style.color = '#00ccff';
+      this.teleporterIndicator.style.textShadow = '0 0 8px #00ccff,0 1px 3px rgba(0,0,0,0.8)';
       const dx = visibleAltar.x - p.x;
       const dz = visibleAltar.z - p.z;
       const dist = Math.round(Math.sqrt(dx * dx + dz * dz));
@@ -5090,35 +5719,53 @@ export class GameScene {
           break;
         }
       }
+    } else if (nearestChest) {
+      // 使用 GSAP 动画显示传送门指示器
+      gsapAnimations.animateTeleporterIndicator(this.teleporterIndicator, true, 0.2);
+      this.teleporterIndicator.style.color = '#ffdd66';
+      this.teleporterIndicator.style.textShadow = '0 0 8px #ffcc33,0 1px 3px rgba(0,0,0,0.8)';
+      this.teleporterIndicator.textContent = `🎁 宝箱: ${Math.round(nearestChest.dist)}m`;
     } else {
-      this.teleporterIndicator.style.display = 'none';
+      // 使用 GSAP 动画隐藏传送门指示器
+      gsapAnimations.animateTeleporterIndicator(this.teleporterIndicator, false, 0.2);
     }
 
-    // --- 移动端交互按钮：仅在玩家位于祭坛 / 传送门交互半径内时显示 ---
+    // --- 移动端交互按钮：仅在玩家位于祭坛 / 传送门 / 宝箱交互半径内时显示 ---
     const altarInRange = state.altars.find(a =>
       (a.phase === 'ready' || a.phase === 'portal_ready')
       && Math.hypot(a.x - p.x, a.z - p.z) <= 2.0
     );
     // 简易移动端判定：能 hover 的设备视作 PC，不显示按钮（避免 PC 用户看到双重 UI）
     const isMobile = !window.matchMedia('(hover: hover)').matches;
-    if (altarInRange && isMobile) {
-      this.interactBtn.style.display = 'block';
-      this.interactBtn.textContent = altarInRange.phase === 'portal_ready'
-        ? t('altar.prompt.enterPortal')
-        : t('altar.prompt.summon');
+    if ((altarInRange || chestInRange) && isMobile) {
+      // 使用 GSAP 动画显示交互按钮
+      gsapAnimations.animateInteractButton(this.interactBtn, true, 0.3);
+      if (chestInRange) {
+        const canAfford = p.gold >= chestCost;
+        this.interactBtn.style.background = canAfford ? 'rgba(210,145,24,0.88)' : 'rgba(80,80,80,0.82)';
+        this.interactBtn.textContent = canAfford ? `开启宝箱 ${chestCost}` : `金币不足 ${p.gold}/${chestCost}`;
+      } else if (altarInRange) {
+        this.interactBtn.style.background = 'rgba(170,68,255,0.85)';
+        this.interactBtn.textContent = altarInRange.phase === 'portal_ready'
+          ? t('altar.prompt.enterPortal')
+          : t('altar.prompt.summon');
+      }
     } else {
-      this.interactBtn.style.display = 'none';
+      // 使用 GSAP 动画隐藏交互按钮
+      gsapAnimations.animateInteractButton(this.interactBtn, false, 0.3);
     }
 
     // --- Overtime banner ---
     if (state.overtimeSeconds > 0) {
-      this.overtimeBanner.style.display = 'block';
+      // 使用 GSAP 动画显示超时横幅
+      gsapAnimations.animateOvertimeBanner(this.overtimeBanner, true, 0.4);
       const sec = Math.floor(state.overtimeSeconds);
       const mm = Math.floor(sec / 60).toString().padStart(2, '0');
       const ss = (sec % 60).toString().padStart(2, '0');
       this.overtimeBanner.textContent = `⏱ ${t('overtime.banner')} ${mm}:${ss}`;
     } else {
-      this.overtimeBanner.style.display = 'none';
+      // 使用 GSAP 动画隐藏超时横幅
+      gsapAnimations.animateOvertimeBanner(this.overtimeBanner, false, 0.4);
     }
 
     // --- Final Swarm visual effects ---
@@ -5128,10 +5775,9 @@ export class GameScene {
         this.finalSwarmBorder = document.createElement('div');
         this.finalSwarmBorder.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:90;border:4px solid rgba(255,50,50,0.6);box-sizing:border-box;';
         document.body.appendChild(this.finalSwarmBorder);
+        // 启动 GSAP 边框动画
+        gsapAnimations.animateFinalSwarmBorder(this.finalSwarmBorder, 0.5);
       }
-      // Pulse the border opacity
-      const pulse = 0.4 + Math.sin(time * 0.005) * 0.3;
-      this.finalSwarmBorder.style.borderColor = `rgba(255,50,50,${pulse})`;
 
       // Show "FINAL SWARM!" text
       if (!this.finalSwarmLabel) {
@@ -5139,10 +5785,9 @@ export class GameScene {
         this.finalSwarmLabel.style.cssText = 'position:fixed;top:66px;left:50%;transform:translateX(-50%);color:#ff4444;font-size:20px;font-weight:bold;text-shadow:0 0 10px #ff0000,0 2px 4px rgba(0,0,0,0.8);pointer-events:none;z-index:101;letter-spacing:2px;';
         this.finalSwarmLabel.textContent = `⚠️ ${t('hud.finalSwarm')} ⚠️`;
         document.body.appendChild(this.finalSwarmLabel);
+        // 启动 GSAP 标签动画
+        gsapAnimations.animateFinalSwarmLabel(this.finalSwarmLabel, 0.5);
       }
-      // Pulse the text
-      const textPulse = 0.7 + Math.sin(time * 0.006) * 0.3;
-      this.finalSwarmLabel.style.opacity = String(textPulse);
 
       // Red-tint HUD elements during final swarm
       this.timerLabel.style.color = '#ff8888';
@@ -5150,6 +5795,7 @@ export class GameScene {
     } else {
       // Remove final swarm visuals
       if (this.finalSwarmBorder) {
+        gsapAnimations.stopFinalSwarmAnimations();
         this.finalSwarmBorder.remove();
         this.finalSwarmBorder = null;
       }
@@ -5171,11 +5817,21 @@ export class GameScene {
       this.playCompensationLevelUpFx(evt);
     }
 
+    // 宝箱开启揭示特效（事件在下一次 core tick 会清空，render loop 内用 key 防重复）
+    for (const evt of state.chestOpenEvents ?? []) {
+      const key = `${state.tick}:${evt.chestId}:${evt.relicId}`;
+      if (this.seenChestOpenEvents.has(key)) continue;
+      this.seenChestOpenEvents.add(key);
+      if (this.seenChestOpenEvents.size > 80) this.seenChestOpenEvents.clear();
+      this.playChestOpenFx(evt);
+    }
+
     // === Combo HUD (#6) ===
     if (this.comboLabel) {
       const combo = state.player.comboCount;
       if (combo > 3) {
-        this.comboLabel.style.opacity = '1';
+        // 使用 GSAP 动画显示组合标签
+        gsapAnimations.animateComboLabel(this.comboLabel, true, 0.3);
         this.comboLabel.textContent = t('hud.combo', { count: String(combo) });
         // Scale up with combo count
         const fontSize = Math.min(28 + combo * 1.5, 56);
@@ -5184,7 +5840,7 @@ export class GameScene {
         this.lastComboCount = combo;
       } else if (this.lastComboCount > 3 && combo <= 3) {
         // Combo dropped — fade out
-        this.comboLabel.style.opacity = '0';
+        gsapAnimations.animateComboLabel(this.comboLabel, false, 0.3);
         this.lastComboCount = combo;
       }
     }
@@ -5214,7 +5870,8 @@ export class GameScene {
     const screenY = -(this._tempVec.y * hh) + hh;
 
     let color = '#ffffff';
-    if (evt.isPlayerDamage) color = '#ff4444';
+    if (evt.isShield) color = '#66ddff';
+    else if (evt.isPlayerDamage) color = '#ff4444';
     else if (evt.isCrit) color = '#ffd700'; // gold for crits
 
     // Damage number scaling by value
@@ -5227,23 +5884,17 @@ export class GameScene {
       fontSize = Math.round(fontSize * 1.5);
     }
 
-    const dmgText = String(Math.round(evt.damage));
-    el.textContent = evt.isCrit ? `${dmgText} CRIT!` : dmgText;
-    el.style.color = color;
-    el.style.left = `${screenX}px`;
-    el.style.top = `${screenY}px`;
-    el.style.fontSize = `${fontSize}px`;
-    el.style.opacity = '1';
-    el.style.transform = 'translateY(0px) scale(1)';
-    el.style.transition = 'none';
-
-    void el.offsetWidth;
-
-    // Faster upward velocity for more satisfying feel
-    const flyDistance = evt.isCrit ? -60 : (evt.damage > 20 ? -50 : -40);
-    el.style.transition = 'opacity 0.5s ease-out, transform 0.5s ease-out';
-    el.style.opacity = '0';
-    el.style.transform = `translateY(${flyDistance}px) scale(${evt.isCrit ? 0.6 : 0.8})`;
+    const dmgText = evt.isShield ? `+${Math.round(evt.damage)}` : String(Math.round(evt.damage));
+    // Use GSAP for damage number animation
+    gsapAnimations.showDamageNumber(el, {
+      text: evt.isCrit ? `${dmgText} CRIT!` : dmgText,
+      color: color,
+      x: screenX,
+      y: screenY,
+      fontSize: fontSize,
+      isCrit: evt.isCrit,
+      damage: evt.damage
+    });
   }
 
   // ===========================================================================
@@ -5258,6 +5909,7 @@ export class GameScene {
     }
     // Charge Shrine 4 选 1 panel
     this.handleShrinePhaseChange(state);
+    this.handleChestRewardPhaseChange(state);
   }
 
   private showUpgradePanel(options: UpgradeOption[]): void {
@@ -5404,8 +6056,8 @@ export class GameScene {
     if (this.gameOverPanel) return;
     this.cameraOrbit.setEnabled(false);
 
-    const newQuests = checkQuestCompletion();
-    const completedCount = getCompletedQuestCount();
+    // Detect quests that newly reached completion this run (rewards must be claimed manually)
+    const newQuests = checkQuestCompletion(this.questCompleteAtRunStart);
 
     this.gameOverPanel = document.createElement('div');
     this.gameOverPanel.dataset.cameraBlock = 'true';
@@ -5447,11 +6099,10 @@ export class GameScene {
     silverRow.appendChild(createSilverBadge(result.silverEarned));
     statsContainer.appendChild(silverRow);
 
-    // Show newly completed quest rewards
     if (newQuests.length > 0) {
       const questHeader = document.createElement('div');
       questHeader.style.cssText = 'color:#ffcc00;font-size:13px;font-weight:bold;margin-top:8px;';
-      questHeader.textContent = '--- Quest Rewards ---';
+      questHeader.textContent = t('quest.ready_to_claim');
       statsContainer.appendChild(questHeader);
 
       for (const qId of newQuests) {
@@ -5459,7 +6110,7 @@ export class GameScene {
         if (!quest) continue;
         const el = document.createElement('div');
         el.style.cssText = 'color:#88ff88;font-size:12px;';
-        el.textContent = `${t(quest.description)} - ${t('quest.completed')}`;
+        el.textContent = t(quest.description);
         statsContainer.appendChild(el);
       }
     }
@@ -5545,7 +6196,19 @@ const PREP_SCREEN_STYLE = `
 
 const PREP_SCREEN_HEADER_STYLE = `
   display:flex;align-items:center;justify-content:space-between;width:100%;flex-shrink:0;
-  padding:clamp(6px,1.5vw,10px) clamp(8px,2vw,14px);box-sizing:border-box;z-index:2;
+  padding:10px 14px;box-sizing:border-box;z-index:2;
+`;
+
+/** 预备界面（英雄/难度选择）的固定设计尺寸：横屏锚定，不随屏幕放大、不换行重排 */
+const PREP_STAGE_WIDTH = 860;
+const PREP_STAGE_HEIGHT = 380;
+const PREP_STAGE_STYLE = `
+  flex:1;min-height:0;width:100%;display:flex;align-items:center;justify-content:center;
+  padding:0 14px 14px;box-sizing:border-box;overflow:auto;
+`;
+const PREP_STAGE_BODY_STYLE = `
+  width:${PREP_STAGE_WIDTH}px;height:${PREP_STAGE_HEIGHT}px;max-width:100%;max-height:100%;
+  box-sizing:border-box;
 `;
 
 function createPrepBackButton(onClick: () => void): HTMLButtonElement {
@@ -5561,13 +6224,61 @@ function createPrepBackButton(onClick: () => void): HTMLButtonElement {
   backImg.src = CHARACTER_SELECT_BACK_ICON;
   backImg.alt = '';
   backImg.draggable = false;
-  backImg.style.cssText = 'width:clamp(36px,10vw,48px);height:clamp(36px,10vw,48px);object-fit:contain;pointer-events:none;';
+  backImg.style.cssText = 'width:44px;height:44px;object-fit:contain;pointer-events:none;';
   backBtn.appendChild(backImg);
   backBtn.addEventListener('mouseenter', () => { backBtn.style.transform = 'scale(1.05)'; });
   backBtn.addEventListener('mouseleave', () => { backBtn.style.transform = 'scale(1)'; });
   backBtn.addEventListener('click', onClick);
   return backBtn;
 }
+
+const PREP_SCREEN_TITLE_STYLE = `
+  font-size:clamp(18px,5vw,24px);font-weight:bold;color:#ffffff;
+  text-shadow:0 2px 4px rgba(0,0,0,0.5);white-space:nowrap;
+`;
+
+function createPrepScreenHeader(
+  title: string,
+  onBack: () => void,
+  rightContent: HTMLElement,
+): HTMLElement {
+  const header = document.createElement('header');
+  header.style.cssText = PREP_SCREEN_HEADER_STYLE;
+
+  const leftGroup = document.createElement('div');
+  leftGroup.style.cssText = 'display:flex;align-items:center;gap:6px;min-width:0;';
+  leftGroup.appendChild(createPrepBackButton(onBack));
+  const titleEl = document.createElement('span');
+  titleEl.style.cssText = PREP_SCREEN_TITLE_STYLE;
+  titleEl.textContent = title;
+  leftGroup.appendChild(titleEl);
+  header.appendChild(leftGroup);
+
+  header.appendChild(rightContent);
+  return header;
+}
+
+const SHOP_OVERLAY_STYLE = `
+  position:fixed;top:0;left:0;width:100%;height:100%;box-sizing:border-box;
+  background:#0a0a1a url(${SHOP_BG_PATH}) center center/cover no-repeat;
+  display:flex;flex-direction:column;
+  z-index:600;font-family:Arial,sans-serif;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  padding-left:env(safe-area-inset-left,0px);
+  padding-right:env(safe-area-inset-right,0px);
+`;
+
+const QUESTS_OVERLAY_STYLE = `
+  position:fixed;top:0;left:0;width:100%;height:100%;box-sizing:border-box;
+  background:#0a0a1a url(${QUESTS_BG_PATH}) center center/cover no-repeat;
+  display:flex;flex-direction:column;
+  z-index:600;font-family:Arial,sans-serif;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  padding-left:env(safe-area-inset-left,0px);
+  padding-right:env(safe-area-inset-right,0px);
+`;
 
 function characterColorHex(char: CharacterType): string {
   const charColor = CHARACTER_COLORS[char] ?? 0xa8e6cf;
@@ -5587,13 +6298,6 @@ function alignCharacterSelectConfirmToStage(): void {
   const stage = characterSelectPreviewHost?.firstElementChild as HTMLElement | null;
   const detail = confirmWrap?.parentElement as HTMLElement | null;
   if (!confirmWrap || !stage || !detail) return;
-
-  const narrow = window.innerWidth < 720;
-  if (narrow) {
-    confirmWrap.style.paddingTop = '0';
-    confirmWrap.style.paddingBottom = 'clamp(10px,2.5vw,25px)';
-    return;
-  }
 
   const stageRect = stage.getBoundingClientRect();
   const detailRect = detail.getBoundingClientRect();
@@ -5617,7 +6321,7 @@ function mountCharacterSelectSlots(host: HTMLElement): void {
 
     const slot = document.createElement('div');
     slot.style.cssText = `
-      position:relative;width:clamp(52px,12vw,68px);min-width:44px;min-height:44px;
+      position:relative;width:64px;min-width:44px;min-height:44px;
       cursor:pointer;flex-shrink:0;transition:transform 0.15s;
       touch-action:manipulation;user-select:none;
     `;
@@ -5652,11 +6356,79 @@ function mountCharacterSelectSlots(host: HTMLElement): void {
   }
 }
 
+function createShopBuyButton(cost: number, affordable: boolean, onClick?: () => void): HTMLDivElement {
+  const btn = document.createElement('div');
+  btn.style.cssText = `
+    position:relative;width:100%;max-width:100%;
+    cursor:${affordable ? 'pointer' : 'default'};user-select:none;
+    touch-action:manipulation;transition:transform 0.15s;
+  `;
+
+  const frame = document.createElement('img');
+  frame.src = SHOP_BUY_BUTTON_FRAME;
+  frame.alt = '';
+  frame.draggable = false;
+  frame.style.cssText = 'display:block;width:100%;height:auto;pointer-events:none;';
+
+  const content = document.createElement('div');
+  content.style.cssText = `
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    gap:clamp(1px,0.4vw,3px);padding:0 clamp(2px,0.6vw,5px);box-sizing:border-box;
+    pointer-events:none;
+  `;
+
+  const coin = document.createElement('img');
+  coin.src = SILVER_COIN_ICON_PATH;
+  coin.alt = '';
+  coin.draggable = false;
+  coin.style.cssText = 'height:62%;width:auto;aspect-ratio:1/1;object-fit:contain;flex-shrink:0;';
+
+  const amount = document.createElement('span');
+  amount.style.cssText = 'color:#ffffff;font-size:clamp(8px,2.6vw,12px);font-weight:bold;line-height:1;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,0.35);';
+  amount.textContent = String(cost);
+
+  content.appendChild(coin);
+  content.appendChild(amount);
+  btn.appendChild(frame);
+  btn.appendChild(content);
+
+  if (affordable && onClick) {
+    btn.addEventListener('click', onClick);
+    btn.addEventListener('mouseenter', () => { btn.style.transform = 'scale(1.05)'; });
+    btn.addEventListener('mouseleave', () => { btn.style.transform = 'scale(1)'; });
+  }
+
+  return btn;
+}
+
+function createShopMaxedButton(): HTMLDivElement {
+  const btn = document.createElement('div');
+  btn.style.cssText = 'position:relative;width:100%;max-width:100%;user-select:none;';
+
+  const frame = document.createElement('img');
+  frame.src = SHOP_BUY_BUTTON_PRESSED_FRAME;
+  frame.alt = '';
+  frame.draggable = false;
+  frame.style.cssText = 'display:block;width:100%;height:auto;pointer-events:none;';
+
+  const label = document.createElement('span');
+  label.style.cssText = `
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    color:#ffffff;font-size:clamp(7px,2.2vw,11px);font-weight:bold;line-height:1;
+    white-space:nowrap;pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,0.35);
+  `;
+  label.textContent = t('shop.maxed');
+
+  btn.appendChild(frame);
+  btn.appendChild(label);
+  return btn;
+}
+
 function createCharacterConfirmButton(label: string, onClick: () => void): HTMLDivElement {
   const btn = document.createElement('div');
   btn.dataset.action = 'confirm';
   btn.style.cssText = `
-    position:relative;width:clamp(88px,22vw,116px);min-width:44px;max-width:100%;
+    position:relative;width:116px;min-width:44px;max-width:100%;
     cursor:pointer;user-select:none;touch-action:manipulation;transition:transform 0.15s;
   `;
 
@@ -5670,7 +6442,7 @@ function createCharacterConfirmButton(label: string, onClick: () => void): HTMLD
   labelEl.textContent = label;
   labelEl.style.cssText = `
     position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-    color:#ffffff;font-size:clamp(12px,3.2vw,15px);font-weight:bold;line-height:1.2;
+    color:#ffffff;font-size:15px;font-weight:bold;line-height:1.2;
     pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,0.35);
   `;
 
@@ -5687,19 +6459,19 @@ function createCharacterStatBar(label: string, valueText: string, ratio: number,
 
   const row = document.createElement('div');
   row.style.cssText = `
-    display:flex;align-items:center;gap:clamp(6px,1.5vw,10px);
-    font-size:clamp(10px,2.5vw,12px);margin:clamp(3px,0.8vw,5px) 0;width:100%;
+    display:flex;align-items:center;gap:10px;
+    font-size:12px;margin:5px 0;width:100%;
   `;
 
   const labelEl = document.createElement('span');
   labelEl.textContent = label;
   labelEl.style.cssText = `
-    flex:0 0 clamp(52px,14vw,72px);color:${textColor};font-weight:600;flex-shrink:0;
+    flex:0 0 72px;color:${textColor};font-weight:600;flex-shrink:0;
   `;
 
   const track = document.createElement('div');
   track.style.cssText = `
-    flex:1;height:clamp(6px,1.6vw,8px);background:${STAT_BAR_TRACK_BG};
+    flex:1;height:8px;background:${STAT_BAR_TRACK_BG};
     border-radius:4px;overflow:hidden;min-width:0;
   `;
 
@@ -5713,7 +6485,7 @@ function createCharacterStatBar(label: string, valueText: string, ratio: number,
   const valEl = document.createElement('span');
   valEl.textContent = valueText;
   valEl.style.cssText = `
-    flex:0 0 clamp(40px,10vw,52px);text-align:right;color:${textColor};
+    flex:0 0 52px;text-align:right;color:${textColor};
     font-weight:600;font-variant-numeric:tabular-nums;flex-shrink:0;
   `;
 
@@ -5764,7 +6536,7 @@ function refreshCharacterSelectDetail(): void {
 
   const card = document.createElement('div');
   card.style.cssText = `
-    width:100%;max-width:100%;aspect-ratio:1/1;max-height:min(100%,calc(100vh - 128px));
+    width:100%;max-width:100%;aspect-ratio:1/1;max-height:100%;
     margin:0 auto;box-sizing:border-box;display:grid;
     grid-template-rows:${mainRowPct} minmax(0,1fr);
     background:url(${CHARACTER_DETAIL_PANEL_BG}) center center/100% 100% no-repeat;
@@ -5773,19 +6545,19 @@ function refreshCharacterSelectDetail(): void {
 
   const mainSection = document.createElement('div');
   mainSection.style.cssText = `
-    box-sizing:border-box;display:flex;flex-direction:column;gap:clamp(4px,1vw,7px);
+    box-sizing:border-box;display:flex;flex-direction:column;gap:7px;
     min-height:0;overflow-y:auto;
     padding:${characterDetailInsetPct(mainPad.top)} ${characterDetailInsetPct(mainPad.right)}
       ${characterDetailInsetPct(mainPad.bottom)} ${characterDetailInsetPct(mainPad.left)};
   `;
 
   const nameEl = document.createElement('h2');
-  nameEl.style.cssText = detailFont('clamp(18px,4.5vw,24px)', 'font-weight:bold;');
+  nameEl.style.cssText = detailFont('24px', 'font-weight:bold;');
   nameEl.textContent = t(`character.${id}`);
   mainSection.appendChild(nameEl);
 
   const descEl = document.createElement('p');
-  descEl.style.cssText = detailFont('clamp(12px,3vw,14px)', 'font-weight:bold;');
+  descEl.style.cssText = detailFont('14px', 'font-weight:bold;');
   descEl.textContent = t(`character.${id}_desc`);
   mainSection.appendChild(descEl);
 
@@ -5818,17 +6590,17 @@ function refreshCharacterSelectDetail(): void {
 
   const weaponRow = document.createElement('div');
   weaponRow.style.cssText = `
-    display:flex;align-items:center;gap:clamp(8px,2vw,12px);width:100%;box-sizing:border-box;
+    display:flex;align-items:center;gap:12px;width:100%;box-sizing:border-box;
   `;
 
-  const weaponBoxSize = 'clamp(64px,16vw,88px)';
+  const weaponBoxSize = '88px';
   const weaponImgWrap = document.createElement('div');
   weaponImgWrap.style.cssText = `
     flex-shrink:0;display:flex;align-items:center;justify-content:center;
     width:${weaponBoxSize};height:${weaponBoxSize};aspect-ratio:1/1;
     margin-top:0;box-sizing:border-box;
     background:${WEAPON_ICON_PANEL_BG};border:2px solid ${WEAPON_ICON_PANEL_BORDER};
-    border-radius:clamp(8px,2vw,10px);padding:clamp(6px,1.5vw,10px);
+    border-radius:10px;padding:10px;
   `;
   const weaponSrc = STARTING_WEAPON_IMAGE_PATHS[weapon];
   if (weaponSrc) {
@@ -5854,23 +6626,23 @@ function refreshCharacterSelectDetail(): void {
   weaponRow.appendChild(weaponImgWrap);
 
   const weaponTextCol = document.createElement('div');
-  const weaponTextMarginTop = weapon === 'axe' ? 'clamp(-10px,-2.5vw,-6px)' : '0';
+  const weaponTextMarginTop = weapon === 'axe' ? '-8px' : '0';
   weaponTextCol.style.cssText = `
     flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;margin-top:${weaponTextMarginTop};
   `;
 
   const weaponNameEl = document.createElement('div');
-  weaponNameEl.style.cssText = detailFont('clamp(13px,3.2vw,16px)', 'font-weight:bold;margin-top:0;');
+  weaponNameEl.style.cssText = detailFont('16px', 'font-weight:bold;margin-top:0;');
   weaponNameEl.textContent = t(`upgrade.weapon.${weapon}`);
   weaponTextCol.appendChild(weaponNameEl);
 
   const weaponDescEl = document.createElement('p');
-  weaponDescEl.style.cssText = detailFont('clamp(11px,2.8vw,13px)', 'font-weight:bold;margin-top:clamp(2px,0.6vw,4px);margin-bottom:2px;');
+  weaponDescEl.style.cssText = detailFont('13px', 'font-weight:bold;margin-top:4px;margin-bottom:2px;');
   weaponDescEl.textContent = t(`upgrade.weapon.${weapon}_desc`);
   weaponTextCol.appendChild(weaponDescEl);
 
   const weaponStatsEl = document.createElement('div');
-  weaponStatsEl.style.cssText = detailFont('clamp(10px,2.5vw,12px)', 'display:flex;flex-direction:column;gap:2px;');
+  weaponStatsEl.style.cssText = detailFont('12px', 'display:flex;flex-direction:column;gap:2px;');
   for (const line of formatWeaponStatLines(weapon)) {
     const row = document.createElement('div');
     row.textContent = line;
@@ -5891,10 +6663,10 @@ function refreshCharacterSelectPreview(): void {
   const id = selectedCharacter;
   const stage = document.createElement('div');
   stage.style.cssText = `
-    width:min(58%,340px);max-width:100%;height:100%;margin:0 auto;box-sizing:border-box;
+    width:min(72%,340px);max-width:100%;height:100%;margin:0 auto;box-sizing:border-box;
     display:flex;align-items:center;justify-content:center;
-    background:${CHARACTER_PREVIEW_STAGE_BG};border:none;border-radius:clamp(10px,2.5vw,16px);
-    padding:clamp(4px,1vw,8px);overflow:hidden;
+    background:${CHARACTER_PREVIEW_STAGE_BG};border:none;border-radius:16px;
+    padding:8px;overflow:hidden;
   `;
 
   const preview = document.createElement('img');
@@ -5924,27 +6696,6 @@ function refreshCharacterSelectUI(): void {
   refreshCharacterSelectDetail();
 }
 
-function applyCharacterSelectResponsiveLayout(): void {
-  if (!characterSelectBodyEl || !characterSelectSlotsHost) return;
-  const narrow = window.innerWidth < 720;
-  characterSelectBodyEl.style.flexDirection = narrow ? 'column' : 'row';
-  characterSelectSlotsHost.style.flexDirection = narrow ? 'row' : 'column';
-  characterSelectSlotsHost.style.overflowX = narrow ? 'auto' : 'visible';
-  characterSelectSlotsHost.style.overflowY = narrow ? 'hidden' : 'visible';
-  characterSelectSlotsHost.style.width = narrow ? '100%' : 'auto';
-  characterSelectSlotsHost.style.justifyContent = narrow ? 'center' : 'flex-start';
-  if (characterSelectPreviewHost) {
-    characterSelectPreviewHost.style.minHeight = narrow ? 'clamp(200px,38vh,320px)' : '0';
-    characterSelectPreviewHost.style.flex = narrow ? '0 0 auto' : '1 1 52%';
-  }
-  if (characterSelectDetailHost) {
-    characterSelectDetailHost.style.flex = narrow ? '1 1 auto' : '1 1 44%';
-    characterSelectDetailHost.style.width = narrow ? '100%' : 'auto';
-    characterSelectDetailHost.style.maxWidth = narrow ? '100%' : 'min(480px, 46vw)';
-  }
-  scheduleCharacterSelectConfirmAlign();
-}
-
 let characterSelectEl: HTMLDivElement | null = null;
 let tierSelectEl: HTMLDivElement | null = null;
 
@@ -5970,18 +6721,21 @@ function showCharacterSelectScreen(): void {
   header.appendChild(silverWrap);
   characterSelectEl.appendChild(header);
 
+  const stageWrap = document.createElement('div');
+  stageWrap.dataset.region = 'stage';
+  stageWrap.style.cssText = PREP_STAGE_STYLE;
+
   const body = document.createElement('main');
   body.dataset.region = 'body';
   body.style.cssText = `
-    display:flex;flex:1;min-height:0;width:100%;gap:clamp(4px,1vw,8px);
-    padding:0 clamp(4px,1.2vw,10px) clamp(12px,3vw,20px);box-sizing:border-box;align-items:stretch;
+    ${PREP_STAGE_BODY_STYLE}display:flex;flex-direction:row;gap:8px;align-items:stretch;
   `;
   characterSelectBodyEl = body;
 
   const rail = document.createElement('aside');
   rail.dataset.region = 'rail';
   rail.style.cssText = `
-    display:flex;flex-direction:column;gap:clamp(6px,1.5vw,10px);
+    display:flex;flex-direction:column;gap:10px;
     flex:0 0 auto;align-items:center;align-self:flex-start;
   `;
   characterSelectSlotsHost = rail;
@@ -6000,7 +6754,7 @@ function showCharacterSelectScreen(): void {
   const detail = document.createElement('aside');
   detail.dataset.region = 'detail';
   detail.style.cssText = `
-    flex:1 1 44%;width:auto;min-width:min(320px,88vw);max-width:min(480px,46vw);
+    flex:1 1 44%;width:auto;min-width:300px;max-width:420px;
     display:flex;flex-direction:column;min-height:0;align-self:stretch;position:relative;
   `;
 
@@ -6015,7 +6769,7 @@ function showCharacterSelectScreen(): void {
   characterSelectConfirmHost = confirmWrap;
   confirmWrap.style.cssText = `
     flex-shrink:0;width:100%;display:flex;align-items:center;justify-content:center;
-    padding:0 clamp(4px,1vw,8px) 0;box-sizing:border-box;
+    padding:0 8px 0;box-sizing:border-box;
   `;
   confirmWrap.appendChild(createCharacterConfirmButton(t('characterSelect.confirm'), () => {
     destroyCharacterSelectScreen();
@@ -6025,11 +6779,11 @@ function showCharacterSelectScreen(): void {
 
   body.appendChild(detail);
 
-  characterSelectEl.appendChild(body);
+  stageWrap.appendChild(body);
+  characterSelectEl.appendChild(stageWrap);
   refreshCharacterSelectUI();
-  applyCharacterSelectResponsiveLayout();
 
-  characterSelectResizeHandler = () => applyCharacterSelectResponsiveLayout();
+  characterSelectResizeHandler = () => scheduleCharacterSelectConfirmAlign();
   window.addEventListener('resize', characterSelectResizeHandler);
 
   document.body.appendChild(characterSelectEl);
@@ -6070,12 +6824,15 @@ function showTierSelectScreen(): void {
   header.appendChild(silverWrap);
   tierSelectEl.appendChild(header);
 
+  const stageWrap = document.createElement('div');
+  stageWrap.dataset.region = 'stage';
+  stageWrap.style.cssText = PREP_STAGE_STYLE;
+
   const body = document.createElement('main');
   body.dataset.region = 'body';
   body.style.cssText = `
-    flex:1;min-height:0;width:100%;display:flex;flex-direction:column;
-    align-items:center;justify-content:center;gap:clamp(12px,3vw,20px);
-    padding:0 clamp(4px,1.2vw,10px) clamp(12px,3vw,20px);box-sizing:border-box;
+    width:720px;max-width:100%;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:20px;box-sizing:border-box;
   `;
 
   const tierPanel = showTierSelect((_tier) => {
@@ -6084,14 +6841,15 @@ function showTierSelectScreen(): void {
   body.appendChild(tierPanel);
 
   const startWrap = document.createElement('div');
-  startWrap.style.cssText = 'margin-top:clamp(8px,2.5vw,16px);width:100%;display:flex;justify-content:center;padding:0 4px;box-sizing:border-box;';
+  startWrap.style.cssText = 'margin-top:16px;width:100%;display:flex;justify-content:center;box-sizing:border-box;';
   startWrap.appendChild(createMainMenuButton(MENU_BUTTON_ICONS.start, t('menu.start'), () => {
     destroyTierSelectScreen();
     startGame(selectedCharacter);
   }));
   body.appendChild(startWrap);
 
-  tierSelectEl.appendChild(body);
+  stageWrap.appendChild(body);
+  tierSelectEl.appendChild(stageWrap);
   document.body.appendChild(tierSelectEl);
 }
 
@@ -6108,14 +6866,14 @@ function createTierMonsterAvatarRow(): HTMLElement {
   const row = document.createElement('div');
   row.style.cssText = `
     display:flex;align-items:center;justify-content:space-between;width:100%;
-    gap:clamp(3px,0.8vw,6px);margin-top:clamp(5px,1.2vw,8px);box-sizing:border-box;
+    gap:6px;margin-top:8px;box-sizing:border-box;
   `;
 
   const { w: fw, h: fh } = TIER_MONSTER_FRAME_SIZE;
   for (const src of TIER_MONSTER_AVATARS) {
     const slot = document.createElement('div');
     slot.style.cssText = `
-      flex:1 1 0;min-width:0;position:relative;height:clamp(34px,8.5vw,50px);
+      flex:1 1 0;min-width:0;position:relative;height:42px;
       aspect-ratio:${fw}/${fh};
       background:url(${TIER_MONSTER_FRAME}) center center/contain no-repeat;
     `;
@@ -6139,7 +6897,7 @@ function createTierPanelSelectButton(isSelected: boolean, onClick: () => void): 
   btn.setAttribute('role', 'button');
   btn.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
   btn.style.cssText = `
-    position:relative;width:min(60%,60px);min-width:44px;max-width:100%;
+    position:relative;width:60px;min-width:44px;max-width:100%;
     cursor:${isSelected ? 'default' : 'pointer'};user-select:none;touch-action:manipulation;
     transition:transform 0.15s;
   `;
@@ -6154,7 +6912,7 @@ function createTierPanelSelectButton(isSelected: boolean, onClick: () => void): 
   labelEl.textContent = t(isSelected ? 'tier.chosen' : 'tier.choose');
   labelEl.style.cssText = `
     position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-    color:#ffffff;font-size:clamp(9px,2.4vw,11px);font-weight:bold;line-height:1.2;
+    color:#ffffff;font-size:11px;font-weight:bold;line-height:1.2;
     pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,0.35);
   `;
 
@@ -6171,8 +6929,8 @@ function createTierPanelSelectButton(isSelected: boolean, onClick: () => void): 
 function showTierSelect(onSelect: (tier: DifficultyTier) => void): HTMLDivElement {
   const panel = document.createElement('div');
   panel.style.cssText = `
-    display:flex;gap:clamp(8px,2vw,14px);flex-wrap:wrap;justify-content:center;
-    width:min(100%,720px);box-sizing:border-box;
+    display:flex;gap:14px;flex-wrap:nowrap;justify-content:center;
+    width:100%;max-width:100%;box-sizing:border-box;
   `;
 
   const tiers: DifficultyTier[] = [1, 2, 3];
@@ -6186,16 +6944,16 @@ function showTierSelect(onSelect: (tier: DifficultyTier) => void): HTMLDivElemen
     const card = document.createElement('div');
     card.setAttribute('aria-label', t(`tier.${tier}`));
     card.style.cssText = `
-      position:relative;width:min(140px,26vw);aspect-ratio:${panelSize.w}/${panelSize.h};height:auto;
+      position:relative;width:160px;max-width:32%;aspect-ratio:${panelSize.w}/${panelSize.h};height:auto;
       box-sizing:border-box;
       background:url(${TIER_PANEL_BGS[tier]}) center center/contain no-repeat;
-      border:none;border-radius:clamp(8px,2vw,12px);overflow:visible;
+      border:none;border-radius:12px;overflow:visible;
     `;
 
     const descEl = document.createElement('div');
     descEl.style.cssText = `
       position:absolute;top:28%;left:11%;right:11%;box-sizing:border-box;text-align:left;
-      color:${statColor};font-size:clamp(9px,2.2vw,11px);line-height:1.45;font-weight:600;
+      color:${statColor};font-size:11px;line-height:1.45;font-weight:600;
     `;
     const tierStatRows = [
       t('tier.stat.enemyHp', { value: String(cfg.enemyHpMultiplier) }),
@@ -6239,8 +6997,8 @@ let mainMenuEl: HTMLDivElement | null = null;
 function createMainMenuButton(iconSrc: string, label: string, onClick: () => void): HTMLDivElement {
   const btn = document.createElement('div');
   btn.style.cssText = `
-    position:relative;width:min(92%,clamp(168px,62vw,232px));cursor:pointer;user-select:none;
-    touch-action:manipulation;transition:transform 0.15s;max-width:100%;
+    position:relative;width:232px;max-width:100%;cursor:pointer;user-select:none;
+    touch-action:manipulation;transition:transform 0.15s;
   `;
 
   const frame = document.createElement('img');
@@ -6252,7 +7010,7 @@ function createMainMenuButton(iconSrc: string, label: string, onClick: () => voi
   const content = document.createElement('div');
   content.style.cssText = `
     position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-    gap:clamp(6px,2vw,10px);padding:0 clamp(4px,2vw,12px);box-sizing:border-box;pointer-events:none;
+    gap:10px;padding:0 12px;box-sizing:border-box;pointer-events:none;
     max-width:100%;overflow:hidden;
   `;
 
@@ -6260,11 +7018,11 @@ function createMainMenuButton(iconSrc: string, label: string, onClick: () => voi
   icon.src = iconSrc;
   icon.alt = '';
   icon.draggable = false;
-  icon.style.cssText = 'width:clamp(22px,6.5vw,30px);height:clamp(22px,6.5vw,30px);object-fit:contain;flex-shrink:0;';
+  icon.style.cssText = 'width:30px;height:30px;object-fit:contain;flex-shrink:0;';
 
   const labelEl = document.createElement('span');
   labelEl.textContent = label;
-  labelEl.style.cssText = `color:${MENU_BUTTON_LABEL_COLOR};font-size:clamp(12px,3.6vw,16px);font-weight:bold;line-height:1.2;white-space:nowrap;flex-shrink:1;min-width:0;overflow:hidden;text-overflow:ellipsis;`;
+  labelEl.style.cssText = `color:${MENU_BUTTON_LABEL_COLOR};font-size:16px;font-weight:bold;line-height:1.2;white-space:nowrap;flex-shrink:1;min-width:0;overflow:hidden;text-overflow:ellipsis;`;
 
   content.appendChild(icon);
   content.appendChild(labelEl);
@@ -6285,25 +7043,32 @@ function showMainMenu(): void {
     background:#0a0a1a url(${LOBBY_BG_PATH}) center center/cover no-repeat;
   `;
 
-  // Silver display at top
   const save = loadSave();
   const silverDisplay = createSilverBadge(save.silver);
   silverDisplay.style.position = 'absolute';
-  silverDisplay.style.top = '16px';
-  silverDisplay.style.right = '16px';
+  silverDisplay.style.top = 'max(16px, env(safe-area-inset-top, 0px))';
+  silverDisplay.style.right = 'max(16px, env(safe-area-inset-right, 0px))';
   mainMenuEl.appendChild(silverDisplay);
+
+  const langBtn = createLanguageSwitcherButton();
+  if (langBtn) {
+    langBtn.style.position = 'absolute';
+    langBtn.style.left = 'max(12px, env(safe-area-inset-left, 0px))';
+    langBtn.style.bottom = 'max(12px, env(safe-area-inset-bottom, 0px))';
+    mainMenuEl.appendChild(langBtn);
+  }
 
   // Title
   const title = document.createElement('img');
   title.src = TITLE_IMAGE_PATH;
   title.alt = t('game.title');
   title.draggable = false;
-  title.style.cssText = 'width:min(88vw,520px);height:auto;object-fit:contain;margin-bottom:8px;filter:drop-shadow(0 4px 12px rgba(0,0,0,0.65));user-select:none;';
+  title.style.cssText = 'width:520px;max-width:90%;height:auto;object-fit:contain;margin-bottom:8px;filter:drop-shadow(0 4px 12px rgba(0,0,0,0.65));user-select:none;';
   mainMenuEl.appendChild(title);
 
   // Button row (Start + Shop + Quests)
   const btnRow = document.createElement('div');
-  btnRow.style.cssText = 'display:flex;flex-direction:column;gap:clamp(8px,2.5vw,12px);margin-top:16px;align-items:center;width:100%;max-width:100%;box-sizing:border-box;padding:0 4px;';
+  btnRow.style.cssText = 'display:flex;flex-direction:column;gap:12px;margin-top:16px;align-items:center;box-sizing:border-box;';
 
   btnRow.appendChild(createMainMenuButton(MENU_BUTTON_ICONS.start, t('menu.start'), () => {
     destroyMainMenu();
@@ -6312,9 +7077,12 @@ function showMainMenu(): void {
   btnRow.appendChild(createMainMenuButton(MENU_BUTTON_ICONS.shop, t('menu.shop'), () => {
     showShopOverlay();
   }));
-  btnRow.appendChild(createMainMenuButton(MENU_BUTTON_ICONS.quest, t('menu.quests'), () => {
+  const questBtn = createMainMenuButton(MENU_BUTTON_ICONS.quest, t('menu.quests'), () => {
     showQuestsOverlay();
-  }));
+  });
+  questBtn.dataset.menuQuestBtn = 'true';
+  setNotificationDotVisible(questBtn, hasClaimableQuests(), 'menuQuest');
+  btnRow.appendChild(questBtn);
 
   mainMenuEl.appendChild(btnRow);
   document.body.appendChild(mainMenuEl);
@@ -6335,25 +7103,48 @@ function showShopOverlay(): void {
   if (shopOverlayEl) return;
 
   shopOverlayEl = document.createElement('div');
-  shopOverlayEl.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,20,0.92);display:flex;flex-direction:column;align-items:center;justify-content:flex-start;z-index:600;font-family:Arial,sans-serif;overflow-y:auto;padding:20px 0;';
-
-  // Header with silver display
-  const header = document.createElement('div');
-  header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;width:90%;max-width:700px;margin-bottom:16px;';
-
-  const titleEl = document.createElement('div');
-  titleEl.style.cssText = 'font-size:28px;font-weight:bold;color:#ffcc00;text-shadow:0 2px 4px rgba(0,0,0,0.8);';
-  titleEl.textContent = t('shop.title');
-  header.appendChild(titleEl);
+  shopOverlayEl.style.cssText = SHOP_OVERLAY_STYLE;
 
   const save = loadSave();
-  header.appendChild(createSilverBadge(save.silver));
+  const silverWrap = document.createElement('div');
+  silverWrap.appendChild(createSilverBadge(save.silver));
+  shopOverlayEl.appendChild(createPrepScreenHeader(t('menu.shop'), () => {
+    hideShopOverlay();
+    if (mainMenuEl) {
+      const silverDisp = mainMenuEl.querySelector('[data-silver-badge]') as HTMLDivElement | null;
+      if (silverDisp) {
+        setSilverBadgeAmount(silverDisp, loadSave().silver);
+      }
+    }
+  }, silverWrap));
 
-  shopOverlayEl.appendChild(header);
+  const content = document.createElement('div');
+  content.style.cssText = 'flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;align-items:center;padding:8px 14px 20px;box-sizing:border-box;';
 
-  // Upgrade grid
+  const itemListPanel = document.createElement('div');
+  itemListPanel.style.cssText = `
+    position:relative;box-sizing:border-box;
+    width:min(94vw,840px);
+    aspect-ratio:${SHOP_ITEM_LIST_PANEL_SIZE.w}/${SHOP_ITEM_LIST_PANEL_SIZE.h};
+    background:url(${SHOP_ITEM_LIST_PANEL_BG}) center center/contain no-repeat;
+  `;
+
+  const gridWrap = document.createElement('div');
+  gridWrap.style.cssText = `
+    position:absolute;inset:8%;
+    display:flex;align-items:center;justify-content:center;
+    box-sizing:border-box;
+  `;
+
+  // Upgrade grid — 4 items per row, wrap to next line
   const grid = document.createElement('div');
-  grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;width:90%;max-width:700px;';
+  grid.style.cssText = `
+    display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:clamp(4px,1vw,8px);width:100%;box-sizing:border-box;
+  `;
+
+  const shopText = (size: string, extra = '') =>
+    `margin:0;color:#2a2a3e;font-size:${size};line-height:1.3;${extra}`;
 
   for (const upgrade of SHOP_UPGRADES) {
     const currentLevel = save.shopLevels[upgrade.id] ?? 0;
@@ -6363,91 +7154,94 @@ function showShopOverlay(): void {
 
     const card = document.createElement('div');
     card.style.cssText = `
-      background:rgba(30,30,50,0.95);border:1px solid ${isMaxed ? '#ffcc00' : (affordable ? '#44cc44' : '#555555')};
-      border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:6px;
-      ${isMaxed ? 'opacity:0.7;' : ''}
+      position:relative;box-sizing:border-box;min-width:0;
+      aspect-ratio:${SHOP_ITEM_PANEL_SIZE.w}/${SHOP_ITEM_PANEL_SIZE.h};
+      background:url(${SHOP_ITEM_PANEL_BG}) center center/contain no-repeat;
+      overflow:hidden;
+      ${isMaxed ? 'opacity:0.65;' : ''}
     `;
 
-    // Name + Level
+    const cardInner = document.createElement('div');
+    cardInner.style.cssText = `
+      position:absolute;inset:6% 6% 10% 6%;
+      display:flex;flex-direction:column;align-items:center;
+      box-sizing:border-box;
+    `;
+
+    const infoArea = document.createElement('div');
+    infoArea.style.cssText = `
+      display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
+      text-align:center;flex-shrink:0;gap:clamp(2px,0.6vw,4px);width:100%;
+      margin-top:clamp(6px,2vw,14px);
+    `;
+
     const nameRow = document.createElement('div');
-    nameRow.style.cssText = 'display:flex;justify-content:space-between;align-items:center;';
+    nameRow.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:clamp(4px,1vw,8px);max-width:100%;flex-shrink:0;';
 
-    const nameEl = document.createElement('div');
-    nameEl.style.cssText = 'color:#ffffff;font-size:15px;font-weight:bold;';
-    nameEl.textContent = t(upgrade.nameKey);
-    nameRow.appendChild(nameEl);
-
-    const levelEl = document.createElement('div');
-    levelEl.style.cssText = 'color:#888;font-size:12px;';
-    levelEl.textContent = t('shop.level', { current: String(currentLevel), max: String(upgrade.maxLevel) });
-    nameRow.appendChild(levelEl);
-
-    card.appendChild(nameRow);
-
-    // Description
-    const descEl = document.createElement('div');
-    descEl.style.cssText = 'color:#999;font-size:12px;';
-    descEl.textContent = t(upgrade.descKey);
-    card.appendChild(descEl);
-
-    // Level bar
-    const barContainer = document.createElement('div');
-    barContainer.style.cssText = 'height:6px;background:rgba(80,80,100,0.5);border-radius:3px;overflow:hidden;margin-top:4px;';
-    const barFill = document.createElement('div');
-    const fillPercent = (currentLevel / upgrade.maxLevel) * 100;
-    barFill.style.cssText = `height:100%;width:${fillPercent}%;background:linear-gradient(90deg,#44cc44,#88ff88);border-radius:3px;transition:width 0.3s;`;
-    barContainer.appendChild(barFill);
-    card.appendChild(barContainer);
-
-    // Buy button
-    const buyRow = document.createElement('div');
-    buyRow.style.cssText = 'display:flex;justify-content:flex-end;margin-top:6px;';
-
-    if (isMaxed) {
-      const maxLabel = document.createElement('div');
-      maxLabel.style.cssText = 'color:#ffcc00;font-size:13px;font-weight:bold;';
-      maxLabel.textContent = t('shop.maxed');
-      buyRow.appendChild(maxLabel);
-    } else {
-      const buyBtn = document.createElement('div');
-      buyBtn.style.cssText = `padding:5px 14px;background:${affordable ? '#44aa44' : '#444455'};color:#ffffff;font-size:13px;font-weight:bold;border-radius:6px;cursor:${affordable ? 'pointer' : 'default'};user-select:none;${affordable ? '' : 'opacity:0.5;'}`;
-      buyBtn.textContent = `${t('shop.buy')} (${cost})`;
-      if (affordable) {
-        buyBtn.addEventListener('click', () => {
-          const success = purchaseUpgrade(upgrade.id);
-          if (success) {
-            // Refresh shop overlay
-            hideShopOverlay();
-            showShopOverlay();
-          }
-        });
-        buyBtn.addEventListener('mouseenter', () => { buyBtn.style.transform = 'scale(1.05)'; });
-        buyBtn.addEventListener('mouseleave', () => { buyBtn.style.transform = 'scale(1)'; });
-      }
-      buyRow.appendChild(buyBtn);
+    const iconSrc = SHOP_ITEM_ICONS[upgrade.id];
+    if (iconSrc) {
+      const iconEl = document.createElement('img');
+      iconEl.src = iconSrc;
+      iconEl.alt = '';
+      iconEl.draggable = false;
+      iconEl.style.cssText = 'width:clamp(20px,7.5vw,32px);height:clamp(20px,7.5vw,32px);object-fit:contain;flex-shrink:0;';
+      nameRow.appendChild(iconEl);
     }
 
-    card.appendChild(buyRow);
+    const nameEl = document.createElement('div');
+    nameEl.style.cssText = shopText('clamp(10px,3.2vw,16px)', `color:${SHOP_ITEM_TITLE_COLOR};font-weight:bold;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`);
+    nameEl.textContent = t(upgrade.nameKey);
+    nameRow.appendChild(nameEl);
+    infoArea.appendChild(nameRow);
+
+    const descEl = document.createElement('div');
+    descEl.style.cssText = shopText('clamp(8px,2.2vw,11px)', 'color:#5a5a6e;max-width:90%;margin-top:clamp(6px,1.8vw,12px);overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;text-align:center;');
+    descEl.textContent = t(upgrade.descKey);
+    infoArea.appendChild(descEl);
+    cardInner.appendChild(infoArea);
+
+    const bottomArea = document.createElement('div');
+    bottomArea.style.cssText = `
+      width:88%;margin-top:auto;margin-bottom:2%;
+      display:flex;flex-direction:column;align-items:center;
+      gap:clamp(2px,0.5vw,4px);
+    `;
+
+    const progressRow = document.createElement('div');
+    progressRow.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:clamp(3px,0.8vw,6px);width:100%;';
+
+    const levelEl = document.createElement('div');
+    levelEl.style.cssText = shopText('clamp(7px,2vw,10px)', `color:${SHOP_ITEM_TITLE_COLOR};font-weight:bold;flex-shrink:0;white-space:nowrap;`);
+    levelEl.textContent = t('shop.level', { current: String(currentLevel), max: String(upgrade.maxLevel) });
+    progressRow.appendChild(levelEl);
+    progressRow.appendChild(createShopLevelSegments(currentLevel, upgrade.maxLevel));
+    bottomArea.appendChild(progressRow);
+
+    const buyRow = document.createElement('div');
+    buyRow.style.cssText = 'display:flex;justify-content:center;align-items:center;width:42%;align-self:center;';
+
+    if (isMaxed) {
+      buyRow.appendChild(createShopMaxedButton());
+    } else {
+      buyRow.appendChild(createShopBuyButton(cost!, affordable, affordable ? () => {
+        const success = purchaseUpgrade(upgrade.id);
+        if (success) {
+          hideShopOverlay();
+          showShopOverlay();
+        }
+      } : undefined));
+    }
+
+    bottomArea.appendChild(buyRow);
+    cardInner.appendChild(bottomArea);
+    card.appendChild(cardInner);
     grid.appendChild(card);
   }
 
-  shopOverlayEl.appendChild(grid);
-
-  // Back button
-  const backBtn = document.createElement('div');
-  backBtn.style.cssText = 'margin-top:20px;padding:10px 30px;background:#555566;color:#ffffff;font-size:16px;font-weight:bold;border-radius:8px;cursor:pointer;user-select:none;';
-  backBtn.textContent = t('shop.back');
-  backBtn.addEventListener('click', () => {
-    hideShopOverlay();
-    // Refresh silver on main menu
-    if (mainMenuEl) {
-      const silverDisp = mainMenuEl.querySelector('[data-silver-badge]') as HTMLDivElement | null;
-      if (silverDisp) {
-        setSilverBadgeAmount(silverDisp, loadSave().silver);
-      }
-    }
-  });
-  shopOverlayEl.appendChild(backBtn);
+  gridWrap.appendChild(grid);
+  itemListPanel.appendChild(gridWrap);
+  content.appendChild(itemListPanel);
+  shopOverlayEl.appendChild(content);
 
   document.body.appendChild(shopOverlayEl);
 }
@@ -6461,111 +7255,515 @@ function hideShopOverlay(): void {
 // Quests Overlay
 // =============================================================================
 
+type QuestCategory = 'all' | 'challenge' | 'growth' | 'wealth' | 'weapons';
+
+const QUEST_CATEGORY_ICONS: Record<QuestCategory, string> = {
+  all: '/ui/quests/tab_task_all.png',
+  challenge: '/ui/quests/tab_task_challenge.png',
+  growth: '/ui/quests/tab_task_grow.png',
+  wealth: '/ui/quests/tab_task_wealth.png',
+  weapons: '/ui/quests/tab_task_weapon.png',
+};
+
+const QUEST_CATEGORIES: { id: QuestCategory; labelKey: string }[] = [
+  { id: 'all', labelKey: 'quest.category.all' },
+  { id: 'challenge', labelKey: 'quest.category.challenge' },
+  { id: 'growth', labelKey: 'quest.category.growth' },
+  { id: 'wealth', labelKey: 'quest.category.wealth' },
+  { id: 'weapons', labelKey: 'quest.category.weapons' },
+];
+
+function getQuestCategory(type: Quest['type']): QuestCategory {
+  switch (type) {
+    case 'kill':
+    case 'boss':
+    case 'no_damage':
+      return 'challenge';
+    case 'survive':
+    case 'level':
+    case 'evolve':
+      return 'growth';
+    case 'collect':
+      return 'wealth';
+    case 'weapons_used':
+      return 'weapons';
+    default:
+      return 'all';
+  }
+}
+
+function questMatchesCategory(quest: Quest, category: QuestCategory): boolean {
+  return category === 'all' || getQuestCategory(quest.type) === category;
+}
+
+const NOTIFICATION_DOT_ATTR = 'data-notification-dot';
+
+type NotificationDotPlacement = 'default' | 'menuQuest';
+
+function createNotificationDot(placement: NotificationDotPlacement = 'default'): HTMLDivElement {
+  const position = placement === 'menuQuest'
+    ? 'top:clamp(8px,2.2vw,12px);right:clamp(18px,5vw,28px);transform:none;'
+    : 'top:0;right:0;transform:translate(25%,-25%);';
+
+  const dot = document.createElement('div');
+  dot.setAttribute(NOTIFICATION_DOT_ATTR, 'true');
+  dot.style.cssText = `
+    position:absolute;${position}
+    width:clamp(8px,2.2vw,10px);height:clamp(8px,2.2vw,10px);
+    background:#ff4444;border-radius:50%;
+    border:clamp(1px,0.3vw,2px) solid #ffffff;
+    box-sizing:border-box;pointer-events:none;z-index:2;
+  `;
+  return dot;
+}
+
+function setNotificationDotVisible(
+  host: HTMLElement,
+  visible: boolean,
+  placement: NotificationDotPlacement = 'default',
+): void {
+  const existing = host.querySelector(`[${NOTIFICATION_DOT_ATTR}]`);
+  if (visible) {
+    if (!existing) host.appendChild(createNotificationDot(placement));
+  } else {
+    existing?.remove();
+  }
+}
+
+function isQuestClaimable(progress: QuestProgress): boolean {
+  return progress.completed && !progress.claimed;
+}
+
+function hasClaimableQuests(): boolean {
+  return getQuestProgress().some(isQuestClaimable);
+}
+
+function getClaimableQuestCategories(): Set<QuestCategory> {
+  const categories = new Set<QuestCategory>();
+  const progressList = getQuestProgress();
+  for (let i = 0; i < QUESTS.length; i++) {
+    if (!isQuestClaimable(progressList[i])) continue;
+    categories.add(getQuestCategory(QUESTS[i].type));
+    categories.add('all');
+  }
+  return categories;
+}
+
+function updateMainMenuQuestNotification(): void {
+  if (!mainMenuEl) return;
+  const questBtn = mainMenuEl.querySelector('[data-menu-quest-btn]') as HTMLElement | null;
+  if (questBtn) setNotificationDotVisible(questBtn, hasClaimableQuests(), 'menuQuest');
+}
+
+function updateQuestCategoryNotifications(
+  categoryButtons: Map<QuestCategory, HTMLDivElement>,
+): void {
+  const claimable = getClaimableQuestCategories();
+  for (const [id, btn] of categoryButtons) {
+    setNotificationDotVisible(btn, claimable.has(id));
+  }
+}
+
+type QuestActionState = 'incomplete' | 'claimable' | 'claimed';
+
+function createQuestActionButton(
+  state: QuestActionState,
+  onClick?: () => void,
+): HTMLDivElement {
+  const config = {
+    incomplete: {
+      frame: QUEST_ACTION_BUTTON_ORANGE,
+      pressed: QUEST_ACTION_BUTTON_ORANGE_PRESSED,
+      label: t('quest.go_complete'),
+      color: '#ffffff',
+      interactive: true,
+    },
+    claimable: {
+      frame: QUEST_ACTION_BUTTON_GREEN,
+      pressed: QUEST_ACTION_BUTTON_GREEN_PRESSED,
+      label: t('quest.claim'),
+      color: '#ffffff',
+      interactive: true,
+    },
+    claimed: {
+      frame: QUEST_ACTION_BUTTON_GRAY,
+      pressed: QUEST_ACTION_BUTTON_GRAY_PRESSED,
+      label: t('quest.claimed'),
+      color: '#555566',
+      interactive: false,
+    },
+  }[state];
+
+  const btn = document.createElement('div');
+  btn.style.cssText = `
+    position:relative;flex-shrink:0;display:inline-block;
+    width:clamp(56px,16vw,72px);min-width:44px;
+    cursor:${config.interactive ? 'pointer' : 'default'};
+    user-select:none;touch-action:manipulation;
+    transition:transform 0.15s;
+  `;
+
+  const frame = document.createElement('img');
+  frame.src = config.frame;
+  frame.alt = '';
+  frame.draggable = false;
+  frame.style.cssText = 'display:block;width:100%;height:auto;pointer-events:none;vertical-align:top;';
+
+  const labelEl = document.createElement('span');
+  labelEl.textContent = config.label;
+  labelEl.style.cssText = `
+    position:absolute;left:0;top:0;width:100%;height:100%;
+    display:flex;align-items:center;justify-content:center;
+    color:${config.color};font-size:clamp(10px,2.5vw,12px);font-weight:bold;line-height:1;
+    padding:0 clamp(2px,0.6vw,4px);box-sizing:border-box;text-align:center;
+    pointer-events:none;
+  `;
+
+  btn.appendChild(frame);
+  btn.appendChild(labelEl);
+  if (state === 'claimable') {
+    btn.appendChild(createNotificationDot());
+  }
+
+  if (config.interactive && onClick) {
+    btn.addEventListener('click', onClick);
+    btn.addEventListener('mouseenter', () => { btn.style.transform = 'scale(1.05)'; });
+    btn.addEventListener('mouseleave', () => {
+      btn.style.transform = 'scale(1)';
+      frame.src = config.frame;
+    });
+    btn.addEventListener('mousedown', () => { frame.src = config.pressed; });
+    btn.addEventListener('mouseup', () => { frame.src = config.frame; });
+    btn.addEventListener('touchstart', () => { frame.src = config.pressed; }, { passive: true });
+    btn.addEventListener('touchend', () => { frame.src = config.frame; });
+  }
+
+  return btn;
+}
+
+function createQuestRow(
+  quest: Quest,
+  progress: QuestProgress,
+  onRefresh?: () => void,
+): HTMLDivElement {
+  const rowMinHeight = progress.completed
+    ? 'clamp(48px,12vw,58px)'
+    : 'clamp(64px,15vw,80px)';
+
+  const row = document.createElement('div');
+  row.style.cssText = `
+    position:relative;box-sizing:border-box;width:100%;overflow:hidden;
+    min-height:${rowMinHeight};
+    padding:clamp(6px,1.5vw,8px) clamp(10px,3vw,14px);
+    background:url(${QUEST_ITEM_BG}) center center/100% 100% no-repeat;
+    display:flex;align-items:center;
+    ${progress.claimed ? 'opacity:0.7;' : ''}
+  `;
+
+  const contentEl = document.createElement('div');
+  contentEl.style.cssText = `
+    position:relative;z-index:1;width:100%;
+    display:flex;align-items:center;gap:clamp(6px,1.5vw,10px);
+  `;
+
+  const infoEl = document.createElement('div');
+  infoEl.style.cssText = 'flex:1;min-width:0;';
+
+  const descEl = document.createElement('div');
+  descEl.style.cssText = `color:${QUEST_TEXT_COLOR};font-size:clamp(11px,2.8vw,13px);line-height:1.4;`;
+  descEl.textContent = t(quest.description);
+  infoEl.appendChild(descEl);
+
+  if (!progress.completed) {
+    const progressBarContainer = document.createElement('div');
+    progressBarContainer.style.cssText = 'height:4px;background:rgba(80,80,100,0.5);border-radius:2px;overflow:hidden;margin-top:4px;';
+    const progressBar = document.createElement('div');
+    const pct = Math.min(100, (progress.current / quest.target) * 100);
+    progressBar.style.cssText = `height:100%;width:${pct}%;background:#44cc44;border-radius:2px;`;
+    progressBarContainer.appendChild(progressBar);
+    infoEl.appendChild(progressBarContainer);
+
+    const progressText = document.createElement('div');
+    progressText.style.cssText = 'color:#888;font-size:clamp(9px,2.2vw,10px);margin-top:2px;';
+    progressText.textContent = `${progress.current} / ${quest.target}`;
+    infoEl.appendChild(progressText);
+  }
+
+  contentEl.appendChild(infoEl);
+
+  const actionArea = document.createElement('div');
+  actionArea.style.cssText = `
+    display:flex;align-items:center;justify-content:flex-end;
+    gap:clamp(4px,1.2vw,8px);flex-shrink:0;
+  `;
+
+  const rewardText = document.createElement('span');
+  rewardText.style.cssText = `
+    color:${QUEST_TEXT_COLOR};font-size:clamp(9px,2.2vw,11px);line-height:1.3;
+    text-align:right;max-width:clamp(48px,14vw,72px);
+    word-break:break-word;
+  `;
+  rewardText.textContent = formatQuestReward(quest.reward);
+  actionArea.appendChild(rewardText);
+
+  let actionState: QuestActionState;
+  if (progress.claimed) {
+    actionState = 'claimed';
+  } else if (progress.completed) {
+    actionState = 'claimable';
+  } else {
+    actionState = 'incomplete';
+  }
+
+  const actionBtn = createQuestActionButton(
+    actionState,
+    actionState === 'incomplete'
+      ? () => {
+          hideQuestsOverlay();
+          showCharacterSelectScreen();
+        }
+      : actionState === 'claimable'
+        ? () => {
+            if (claimQuest(quest.id)) onRefresh?.();
+          }
+        : undefined,
+  );
+  actionArea.appendChild(actionBtn);
+  contentEl.appendChild(actionArea);
+
+  row.appendChild(contentEl);
+
+  return row;
+}
+
+function createQuestCategoryButton(iconSrc: string, label: string, selected: boolean, onClick: () => void): HTMLDivElement {
+  const btn = document.createElement('div');
+  btn.setAttribute('role', 'button');
+  btn.setAttribute('aria-pressed', selected ? 'true' : 'false');
+  btn.style.cssText = `
+    position:relative;width:100%;min-height:36px;min-width:36px;
+    cursor:pointer;user-select:none;touch-action:manipulation;transition:transform 0.15s;
+  `;
+
+  const frame = document.createElement('img');
+  frame.setAttribute('data-quest-cat-frame', 'true');
+  frame.src = selected ? TIER_SELECT_BUTTON_NORMAL : QUEST_CATEGORY_BUTTON_NORMAL;
+  frame.alt = '';
+  frame.draggable = false;
+  frame.style.cssText = 'display:block;width:100%;height:auto;pointer-events:none;';
+
+  const content = document.createElement('div');
+  content.style.cssText = `
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    gap:clamp(2px,0.6vw,4px);pointer-events:none;
+    padding:0 clamp(3px,0.8vw,6px);box-sizing:border-box;max-width:100%;overflow:hidden;
+  `;
+
+  const icon = document.createElement('img');
+  icon.src = iconSrc;
+  icon.alt = '';
+  icon.draggable = false;
+  icon.style.cssText = 'width:clamp(14px,4vw,18px);height:clamp(14px,4vw,18px);object-fit:contain;flex-shrink:0;';
+
+  const labelEl = document.createElement('span');
+  labelEl.textContent = label;
+  labelEl.style.cssText = `
+    color:#ffffff;font-size:clamp(9px,2.2vw,11px);font-weight:bold;line-height:1.2;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;
+    text-shadow:0 1px 2px rgba(0,0,0,0.35);
+  `;
+
+  content.appendChild(icon);
+  content.appendChild(labelEl);
+  btn.appendChild(frame);
+  btn.appendChild(content);
+  btn.addEventListener('click', onClick);
+  btn.addEventListener('mouseenter', () => { btn.style.transform = 'scale(1.05)'; });
+  btn.addEventListener('mouseleave', () => { btn.style.transform = 'scale(1)'; });
+  return btn;
+}
+
+function updateQuestCategoryButtonStyle(btn: HTMLDivElement, selected: boolean): void {
+  const frame = btn.querySelector('img[data-quest-cat-frame]');
+  if (frame instanceof HTMLImageElement) {
+    frame.src = selected ? TIER_SELECT_BUTTON_NORMAL : QUEST_CATEGORY_BUTTON_NORMAL;
+  }
+  btn.setAttribute('aria-pressed', selected ? 'true' : 'false');
+}
+
 let questsOverlayEl: HTMLDivElement | null = null;
+let questsOverlayResizeHandler: (() => void) | null = null;
+
+function getQuestListPanelImageRect(panel: HTMLElement) {
+  const boxW = panel.clientWidth;
+  const boxH = panel.clientHeight;
+  if (boxW <= 0 || boxH <= 0) return null;
+
+  const scale = Math.min(boxW / QUEST_LIST_PANEL_SIZE.w, boxH / QUEST_LIST_PANEL_SIZE.h);
+  const renderedW = QUEST_LIST_PANEL_SIZE.w * scale;
+  const renderedH = QUEST_LIST_PANEL_SIZE.h * scale;
+  const offsetX = (boxW - renderedW) / 2;
+  const offsetY = (boxH - renderedH) / 2;
+  return { renderedW, renderedH, offsetX, offsetY };
+}
+
+function layoutQuestPanel(
+  panel: HTMLDivElement,
+  scroll: HTMLDivElement,
+  categorySidebar: HTMLDivElement,
+): void {
+  const rect = getQuestListPanelImageRect(panel);
+  if (!rect) return;
+
+  const { renderedW, renderedH, offsetX, offsetY } = rect;
+  const { top, right, bottom, left } = QUEST_LIST_SCROLL_INSET;
+
+  categorySidebar.style.marginTop = `${offsetY + renderedH * QUEST_CATEGORY_SIDEBAR_OFFSET_RATIO}px`;
+  scroll.style.top = `${offsetY + renderedH * top}px`;
+  scroll.style.left = `${offsetX + renderedW * left}px`;
+  scroll.style.width = `${renderedW * (1 - left - right)}px`;
+  scroll.style.height = `${renderedH * (1 - top - bottom)}px`;
+}
 
 function showQuestsOverlay(): void {
   if (questsOverlayEl) return;
 
   questsOverlayEl = document.createElement('div');
-  questsOverlayEl.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,20,0.92);display:flex;flex-direction:column;align-items:center;justify-content:flex-start;z-index:600;font-family:Arial,sans-serif;overflow-y:auto;padding:20px 0;';
+  questsOverlayEl.style.cssText = QUESTS_OVERLAY_STYLE;
 
-  // Header
-  const header = document.createElement('div');
-  header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;width:90%;max-width:700px;margin-bottom:16px;';
-
-  const titleEl = document.createElement('div');
-  titleEl.style.cssText = 'font-size:28px;font-weight:bold;color:#ffcc00;text-shadow:0 2px 4px rgba(0,0,0,0.8);';
-  titleEl.textContent = t('quest.title');
-  header.appendChild(titleEl);
-
-  const progressEl = document.createElement('div');
-  progressEl.style.cssText = 'font-size:14px;color:#cccccc;';
-  const completedCount = getCompletedQuestCount();
-  progressEl.textContent = t('quest.progress', { current: String(completedCount), total: String(QUESTS.length) });
-  header.appendChild(progressEl);
-
-  questsOverlayEl.appendChild(header);
-
-  // Quest list
-  const questList = document.createElement('div');
-  questList.style.cssText = 'display:flex;flex-direction:column;gap:8px;width:90%;max-width:700px;';
-
-  const questProgress = getQuestProgress();
-
-  for (let i = 0; i < QUESTS.length; i++) {
-    const quest = QUESTS[i];
-    const progress = questProgress[i];
-
-    const row = document.createElement('div');
-    row.style.cssText = `
-      background:rgba(30,30,50,0.95);border:1px solid ${progress.completed ? '#44cc44' : '#444455'};
-      border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:12px;
-      ${progress.completed ? 'opacity:0.7;' : ''}
-    `;
-
-    // Status indicator
-    const statusEl = document.createElement('div');
-    statusEl.style.cssText = `width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;background:${progress.completed ? '#44cc44' : 'rgba(80,80,100,0.5)'};flex-shrink:0;`;
-    statusEl.textContent = progress.completed ? '✓' : '';
-    row.appendChild(statusEl);
-
-    // Description and progress
-    const infoEl = document.createElement('div');
-    infoEl.style.cssText = 'flex:1;';
-
-    const descEl = document.createElement('div');
-    descEl.style.cssText = 'color:#ffffff;font-size:13px;';
-    descEl.textContent = t(quest.description);
-    infoEl.appendChild(descEl);
-
-    if (!progress.completed) {
-      const progressBarContainer = document.createElement('div');
-      progressBarContainer.style.cssText = 'height:4px;background:rgba(80,80,100,0.5);border-radius:2px;overflow:hidden;margin-top:4px;';
-      const progressBar = document.createElement('div');
-      const pct = Math.min(100, (progress.current / quest.target) * 100);
-      progressBar.style.cssText = `height:100%;width:${pct}%;background:#ffaa00;border-radius:2px;`;
-      progressBarContainer.appendChild(progressBar);
-      infoEl.appendChild(progressBarContainer);
-
-      const progressText = document.createElement('div');
-      progressText.style.cssText = 'color:#888;font-size:10px;margin-top:2px;';
-      progressText.textContent = `${progress.current} / ${quest.target}`;
-      infoEl.appendChild(progressText);
-    }
-
-    row.appendChild(infoEl);
-
-    // Reward
-    const rewardEl = document.createElement('div');
-    rewardEl.style.cssText = 'display:flex;justify-content:flex-end;flex-shrink:0;';
-    if (quest.reward.type === 'silver') {
-      rewardEl.appendChild(createSilverBadge(quest.reward.value as number, '+'));
-    } else {
-      const rewardText = document.createElement('span');
-      rewardText.style.cssText = 'color:#ffcc00;font-size:11px;text-align:right;';
-      rewardText.textContent = formatQuestReward(quest.reward);
-      rewardEl.appendChild(rewardText);
-    }
-    row.appendChild(rewardEl);
-
-    questList.appendChild(row);
-  }
-
-  questsOverlayEl.appendChild(questList);
-
-  // Back button
-  const backBtn = document.createElement('div');
-  backBtn.style.cssText = 'margin-top:20px;padding:10px 30px;background:#555566;color:#ffffff;font-size:16px;font-weight:bold;border-radius:8px;cursor:pointer;user-select:none;margin-bottom:20px;';
-  backBtn.textContent = t('quest.back');
-  backBtn.addEventListener('click', () => {
+  const silverWrap = document.createElement('div');
+  silverWrap.dataset.region = 'silver';
+  const silverBadge = createSilverBadge(loadSave().silver);
+  silverWrap.appendChild(silverBadge);
+  questsOverlayEl.appendChild(createPrepScreenHeader(t('menu.quests'), () => {
     hideQuestsOverlay();
-  });
-  questsOverlayEl.appendChild(backBtn);
+    if (mainMenuEl) {
+      const silverDisp = mainMenuEl.querySelector('[data-silver-badge]') as HTMLDivElement | null;
+      if (silverDisp) {
+        setSilverBadgeAmount(silverDisp, loadSave().silver);
+      }
+      updateMainMenuQuestNotification();
+    }
+  }, silverWrap));
 
+  const content = document.createElement('div');
+  content.style.cssText = `
+    flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;
+    padding:8px clamp(8px,3vw,14px) max(20px,env(safe-area-inset-bottom,0px));
+    box-sizing:border-box;width:min(96vw,840px);margin:0 auto;overflow:hidden;
+  `;
+
+  const panelRow = document.createElement('div');
+  panelRow.style.cssText = `
+    flex:1;min-height:0;width:100%;display:flex;justify-content:center;
+    box-sizing:border-box;
+  `;
+
+  const panelUnit = document.createElement('div');
+  panelUnit.style.cssText = `
+    display:flex;align-items:flex-start;gap:clamp(6px,2vw,12px);
+    height:100%;max-height:100%;min-height:0;width:100%;max-width:100%;
+    box-sizing:border-box;
+  `;
+
+  const questListPanel = document.createElement('div');
+  questListPanel.style.cssText = `
+    position:relative;box-sizing:border-box;overflow:hidden;flex:1;min-width:0;
+    height:100%;max-height:100%;
+    aspect-ratio:${QUEST_LIST_PANEL_SIZE.w}/${QUEST_LIST_PANEL_SIZE.h};
+    background:url(${QUEST_LIST_PANEL_BG}) center center/contain no-repeat;
+  `;
+
+  const questListScroll = document.createElement('div');
+  questListScroll.style.cssText = `
+    position:absolute;overflow-y:auto;overflow-x:hidden;box-sizing:border-box;
+    overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+  `;
+
+  const categorySidebar = document.createElement('div');
+  categorySidebar.style.cssText = `
+    display:flex;flex-direction:column;gap:clamp(4px,1.2vw,6px);flex-shrink:0;
+    width:clamp(64px,18vw,92px);align-self:flex-start;
+  `;
+
+  const questList = document.createElement('div');
+  questList.style.cssText = 'display:flex;flex-direction:column;gap:clamp(6px,1.5vw,8px);width:100%;';
+
+  const categoryButtons = new Map<QuestCategory, HTMLDivElement>();
+  let selectedCategory: QuestCategory = 'all';
+
+  const refreshAfterClaim = (): void => {
+    renderQuestList(selectedCategory);
+    setSilverBadgeAmount(silverBadge, loadSave().silver);
+    updateQuestCategoryNotifications(categoryButtons);
+  };
+
+  const renderQuestList = (category: QuestCategory): void => {
+    questList.replaceChildren();
+    const questProgress = getQuestProgress();
+    const entries: { quest: Quest; progress: QuestProgress; index: number }[] = [];
+    for (let i = 0; i < QUESTS.length; i++) {
+      const quest = QUESTS[i];
+      if (!questMatchesCategory(quest, category)) continue;
+      entries.push({ quest, progress: questProgress[i], index: i });
+    }
+    entries.sort((a, b) => {
+      const rank = (p: QuestProgress) => {
+        if (!p.completed) return 0;
+        if (!p.claimed) return 1;
+        return 2;
+      };
+      const rankDiff = rank(a.progress) - rank(b.progress);
+      if (rankDiff !== 0) return rankDiff;
+      return a.index - b.index;
+    });
+    for (const { quest, progress } of entries) {
+      questList.appendChild(createQuestRow(quest, progress, refreshAfterClaim));
+    }
+  };
+
+  const selectCategory = (category: QuestCategory): void => {
+    selectedCategory = category;
+    for (const [id, btn] of categoryButtons) {
+      updateQuestCategoryButtonStyle(btn, id === category);
+    }
+    renderQuestList(category);
+  };
+
+  for (const cat of QUEST_CATEGORIES) {
+    const btn = createQuestCategoryButton(
+      QUEST_CATEGORY_ICONS[cat.id],
+      t(cat.labelKey),
+      cat.id === selectedCategory,
+      () => selectCategory(cat.id),
+    );
+    categoryButtons.set(cat.id, btn);
+    categorySidebar.appendChild(btn);
+  }
+  updateQuestCategoryNotifications(categoryButtons);
+
+  questListScroll.appendChild(questList);
+  questListPanel.appendChild(questListScroll);
+  panelUnit.appendChild(categorySidebar);
+  panelUnit.appendChild(questListPanel);
+  panelRow.appendChild(panelUnit);
+  content.appendChild(panelRow);
+  questsOverlayEl.appendChild(content);
+
+  renderQuestList(selectedCategory);
   document.body.appendChild(questsOverlayEl);
+
+  const syncQuestPanelLayout = () => layoutQuestPanel(questListPanel, questListScroll, categorySidebar);
+  requestAnimationFrame(syncQuestPanelLayout);
+  questsOverlayResizeHandler = syncQuestPanelLayout;
+  window.addEventListener('resize', questsOverlayResizeHandler);
 }
 
 function hideQuestsOverlay(): void {
+  if (questsOverlayResizeHandler) {
+    window.removeEventListener('resize', questsOverlayResizeHandler);
+    questsOverlayResizeHandler = null;
+  }
   questsOverlayEl?.remove();
   questsOverlayEl = null;
 }
@@ -6573,13 +7771,13 @@ function hideQuestsOverlay(): void {
 function formatQuestReward(reward: { type: string; value: string | number }): string {
   switch (reward.type) {
     case 'silver':
-      return `+${reward.value} Silver`;
+      return t('quest.reward_silver', { count: String(reward.value) });
     case 'weapon_unlock':
-      return `Unlock: ${String(reward.value)}`;
+      return t(`upgrade.weapon.${String(reward.value)}`);
     case 'character_unlock':
-      return `Unlock: ${String(reward.value)}`;
+      return t(`character.${String(reward.value)}`);
     case 'weapon_slot':
-      return '+1 Weapon Slot';
+      return t('quest.reward_weapon_slot');
     default:
       return String(reward.value);
   }
@@ -6630,11 +7828,6 @@ async function main(): Promise<void> {
     mode: i18nMode,
     locale: i18nLocale,
   });
-
-  if (import.meta.env.DEV) {
-    mountDevtools();
-    positionLanguageSwitcher();
-  }
 
   await loadModels();
   // 关卡白盒默认不自动加载（PR #7 引入了「数据驱动关卡」，但物理 / boss / 投射物

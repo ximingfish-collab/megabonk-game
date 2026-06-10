@@ -11,16 +11,16 @@
  * Phase 4b 起 boss 近战伤害走 ai/bosses/skeletonKing.getBossMeleeDamage。
  */
 import { distanceBetween, normalizeDirection } from '../physics.ts';
-import { TICK_INTERVAL_MS, PLAYER_INVINCIBLE_DURATION } from '../config.ts';
+import { TICK_INTERVAL_MS } from '../config.ts';
 import { getBossMeleeDamage } from '../ai/bosses/skeletonKing.ts';
-import { getTomePower } from '../tomeProgression.ts';
 import {
   addDamageEvent,
   applyKnockback,
-  checkPlayerDeath,
   findEnemyById,
   findNearestEnemyExcluding,
 } from './helpers.ts';
+import { applyPlayerHit } from './consumables.ts';
+import { applyRelicTargetDamage } from './relics.ts';
 import type { Engine } from './types.ts';
 
 // 垂直命中窗口（防止上下层穿模伤害）：
@@ -77,10 +77,11 @@ export function processCollisions(engine: Engine): void {
       const enemy = findEnemyById(engine, id);
       if (!enemy || enemy.hp <= 0) continue;
 
-      enemy.hp -= proj.damage;
+      const damage = applyRelicTargetDamage(engine, proj.damage, enemy);
+      enemy.hp -= damage;
       enemy.hitFlashTimer = 0.15;
-      engine.state.stats.damageDealt += proj.damage;
-      addDamageEvent(engine, enemy.x, 1.0, enemy.z, proj.damage, false, false, proj.weaponType);
+      engine.state.stats.damageDealt += damage;
+      addDamageEvent(engine, enemy.x, 1.0, enemy.z, damage, false, false, proj.weaponType);
       proj.hitEnemyIds.push(id);
 
       applyKnockback(engine, enemy, proj.x, proj.z);
@@ -126,13 +127,8 @@ export function processCollisions(engine: Engine): void {
 
       const dist = distanceBetween(player.x, player.z, enemy.x, enemy.z);
       if (dist < 1.2) {
-        const damage = computePlayerHitDamage(engine, enemy.damage);
-        player.hp -= damage;
-        player.invincibleTimer = PLAYER_INVINCIBLE_DURATION;
+        applyPlayerHit(engine, enemy.damage);
         enemy.attackCooldown = enemy.attackCooldownMax;
-        engine.state.stats.damageTaken += damage;
-        addDamageEvent(engine, player.x, 1.5, player.z, damage, false, true);
-        if (player.hp <= 0) checkPlayerDeath(engine);
         break;
       }
     }
@@ -144,13 +140,8 @@ export function processCollisions(engine: Engine): void {
       const dist = distanceBetween(player.x, player.z, engine.state.boss.x, engine.state.boss.z);
       if (dist < 2.0 && engine.state.boss.attackCooldown <= 0) {
         const bossDmg = getBossMeleeDamage(engine.state.boss);
-        const damage = computePlayerHitDamage(engine, bossDmg);
-        player.hp -= damage;
-        player.invincibleTimer = PLAYER_INVINCIBLE_DURATION;
+        applyPlayerHit(engine, bossDmg);
         engine.state.boss.attackCooldown = 2.0;
-        engine.state.stats.damageTaken += damage;
-        addDamageEvent(engine, player.x, 1.5, player.z, damage, false, true);
-        if (player.hp <= 0) checkPlayerDeath(engine);
       }
     }
   }
@@ -164,13 +155,8 @@ export function processCollisions(engine: Engine): void {
       const dist = distanceBetween(proj.x, proj.z, player.x, player.z);
       const yDist = Math.abs(proj.y - (player.y + PLAYER_HIT_CENTER_OFFSET_Y));
       if (dist < proj.radius + 0.5 && yDist < PROJECTILE_HIT_MAX_Y_DELTA) {
-        const damage = computePlayerHitDamage(engine, proj.damage);
-        player.hp -= damage;
-        player.invincibleTimer = PLAYER_INVINCIBLE_DURATION;
-        engine.state.stats.damageTaken += damage;
-        addDamageEvent(engine, player.x, 1.5, player.z, damage, false, true);
+        applyPlayerHit(engine, proj.damage);
         engine.state.projectiles.splice(i, 1);
-        if (player.hp <= 0) checkPlayerDeath(engine);
         break;
       }
     }
@@ -188,11 +174,3 @@ function rebuildSpatialHash(engine: Engine): void {
   }
 }
 
-/** 应用 armor + shield_tome 减免，返回最终 player 受伤 (≥1). */
-function computePlayerHitDamage(engine: Engine, raw: number): number {
-  const player = engine.state.player;
-  const shieldTome = player.tomes.find(t => t.type === 'shield_tome');
-  const shieldReduction = getTomePower(shieldTome) * 0.05;
-  const afterArmor = Math.max(1, raw - player.armor);
-  return Math.max(1, Math.round(afterArmor * (1 - shieldReduction)));
-}

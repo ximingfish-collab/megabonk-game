@@ -37,7 +37,7 @@ import { getShopBonuses } from './shop.ts';
 import { checkQuestCompletion } from './quests.ts';
 import { spawnEnemy } from './factories/spawnEnemy.ts';
 import { recomputePlayerStats } from './stats/recomputePlayerStats.ts';
-import { applyTomeUpgrade, getTomePower } from './tomeProgression.ts';
+import { applyTomeUpgrade } from './tomeProgression.ts';
 import { tickEnemyAi } from './systems/aiSystem.ts';
 import { tickBossAi } from './systems/bossAi.ts';
 
@@ -55,16 +55,15 @@ import { tickWeapons, checkWeaponEvolutions, applyWeaponUpgrade, emptyWeaponGrow
 import { tickProjectiles } from './systems/projectiles.ts';
 import { processCollisions } from './systems/collisions.ts';
 import { processDeaths, tickPickups, tickThorns } from './systems/pickups.ts';
+import { applyPlayerHit, tickConsumableEffects, tickConsumablePickups } from './systems/consumables.ts';
 import { tickSpawning, checkBossSpawn } from './systems/spawning.ts';
 import { tickAltars, generateAltars } from './systems/altars.ts';
-import { tickChests, generateChests } from './systems/chests.ts';
+import { tickChests, generateChests, nextChestId, nextChestRespawnDelay } from './systems/chests.ts';
+import { grantRelic } from './systems/relics.ts';
 import { tickOvertime } from './systems/overtime.ts';
 import { tickTierTransition } from './systems/tierTransition.ts';
 import { tickShrines, generateShrines, applyShrineReward } from './systems/shrines.ts';
-import { addDamageEvent, applyKnockback, checkPlayerDeath, checkGameOver } from './systems/helpers.ts';
-import {
-  PLAYER_INVINCIBLE_DURATION,
-} from './config.ts';
+import { addDamageEvent, applyKnockback, checkGameOver } from './systems/helpers.ts';
 
 export class GameInstance {
   private engine: Engine;
@@ -83,11 +82,15 @@ export class GameInstance {
       enemies: [],
       projectiles: [],
       pickups: [],
+      consumablePickups: [],
+      goldMotes: [],
       boss: null,
       upgradeOptions: null,
       damageEvents: [],
       levelUpCompensationEvents: [],
-      stats: { killCount: 0, damageDealt: 0, damageTaken: 0, silverEarned: 0 },
+      chestOpenEvents: [],
+      pendingChestReward: null,
+      stats: { killCount: 0, damageDealt: 0, damageTaken: 0, shieldAbsorbed: 0, silverEarned: 0 },
       waveIndex: 0,
       altars: [],
       shrines: [],
@@ -110,7 +113,9 @@ export class GameInstance {
       nextEnemyId: 1,
       nextProjectileId: 1,
       nextPickupId: 1,
+      nextChestId: 1,
       spawnTimer: 1.0,
+      chestRespawnTimer: nextChestRespawnDelay(),
       aiGroup: 0,
       miniBossTimer: 0,
       landingTimer: 0,
@@ -164,23 +169,30 @@ export class GameInstance {
     state.enemies = [];
     state.projectiles = [];
     state.pickups = [];
+    state.consumablePickups = [];
+    state.goldMotes = [];
     state.damageEvents = [];
     state.levelUpCompensationEvents = [];
+    state.chestOpenEvents = [];
+    state.pendingChestReward = null;
     state.boss = null;
     state.upgradeOptions = null;
-    state.stats = { killCount: 0, damageDealt: 0, damageTaken: 0, silverEarned: 0 };
+    state.stats = { killCount: 0, damageDealt: 0, damageTaken: 0, shieldAbsorbed: 0, silverEarned: 0 };
     state.waveIndex = 0;
     state.altars = generateAltars(config);
     state.shrines = generateShrines(config);
     state.activeShrineId = null;
     state.chests = generateChests(config);
+    engine.nextChestId = nextChestId(state.chests);
     state.character = config.character;
     state.finalSwarm = false;
     state.player = createInitialPlayer(config);
     engine.nextEnemyId = 1;
     engine.nextProjectileId = 1;
     engine.nextPickupId = 1;
+    engine.nextChestId = nextChestId(state.chests);
     engine.spawnTimer = 1.0;
+    engine.chestRespawnTimer = nextChestRespawnDelay();
     engine.aiGroup = 0;
     engine.landingTimer = 0;
     engine.miniBossTimer = 0;
@@ -198,6 +210,8 @@ export class GameInstance {
     if (state.phase === 'level_up') return false;
     // shrine_reward phase: 玩家在 4 选 1 选项面板，game logic 全部暂停（等同 level_up）
     if (state.phase === 'shrine_reward') return false;
+    // chest_reward phase: 宝箱已消耗，等待玩家留下/丢弃遗物，game logic 暂停。
+    if (state.phase === 'chest_reward') return false;
 
     const dt = TICK_INTERVAL_MS / 1000;
 
@@ -217,6 +231,7 @@ export class GameInstance {
     // 清上一帧事件（client 在两帧之间读）
     state.damageEvents = [];
     state.levelUpCompensationEvents = [];
+    state.chestOpenEvents = [];
 
     state.gameTime += dt;
     state.tick++;
@@ -231,11 +246,14 @@ export class GameInstance {
     processCollisions(engine);
     processDeaths(engine);
     tickPickups(engine, dt);
+    tickConsumablePickups(engine, dt);
+    tickConsumableEffects(engine, dt);
     tickLevelUp(engine);
     tickSpawning(engine, dt);
     tickAltars(engine, dt);
     tickShrines(engine, dt);
-    tickChests(engine);
+    tickChests(engine, dt);
+    if ((state.phase as GameState['phase']) === 'chest_reward') return false;
     checkBossSpawn(engine);
     if (state.boss && state.phase === 'boss_fight') {
       tickBossAi(state.boss, makeAiContext(engine, dt));
@@ -283,7 +301,19 @@ export class GameInstance {
         if (option.weaponType) {
           const weapon = player.weapons.find(w => w.type === option.weaponType);
           // 新规则：level +1，并按选项稀有度缩放「本级→下一级」步进累加到 growth。
-          if (weapon && !weapon.evolved) applyWeaponUpgrade(weapon, option.rarity);
+          if (weapon && !weapon.evolved) {
+            applyWeaponUpgrade(weapon, option.rarity);
+            const bonus = player.nextWeaponUpgradeBonus ?? 0;
+            if (bonus > 0) {
+              player.nextWeaponUpgradeBonus = 0;
+              if (player.activeConsumable?.id === 'craftsman_hammer') {
+                player.activeConsumable = null;
+              }
+              for (let i = 0; i < bonus && !weapon.evolved; i++) {
+                applyWeaponUpgrade(weapon, option.rarity);
+              }
+            }
+          }
         }
         break;
       case 'tome':
@@ -334,6 +364,20 @@ export class GameInstance {
     shrine.options = null;
     state.activeShrineId = null;
     state.phase = state.boss ? 'boss_fight' : 'playing';
+  }
+
+  selectChestReward(keep: boolean): void {
+    const { engine } = this;
+    const { state } = engine;
+    if (state.phase !== 'chest_reward' || !state.pendingChestReward) return;
+
+    const reward = state.pendingChestReward;
+    if (keep) {
+      grantRelic(engine, reward.relicId);
+    }
+
+    state.pendingChestReward = null;
+    state.phase = reward.returnPhase;
   }
 
   pause(): void {
@@ -429,17 +473,7 @@ function makeEffects(engine: Engine): AiEffects {
       return newEnemy;
     },
     damagePlayer: (rawDamage: number) => {
-      const player = engine.state.player;
-      if (!player.alive || player.invincibleTimer > 0) return;
-      const shieldTome = player.tomes.find(t => t.type === 'shield_tome');
-      const shieldReduction = getTomePower(shieldTome) * 0.05;
-      const dmg = Math.max(1, rawDamage - player.armor);
-      const finalDmg = Math.max(1, Math.round(dmg * (1 - shieldReduction)));
-      player.hp -= finalDmg;
-      player.invincibleTimer = PLAYER_INVINCIBLE_DURATION;
-      engine.state.stats.damageTaken += finalDmg;
-      addDamageEvent(engine, player.x, 1.5, player.z, finalDmg, false, true);
-      if (player.hp <= 0) checkPlayerDeath(engine);
+      applyPlayerHit(engine, rawDamage);
     },
   };
 }

@@ -45,6 +45,30 @@
       "crit": "Crit: {{value}}%"
     }
   },
+  "consumable": {
+    "wild_berry": "Wild Berry",
+    "wild_berry_desc": "Restore 15% max HP",
+    "hot_soup": "Hot Soup",
+    "hot_soup_desc": "Regen 2% max HP/s",
+    "mint_candy": "Mint Candy",
+    "mint_candy_desc": "Move speed +15%",
+    "hard_bread": "Hard Bread",
+    "hard_bread_desc": "Next hit deals no damage",
+    "energy_bar": "Energy Bar",
+    "energy_bar_desc": "Attack speed +20%",
+    "magnet": "Magnet",
+    "magnet_desc": "Wider XP gem pickup range",
+    "iron_meal": "Iron Meal",
+    "iron_meal_desc": "Armor +4",
+    "rage_potion": "Rage Potion",
+    "rage_potion_desc": "Damage +18%, damage taken +10%",
+    "prophecy_book": "Prophecy Book",
+    "prophecy_book_desc": "Next level-up: ≥1 rare option",
+    "craftsman_hammer": "Craftsman Hammer",
+    "craftsman_hammer_desc": "Next weapon upgrade: +1 extra level",
+    "pending": "Ready",
+    "timer": "{{seconds}}s"
+  },
   "hud": {
     "level": "Lv.{{level}}",
     "time": "{{time}}",
@@ -189,7 +213,7 @@
     "start_level": "Starting Level",
     "start_level_desc": "Start 1 level higher",
     "buy": "Buy",
-    "maxed": "MAX",
+    "maxed": "MAXED",
     "cost": "Cost: {{cost}}",
     "level": "Lv.{{current}}/{{max}}",
     "silver": "Silver: {{count}}",
@@ -198,6 +222,13 @@
   "quest": {
     "title": "Quests",
     "progress": "{{current}}/{{total}} completed",
+    "category": {
+      "all": "All",
+      "challenge": "Challenge",
+      "growth": "Growth",
+      "wealth": "Wealth",
+      "weapons": "Weapons"
+    },
     "kill_100": "Kill 100 enemies",
     "kill_500": "Kill 500 enemies",
     "kill_1000": "Kill 1000 enemies",
@@ -234,6 +265,10 @@
     "reward_character_unlock": "Unlock: {{character}}",
     "reward_weapon_slot": "+1 Weapon Slot",
     "completed": "DONE",
+    "go_complete": "Start",
+    "claim": "Claim",
+    "claimed": "Claimed",
+    "ready_to_claim": "Ready to claim",
     "back": "Back"
   },
   "boss": {
