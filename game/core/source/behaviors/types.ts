@@ -37,9 +37,9 @@ export interface BehaviorEffects {
   spawnProjectile(p: Omit<ProjectileState, 'id' | 'hitEnemyIds'>): number | null;
   /**
    * 推一个区域特效到 state.areaEffects[]（毒气云 / 涟漪 / 灼地痕迹 / 激光线）。
-   * 返回分配的 id。`id` 由实现填充，caller 提供其它字段。
+   * 返回分配的 id；达 MAX_AREA_EFFECTS 上限时返回 null（不 spawn）。
    */
-  spawnAreaEffect(a: Omit<AreaEffectState, 'id'>): number;
+  spawnAreaEffect(a: Omit<AreaEffectState, 'id'>): number | null;
   /**
    * 羁绊命中钩子（可选）：羁绊内武器命中敌人、伤害已结算后调用，
    * 触发 T2/T3 机制（奥秘计数 / 导体连锁 / 易伤 / 烙印 / 神经毒素 / 击退冲击 / 余烬引爆）。

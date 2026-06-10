@@ -5,6 +5,8 @@ export const TICK_INTERVAL_MS = 1000 / 60;
 export const MAX_ENEMIES = 100;
 export const MAX_PROJECTILES = 200;
 export const MAX_PICKUPS = 300;
+/** 区域特效（毒气云/涟漪/灼地/激光线）数量上限，防高攻速 + 多 AoE 配装下无界增长。 */
+export const MAX_AREA_EFFECTS = 150;
 
 export const PLAYER_BASE_HP = 100;
 export const PLAYER_BASE_SPEED = 4.0;

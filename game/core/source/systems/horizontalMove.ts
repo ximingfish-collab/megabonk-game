@@ -12,10 +12,6 @@
  */
 import { isBlockedHorizontallyAt, type LevelGeometry } from './collision.ts';
 
-const DEFAULT_MOVE_RADIUS = 0.45;
-const MOVER_BODY_HEIGHT = 1.4;
-const RAMP_SIDE_VERTICAL_TOLERANCE = 0.25;
-
 export interface HorizontalMoveOptions {
   /** mover 横向碰撞半径，默认沿用 isBlockedHorizontallyAt 默认值（PLAYER_RADIUS=0.45）。 */
   radius?: number;
@@ -23,62 +19,11 @@ export interface HorizontalMoveOptions {
   includeClimb?: boolean;
 }
 
-function rampTopAtSlopeCoord(
-  ramp: LevelGeometry['ramps'][number],
-  sCoord: number,
-): number {
-  const t = ramp.halfSlope > 0 ? (sCoord + ramp.halfSlope) / (ramp.halfSlope * 2) : 0;
-  return ramp.lowY + (ramp.highY - ramp.lowY) * Math.max(0, Math.min(1, t));
-}
-
-function crossesRampSideFromOutside(
-  geo: LevelGeometry,
-  oldX: number,
-  oldZ: number,
-  desiredX: number,
-  desiredZ: number,
-  feetY: number,
-  radius: number,
-): boolean {
-  const headY = feetY + MOVER_BODY_HEIGHT;
-  for (const ramp of geo.ramps) {
-    const oldDx = oldX - ramp.cx;
-    const oldDz = oldZ - ramp.cz;
-    const newDx = desiredX - ramp.cx;
-    const newDz = desiredZ - ramp.cz;
-    const oldS = oldDx * ramp.slopeDirX + oldDz * ramp.slopeDirZ;
-    const newS = newDx * ramp.slopeDirX + newDz * ramp.slopeDirZ;
-    if (
-      Math.max(oldS, newS) < -ramp.halfSlope - radius ||
-      Math.min(oldS, newS) > ramp.halfSlope + radius
-    ) {
-      continue;
-    }
-
-    const oldP = oldDx * (-ramp.slopeDirZ) + oldDz * ramp.slopeDirX;
-    const newP = newDx * (-ramp.slopeDirZ) + newDz * ramp.slopeDirX;
-    for (const side of [-1, 1] as const) {
-      const oldOutside = side * oldP > ramp.halfPerp + radius;
-      const newInsideOrTouching = side * newP <= ramp.halfPerp + radius;
-      if (!oldOutside || !newInsideOrTouching) continue;
-
-      const oldDelta = side * oldP - ramp.halfPerp;
-      const newDelta = side * newP - ramp.halfPerp;
-      const denom = oldDelta - newDelta;
-      const t = Math.abs(denom) > 1e-6 ? Math.max(0, Math.min(1, oldDelta / denom)) : 1;
-      const crossS = oldS + (newS - oldS) * t;
-      if (Math.abs(crossS) > ramp.halfSlope + radius) continue;
-
-      const sideBottomY = ramp.sideWalls?.[0]?.bottomY ?? Math.min(ramp.lowY, ramp.highY);
-      const sideTopY = rampTopAtSlopeCoord(ramp, crossS);
-      if (sideBottomY >= headY) continue;
-      if (feetY > sideTopY + RAMP_SIDE_VERTICAL_TOLERANCE) continue;
-      return true;
-    }
-  }
-  return false;
-}
-
+/**
+ * 沿 (oldX,oldZ)→(desiredX,desiredZ) 分段采样（≤0.2/步，防穿薄墙），
+ * 每个采样点查 isBlockedHorizontallyAt。ramp 侧/端面阻挡已并入该函数（位置式判定），
+ * 故此处不再需要单独的 ramp 轨迹穿越检测。
+ */
 function canMoveAlong(
   geo: LevelGeometry,
   oldX: number,
@@ -89,21 +34,15 @@ function canMoveAlong(
   includeClimb: boolean,
   radius: number | undefined,
 ): boolean {
-  const moveRadius = radius ?? DEFAULT_MOVE_RADIUS;
   const dx = desiredX - oldX;
   const dz = desiredZ - oldZ;
   const distance = Math.hypot(dx, dz);
   const steps = Math.max(1, Math.ceil(distance / 0.2));
-  let prevX = oldX;
-  let prevZ = oldZ;
   for (let i = 1; i <= steps; i++) {
     const t = i / steps;
     const x = oldX + dx * t;
     const z = oldZ + dz * t;
-    if (crossesRampSideFromOutside(geo, prevX, prevZ, x, z, feetY, moveRadius)) return false;
     if (isBlockedHorizontallyAt(geo, x, z, feetY, includeClimb, radius)) return false;
-    prevX = x;
-    prevZ = z;
   }
   return true;
 }

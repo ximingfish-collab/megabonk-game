@@ -7,6 +7,12 @@ import gsap from 'gsap';
 export class GSAPAnimationManager {
   private animations: Map<string, gsap.core.Tween> = new Map();
   private timelines: Map<string, gsap.core.Timeline> = new Map();
+  /**
+   * show/hide 类动画的「上一次目标可见状态」。
+   * updateHUD 每帧无条件调用这些函数，靠它去抖：仅在可见状态翻转时才真正建 tween，
+   * 否则直接 return —— 避免每帧用时间戳 id 狂建无法 cancel 的并发 tween。
+   */
+  private showStates: Map<string, boolean> = new Map();
 
   /**
    * 动画健康条变化
@@ -39,7 +45,10 @@ export class GSAPAnimationManager {
     isCrit: boolean;
     damage: number;
   }): void {
-    const animationId = `damage-${Date.now()}`;
+    // 按池元素稳定 id（dataset.animId）keying：环形池复用同一元素时先 kill 上一个 tween，
+    // 与 showFloatText 共用同一命名空间，避免伤害数字与补偿文字争同一 DOM 的 transform。
+    const animationId = `floattext-${element.dataset.animId ?? '0'}`;
+    this.cancelAnimation(animationId);
 
     // 设置初始位置和样式
     element.textContent = options.text;
@@ -78,22 +87,46 @@ export class GSAPAnimationManager {
   }
 
   /**
-   * 升级特效动画
+   * 浮动文字动画（升级空池补偿的银币/金币飘字）。
+   * 与 showDamageNumber 共用 damage-number 环形池 + 同一 `floattext-<animId>` 命名空间，
+   * 由 GSAP 单一管理同一元素，取代旧的 CSS transition（避免双轨争 transform）。
    */
-  playLevelUpEffect(container: HTMLElement): void {
-    const animationId = 'level-up';
+  showFloatText(element: HTMLElement, options: {
+    text: string;
+    color: string;
+    x: number;
+    y: number;
+    fontSize: number;
+    textShadow?: string;
+  }): void {
+    const animationId = `floattext-${element.dataset.animId ?? '0'}`;
     this.cancelAnimation(animationId);
 
+    element.textContent = options.text;
+    element.style.color = options.color;
+    element.style.left = `${options.x}px`;
+    element.style.top = `${options.y}px`;
+    element.style.fontSize = `${options.fontSize}px`;
+    element.style.fontWeight = 'bold';
+    if (options.textShadow) element.style.textShadow = options.textShadow;
+    element.style.opacity = '1';
+    element.style.display = 'block';
+    gsap.set(element, { y: 0, scale: 1.1 });
+
     const timeline = gsap.timeline({
-      onComplete: () => this.timelines.delete(animationId)
+      onComplete: () => {
+        element.style.display = 'none';
+        this.timelines.delete(animationId);
+      }
     });
 
-    timeline
-      .fromTo(container,
-        { scale: 0.5, opacity: 0 },
-        { scale: 1.2, opacity: 1, duration: 0.3, ease: "back.out(1.7)" }
-      )
-      .to(container, { scale: 1, duration: 0.2, ease: "power2.out" });
+    timeline.to(element, {
+      y: -70,
+      scale: 0.85,
+      opacity: 0,
+      duration: 0.7,
+      ease: "power2.out"
+    });
 
     this.timelines.set(animationId, timeline);
   }
@@ -105,10 +138,15 @@ export class GSAPAnimationManager {
     const animationId = 'level-label-pulse';
     this.cancelAnimation(animationId);
 
+    // xPercent:-50 保留元素 CSS 的 translateX(-50%) 水平居中。GSAP 接管 transform 后，
+    // 若不显式带上居中偏移，scale 脉冲会丢掉 -50% 偏移导致标签向右跳半个身位。
+    gsap.set(element, { xPercent: -50 });
+
     const timeline = gsap.timeline({ repeat: -1 });
 
     timeline
       .to(element, {
+        xPercent: -50,
         scale: 1.2,
         color: '#ffff88',
         textShadow: '0 0 16px rgba(255,220,80,0.9),0 0 32px rgba(255,180,40,0.5)',
@@ -116,6 +154,7 @@ export class GSAPAnimationManager {
         ease: "sine.inOut"
       })
       .to(element, {
+        xPercent: -50,
         scale: 1.0,
         color: '#ffcc00',
         textShadow: '0 0 8px rgba(255,200,0,0.4),0 1px 3px rgba(0,0,0,0.8)',
@@ -186,83 +225,12 @@ export class GSAPAnimationManager {
   }
 
   /**
-   * 金币拾取动画
-   */
-  animateGoldPickup(element: HTMLElement, targetX: number, targetY: number): void {
-    const animationId = `gold-${element.id}`;
-    this.cancelAnimation(animationId);
-
-    const rect = element.getBoundingClientRect();
-    const startX = rect.left + rect.width / 2;
-    const startY = rect.top + rect.height / 2;
-
-    const tween = gsap.to(element, {
-      x: targetX - startX,
-      y: targetY - startY,
-      scale: 0,
-      opacity: 0,
-      duration: 0.8,
-      ease: "power2.in",
-      onComplete: () => {
-        element.style.display = 'none';
-        this.animations.delete(animationId);
-      }
-    });
-
-    this.animations.set(animationId, tween);
-  }
-
-  /**
-   * 按钮点击反馈动画
-   */
-  buttonClickFeedback(element: HTMLElement): void {
-    const animationId = `button-${element.id}-${Date.now()}`;
-
-    const timeline = gsap.timeline({
-      onComplete: () => this.timelines.delete(animationId)
-    });
-
-    timeline
-      .to(element, { scale: 0.95, duration: 0.1, ease: "power2.out" })
-      .to(element, { scale: 1, duration: 0.1, ease: "power2.in" });
-
-    this.timelines.set(animationId, timeline);
-  }
-
-  /**
-   * 屏幕震动效果
-   */
-  screenShake(intensity: number = 10, duration: number = 0.5): void {
-    const animationId = 'screen-shake';
-    this.cancelAnimation(animationId);
-
-    const gameContainer = document.getElementById('game-container');
-    if (!gameContainer) return;
-
-    const timeline = gsap.timeline({
-      onComplete: () => {
-        gameContainer.style.transform = '';
-        this.timelines.delete(animationId);
-      }
-    });
-
-    timeline.to(gameContainer, {
-      x: `+=${intensity}`,
-      y: `+=${intensity}`,
-      duration: duration / 4,
-      repeat: 3,
-      yoyo: true,
-      ease: "power1.inOut"
-    });
-
-    this.timelines.set(animationId, timeline);
-  }
-
-  /**
    * 传送门指示器动画
    */
   animateTeleporterIndicator(element: HTMLElement, show: boolean, duration: number = 0.3): void {
-    const animationId = `teleporter-${Date.now()}`;
+    const animationId = 'teleporter';
+    if (this.showStates.get(animationId) === show) return;
+    this.showStates.set(animationId, show);
     this.cancelAnimation(animationId);
 
     if (show) {
@@ -292,7 +260,9 @@ export class GSAPAnimationManager {
    * 超时横幅动画
    */
   animateOvertimeBanner(element: HTMLElement, show: boolean, duration: number = 0.4): void {
-    const animationId = `overtime-${Date.now()}`;
+    const animationId = 'overtime';
+    if (this.showStates.get(animationId) === show) return;
+    this.showStates.set(animationId, show);
     this.cancelAnimation(animationId);
 
     if (show) {
@@ -324,7 +294,9 @@ export class GSAPAnimationManager {
    * 组合标签动画
    */
   animateComboLabel(element: HTMLElement, show: boolean, duration: number = 0.3): void {
-    const animationId = `combo-${Date.now()}`;
+    const animationId = 'combo';
+    if (this.showStates.get(animationId) === show) return;
+    this.showStates.set(animationId, show);
     this.cancelAnimation(animationId);
 
     if (show) {
@@ -356,7 +328,9 @@ export class GSAPAnimationManager {
    * 消耗品标签动画
    */
   animateConsumableLabel(element: HTMLElement, show: boolean, duration: number = 0.3): void {
-    const animationId = `consumable-${Date.now()}`;
+    const animationId = 'consumable';
+    if (this.showStates.get(animationId) === show) return;
+    this.showStates.set(animationId, show);
     this.cancelAnimation(animationId);
 
     if (show) {
@@ -388,7 +362,9 @@ export class GSAPAnimationManager {
    * 交互按钮动画
    */
   animateInteractButton(element: HTMLElement, show: boolean, duration: number = 0.3): void {
-    const animationId = `interact-${Date.now()}`;
+    const animationId = 'interact';
+    if (this.showStates.get(animationId) === show) return;
+    this.showStates.set(animationId, show);
     this.cancelAnimation(animationId);
 
     if (show) {
@@ -561,6 +537,7 @@ export class GSAPAnimationManager {
     this.timelines.forEach(timeline => timeline.kill());
     this.animations.clear();
     this.timelines.clear();
+    this.showStates.clear();
   }
 }
 

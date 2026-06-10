@@ -27,7 +27,7 @@ import {
   TICK_INTERVAL_MS,
   TIER_CONFIGS,
 } from './config.ts';
-import { MAX_PROJECTILES } from './config.ts';
+import { MAX_PROJECTILES, MAX_AREA_EFFECTS } from './config.ts';
 import type { AiEffects, AiContext } from './ai/types.ts';
 
 import { SpatialHash } from './spatial-hash.ts';
@@ -378,6 +378,9 @@ export class GameInstance {
     if (!option) return;
 
     applyShrineReward(state.player, option.reward, option.value);
+    // damage/attack_speed/movement_speed/pickup_range/crit_damage 奖励累计在 shrineBonuses，
+    // recompute 末尾合并后即时生效（其余奖励已在 applyShrineReward 内直接写字段）。
+    recomputePlayerStats(state.player, engine.config.character, getShopBonuses());
 
     shrine.phase = 'consumed';
     shrine.options = null;
@@ -477,6 +480,7 @@ function makeEffects(engine: Engine): AiEffects {
       return id;
     },
     spawnAreaEffect: (a) => {
+      if (engine.state.areaEffects.length >= MAX_AREA_EFFECTS) return null;
       const id = engine.nextAreaEffectId++;
       engine.state.areaEffects.push({ id, ...a });
       return id;

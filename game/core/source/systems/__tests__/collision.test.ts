@@ -226,6 +226,47 @@ describe('collision', () => {
     });
   });
 
+  // ─── isBlockedHorizontallyAt — ramp 楔形侧/端面阻挡（回归：曾可从侧/端钻入坡体）──
+  describe('isBlockedHorizontallyAt (ramp 楔形)', () => {
+    // 轴对齐 ramp：沿 +X 从 lowY=0 升到 highY=4，halfSlope=5、halfPerp=2。
+    // pCoord = z（slopeDir=+X）；sCoord = x；surfaceY = 4·(x+5)/10。
+    const rampGeo = () => geoFor({
+      ramps: [{ cx: 0, cz: 0, halfSlope: 5, halfPerp: 2, slopeDirX: 1, slopeDirZ: 0, lowY: 0, highY: 4 }],
+    });
+
+    it('站在斜面上（脚≈斜面高）→ 不挡', () => {
+      // 中点 x=0 斜面高 2，脚在 2 → 差 0 ≤ STEP
+      expect(isBlockedHorizontallyAt(rampGeo(), 0, 0, 2)).toBe(false);
+    });
+
+    it('从低端走上斜坡（低端高≈0）→ 不挡', () => {
+      expect(isBlockedHorizontallyAt(rampGeo(), -5, 0, 0)).toBe(false);
+    });
+
+    it('低处撞高端面 → 挡（端面，#6）', () => {
+      // 高端 x=5 斜面高 4，脚在 0 → 差 4 > STEP
+      expect(isBlockedHorizontallyAt(rampGeo(), 5, 0, 0)).toBe(true);
+    });
+
+    it('低处从侧面钻入斜坡高段 → 挡（侧面位置式，#7）', () => {
+      // x=3 斜面高 3.2，z=2 在 footprint 内，脚在 0 → 挡
+      expect(isBlockedHorizontallyAt(rampGeo(), 3, 2, 0)).toBe(true);
+    });
+
+    it('radius 外扩：高端面外 radius 带内仍挡，带外不挡', () => {
+      expect(isBlockedHorizontallyAt(rampGeo(), 5.4, 0, 0)).toBe(true);   // 5.4 < 5+0.45
+      expect(isBlockedHorizontallyAt(rampGeo(), 5.5, 0, 0)).toBe(false);  // 5.5 > 5.45 → footprint 外
+    });
+
+    it('斜坡整体在头顶之上 → 不挡（可从下穿过）', () => {
+      const raised = geoFor({
+        ramps: [{ cx: 0, cz: 0, halfSlope: 5, halfPerp: 2, slopeDirX: 1, slopeDirZ: 0, lowY: 5, highY: 9 }],
+      });
+      // bottomY=5 ≥ headY(0+1.4) → 楔形在头顶之上
+      expect(isBlockedHorizontallyAt(raised, 5, 0, 0)).toBe(false);
+    });
+  });
+
   // ─── findClimbAt ───────────────────────────────────────────────────
 
   describe('findClimbAt', () => {

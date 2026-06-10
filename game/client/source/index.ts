@@ -1295,20 +1295,6 @@ function buildRampFromSurface(surf: ReturnType<typeof analyzeTopSurface>, box: T
   }
   const halfSlope = span / 2;
   const halfPerp = (maxP - minP) / 2;
-  const wallThickness = 0.12;
-  const makeSideWall = (side: -1 | 1) => {
-    const wallCenterP = side * (halfPerp + wallThickness * 0.5);
-    return {
-      cx: centerS * slopeDirX + wallCenterP * perpX,
-      cz: centerS * slopeDirZ + wallCenterP * perpZ,
-      dirX: slopeDirX,
-      dirZ: slopeDirZ,
-      halfLength: halfSlope,
-      halfThickness: wallThickness,
-      bottomY: box.min.y,
-      topY: box.max.y,
-    };
-  };
   return {
     cx, cz,
     halfSlope,
@@ -1316,7 +1302,6 @@ function buildRampFromSurface(surf: ReturnType<typeof analyzeTopSurface>, box: T
     slopeDirX, slopeDirZ,
     lowY: Number.isFinite(lowMax) ? lowMax : surf.lowY,
     highY: Number.isFinite(highMax) ? highMax : surf.highY,
-    sideWalls: [makeSideWall(-1), makeSideWall(1)],
   };
 }
 
@@ -1872,7 +1857,6 @@ export class GameScene {
   private damageNumIndex = 0;
   private finalSwarmLabel: HTMLDivElement | null = null;
   private finalSwarmBorder: HTMLDivElement | null = null;
-  private lastXp = 0;
   private xpFlashTimer = 0;
   private seenChestOpenEvents = new Set<string>();
 
@@ -2040,6 +2024,9 @@ export class GameScene {
       cancelAnimationFrame(this.animationId);
       this.animationId = null;
     }
+    // kill 所有 GSAP tween/timeline（含 repeat:-1 的无限脉冲），否则它们会指向已移除 DOM 永久 tick、跨局泄漏
+    gsapAnimations.cleanup();
+    this.levelPulseAnimation = null;
     this.removeDisplayListener?.();
     this.cameraOrbit?.dispose();
     this.platformInput.dispose();
@@ -2957,7 +2944,7 @@ export class GameScene {
     const hpContainer = document.createElement('div');
     hpContainer.style.cssText = 'position:absolute;top:12px;left:50%;transform:translateX(-50%);width:200px;height:16px;background:rgba(40,40,40,0.8);border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,0.2);';
     this.hpBarInner = document.createElement('div');
-    this.hpBarInner.style.cssText = 'width:100%;height:100%;background:linear-gradient(90deg,#cc2222,#ff4444);transition:width 0.15s;border-radius:8px;';
+    this.hpBarInner.style.cssText = 'width:100%;height:100%;background:linear-gradient(90deg,#cc2222,#ff4444);border-radius:8px;';
     hpContainer.appendChild(this.hpBarInner);
     this.hpBar = hpContainer;
     this.hudContainer.appendChild(hpContainer);
@@ -2966,7 +2953,7 @@ export class GameScene {
     const xpContainer = document.createElement('div');
     xpContainer.style.cssText = 'position:absolute;bottom:16px;left:50%;transform:translateX(-50%);width:260px;height:12px;background:rgba(40,40,40,0.8);border-radius:6px;overflow:hidden;border:1px solid rgba(255,255,255,0.15);';
     this.xpBarInner = document.createElement('div');
-    this.xpBarInner.style.cssText = 'width:0%;height:100%;background:linear-gradient(90deg,#cc9900,#ffcc00);transition:width 0.15s;border-radius:6px;';
+    this.xpBarInner.style.cssText = 'width:0%;height:100%;background:linear-gradient(90deg,#cc9900,#ffcc00);border-radius:6px;';
     xpContainer.appendChild(this.xpBarInner);
     this.xpBar = xpContainer;
     this.hudContainer.appendChild(xpContainer);
@@ -3055,7 +3042,7 @@ export class GameScene {
     this.bossHpContainer = document.createElement('div');
     this.bossHpContainer.style.cssText = 'position:absolute;top:36px;left:50%;transform:translateX(-50%);width:60%;max-width:500px;height:22px;background:rgba(20,20,20,0.9);border-radius:4px;overflow:hidden;border:1px solid rgba(255,100,0,0.4);display:none;';
     this.bossHpBarInner = document.createElement('div');
-    this.bossHpBarInner.style.cssText = 'width:100%;height:100%;background:linear-gradient(90deg,#cc3300,#ff6600);transition:width 0.2s;border-radius:4px;';
+    this.bossHpBarInner.style.cssText = 'width:100%;height:100%;background:linear-gradient(90deg,#cc3300,#ff6600);border-radius:4px;';
     this.bossHpContainer.appendChild(this.bossHpBarInner);
     // Phase threshold markers
     this.bossPhaseMarkers = document.createElement('div');
@@ -3123,6 +3110,7 @@ export class GameScene {
     for (let i = 0; i < DAMAGE_NUM_POOL_SIZE; i++) {
       const el = document.createElement('div');
       el.style.cssText = 'position:fixed;pointer-events:none;font-size:16px;font-weight:bold;opacity:0;transition:none;z-index:200;text-shadow:0 1px 3px rgba(0,0,0,0.9);white-space:nowrap;';
+      el.dataset.animId = String(i);  // 稳定 id：GSAP 按元素 keying，池复用时 cancel 上一个 tween
       document.body.appendChild(el);
       this.damageNums.push(el);
     }
@@ -5170,22 +5158,17 @@ export class GameScene {
       ? t('upgrade.compensationSilver', { amount: String(evt.amount) })
       : t('upgrade.compensationGold', { amount: String(evt.amount) });
 
-    el.textContent = label;
-    el.style.color = isSilver ? '#cce0ff' : '#ffd700';
-    el.style.left = `${screenX}px`;
-    el.style.top = `${screenY}px`;
-    el.style.fontSize = '20px';
-    el.style.fontWeight = 'bold';
-    el.style.textShadow = isSilver
-      ? '0 0 8px rgba(120,160,255,0.9)'
-      : '0 0 8px rgba(255,200,0,0.9)';
-    el.style.opacity = '1';
-    el.style.transform = 'translateY(0px) scale(1.1)';
-    el.style.transition = 'none';
-    void el.offsetWidth;
-    el.style.transition = 'opacity 0.7s ease-out, transform 0.7s ease-out';
-    el.style.opacity = '0';
-    el.style.transform = 'translateY(-70px) scale(0.85)';
+    // 走 GSAP（与伤害数字共用同一池 + 同一 keying），避免 CSS transition 与 GSAP 争 transform。
+    gsapAnimations.showFloatText(el, {
+      text: label,
+      color: isSilver ? '#cce0ff' : '#ffd700',
+      x: screenX,
+      y: screenY,
+      fontSize: 20,
+      textShadow: isSilver
+        ? '0 0 8px rgba(120,160,255,0.9)'
+        : '0 0 8px rgba(255,200,0,0.9)',
+    });
   }
 
   private showCompensationToast(evt: LevelUpCompensationEvent): void {
@@ -6250,13 +6233,6 @@ export class GameScene {
       this.lastXpPercent = xpPercent;
     }
     this.xpNumbers.textContent = `${p.xp} / ${p.xpToNext}`;
-
-    // XP flash on gain with GSAP
-    if (p.xp !== this.lastXp) {
-      // 使用 GSAP 创建闪光效果
-      gsapAnimations.playLevelUpEffect(this.xpBarInner);
-      this.lastXp = p.xp;
-    }
 
     // Level label with GSAP pulse animation
     this.levelLabel.textContent = t('hud.level', { level: String(p.level) });

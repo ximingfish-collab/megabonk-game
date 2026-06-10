@@ -255,8 +255,21 @@ export interface PlayerState {
   projectileBonus?: number;
   /** 击退倍率（默认 1.0，shrine 会乘上去）。 */
   knockbackMult?: number;
-  /** 对精英 / 小头目 / boss 的额外伤害倍率（默认 1.0）。 */
+  /** 对精英 / 小头目 / boss 的额外伤害倍率（默认 1.0）。来自 charge shrine 的 elite_damage 奖励；
+   *  与 elite_writ 遗物（按 stack 计）在 applyRelicTargetDamage 里相乘。 */
   eliteDamageMult?: number;
+  /**
+   * Charge shrine 中会被 recomputePlayerStats 重算覆盖的 5 个 stat 的累计加成。
+   * recompute 末尾二次合并，避免被 tome 升级 / 开宝箱触发的 recompute 清掉
+   * （damage / attack_speed / movement_speed / pickup_range / crit_damage shrine 奖励走这里）。
+   */
+  shrineBonuses?: {
+    damageMult: number;
+    attackSpeedMult: number;
+    speedMult: number;
+    pickupRadiusMult: number;
+    critDamageAdd: number;
+  };
   /** 吸血百分比（0..1，造成伤害时按比例回血）。 */
   lifestealPct?: number;
   /** 跳跃高度倍率（默认 1.0）。 */
@@ -761,21 +774,6 @@ export interface WallBox {
   blockProjectile?: boolean;
 }
 
-/** 斜坡侧面实体墙：有方向的窄长阻挡条，用于阻止从 ramp_ 左右侧钻入三角体。 */
-export interface RampSideWall {
-  cx: number;
-  cz: number;
-  /** 沿墙方向（通常等于 ramp.slopeDir）的单位向量。 */
-  dirX: number;
-  dirZ: number;
-  /** 沿墙方向半长。 */
-  halfLength: number;
-  /** 垂直墙方向半厚。 */
-  halfThickness: number;
-  bottomY: number;
-  topY: number;
-}
-
 /**
  * 斜坡 —— 可**行走**上去的倾斜地面（区别于 climb_ 攀爬）。
  *
@@ -800,8 +798,6 @@ export interface RampVolume {
   lowY: number;
   /** 高端顶面高度。 */
   highY: number;
-  /** 左右侧面实体墙。缺省为空，兼容旧关卡。 */
-  sideWalls?: RampSideWall[];
 }
 
 /** 攀爬体。玩家可在 bottomY~topY 间攀爬；怪物可经此登高。 */

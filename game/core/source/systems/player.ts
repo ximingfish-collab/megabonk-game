@@ -120,6 +120,7 @@ export function createInitialPlayer(config: GameConfig): PlayerState {
     powerupMult: 1,
     difficultyMult: 1,
     luckBonus: 0,
+    shrineBonuses: { damageMult: 1, attackSpeedMult: 1, speedMult: 1, pickupRadiusMult: 1, critDamageAdd: 0 },
   };
 
   applyCharacterTrait(player, config.character);
