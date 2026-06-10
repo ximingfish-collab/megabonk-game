@@ -15,8 +15,8 @@ export const ranged: EnemyBehaviorFn = (enemy, ctx, i) => {
   const preferredRange = def?.preferredRange ?? 8;
   const dist = distanceBetween(enemy.x, enemy.z, ctx.player.x, ctx.player.z);
 
-  // 错峰重算 target
-  if ((i % 4) === ctx.aiGroup) {
+  // 错峰重算 target（每帧只有对应aiPhase的敌人重算，节省CPU）
+  if (enemy.aiPhase === ctx.aiGroup) {
     if (dist < preferredRange) {
       const dir = normalizeDirection(enemy.x - ctx.player.x, enemy.z - ctx.player.z);
       enemy.targetX = enemy.x + dir.x * 4;

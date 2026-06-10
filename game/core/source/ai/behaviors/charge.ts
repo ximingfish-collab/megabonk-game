@@ -13,25 +13,28 @@
 import type { EnemyBehaviorFn } from '../types.ts';
 import { applyMovement } from './_move.ts';
 
-export const charge: EnemyBehaviorFn = (enemy, ctx) => {
+export const charge: EnemyBehaviorFn = (enemy, ctx, i) => {
   const dt = ctx.dt;
   const player = ctx.player;
 
   switch (enemy.chargeState) {
     case 'idle': {
-      const dx = enemy.x - player.x;
-      const dz = enemy.z - player.z;
-      const dist = Math.sqrt(dx * dx + dz * dz);
-      if (dist < 15 && enemy.attackCooldown <= 0) {
-        enemy.chargeState = 'windup';
-        enemy.chargeTimer = 0.8;
-        enemy.chargeTargetX = player.x;
-        enemy.chargeTargetZ = player.z;
-      } else {
-        enemy.targetX = player.x;
-        enemy.targetZ = player.z;
-        applyMovement(enemy, ctx);
+      // 错峰重算target（只在对应aiPhase帧计算）
+      if (enemy.aiPhase === ctx.aiGroup) {
+        const dx = enemy.x - player.x;
+        const dz = enemy.z - player.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        if (dist < 15 && enemy.attackCooldown <= 0) {
+          enemy.chargeState = 'windup';
+          enemy.chargeTimer = 0.8;
+          enemy.chargeTargetX = player.x;
+          enemy.chargeTargetZ = player.z;
+        } else {
+          enemy.targetX = player.x;
+          enemy.targetZ = player.z;
+        }
       }
+      applyMovement(enemy, ctx);
       break;
     }
     case 'windup': {

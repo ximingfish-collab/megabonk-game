@@ -41,6 +41,7 @@ export function makeEnemy(id: number, x: number, z: number, hp = 100): EnemyStat
     isElite: false, isMiniBoss: false,
     hitFlashTimer: 0, attackCooldown: 0, attackCooldownMax: 1.5,
     targetX: 0, targetZ: 0,
+    aiPhase: 0, // AI错峰相位
     chargeState: 'idle', chargeTimer: 0, chargeTargetX: 0, chargeTargetZ: 0,
     summonCooldown: 0, orbitAngle: 0, orbitTimer: 0,
     diveState: 'flying', diveTimer: 0,

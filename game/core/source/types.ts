@@ -290,6 +290,8 @@ export interface EnemyState {
   attackCooldownMax: number;
   targetX: number;
   targetZ: number;
+  /** AI错峰计算相位（0-3），每帧只有对应aiPhase的敌人重算目标 */
+  aiPhase: number;
   // Charge behavior (skeleton_knight)
   chargeState: 'idle' | 'windup' | 'charging' | 'cooldown';
   chargeTimer: number;

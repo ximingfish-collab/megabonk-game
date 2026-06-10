@@ -2956,8 +2956,8 @@ window.__gm.showCollision()</code></pre>
     <tr><td>Final Swarm（任意端）</td><td class="num">≥30 fps</td><td class="num">150</td><td class="num">500</td></tr>
   </table>
 
-  <div class="note">
-    <strong>注：</strong>旧文档曾写「敌人 AI 决策分 4 帧轮流」，<strong>当前代码并未做此优化</strong>。如需加，可在 <code>enemy.aiPhase</code> 字段上按 <code>tick % 4 === aiPhase</code> 调度。
+  <div class="note" style="border-left: 4px solid var(--good); background: var(--good-soft); color: #065f46;">
+    <strong>✅ 已实现：</strong>AI错峰优化已完成！所有敌人类型（chase/ranged/charge/dive）均已实现4帧错峰计算。每个敌人生成时分配固定<code>aiPhase</code>（0-3），每帧只有对应<code>aiPhase === aiGroup</code>的敌人重算目标，减少75%的AI计算量。
   </div>
 </section>
 

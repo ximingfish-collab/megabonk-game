@@ -18,25 +18,29 @@ import { applyMovement } from './_move.ts';
 
 const LANDING_AOE_RADIUS = 3;
 
-export const dive: EnemyBehaviorFn = (enemy, ctx) => {
+export const dive: EnemyBehaviorFn = (enemy, ctx, i) => {
   const dt = ctx.dt;
   const player = ctx.player;
 
   switch (enemy.diveState) {
     case 'flying': {
       enemy.y = 3;
-      enemy.targetX = player.x;
-      enemy.targetZ = player.z;
+      // 错峰重算target（只在对应aiPhase帧计算）
+      if (enemy.aiPhase === ctx.aiGroup) {
+        enemy.targetX = player.x;
+        enemy.targetZ = player.z;
+
+        // 错峰检查攻击冷却
+        if (enemy.attackCooldown <= 0) {
+          enemy.diveState = 'diving';
+          enemy.diveTimer = 0.4;
+          enemy.chargeTargetX = player.x;
+          enemy.chargeTargetZ = player.z;
+        }
+      }
       applyMovement(enemy, ctx);
       // applyMovement 不会改 enemy.y（type==='gargoyle' 跳过地形 y）
       // speedMult dive=1.5 在 applyMovement 里生效, 等价 legacy moveEnemy
-
-      if (enemy.attackCooldown <= 0) {
-        enemy.diveState = 'diving';
-        enemy.diveTimer = 0.4;
-        enemy.chargeTargetX = player.x;
-        enemy.chargeTargetZ = player.z;
-      }
       break;
     }
     case 'diving': {

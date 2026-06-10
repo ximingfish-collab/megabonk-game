@@ -9,8 +9,8 @@ import type { EnemyBehaviorFn } from '../types.ts';
 import { applyMovement } from './_move.ts';
 
 export const chase: EnemyBehaviorFn = (enemy, ctx, i) => {
-  // 错峰重算 target（per-frame 25% 的 enemy 才重算，省 CPU）
-  if ((i % 4) === ctx.aiGroup) {
+  // 错峰重算 target（每帧只有对应aiPhase的敌人重算，节省CPU）
+  if (enemy.aiPhase === ctx.aiGroup) {
     enemy.targetX = ctx.player.x;
     enemy.targetZ = ctx.player.z;
   }
