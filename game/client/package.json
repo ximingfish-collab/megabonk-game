@@ -10,6 +10,7 @@
     "@minigame/i18n": "workspace:*",
     "@minigame/platform": "workspace:*",
     "@minigame/render-adapter": "workspace:*",
+    "gsap": "^3.15.0",
     "three": "^0.170.0"
   }
 }

@@ -6,7 +6,7 @@
  */
 
 import { enhancedCollision } from '../systems/collisionEnhanced.ts';
-import type { GameInstance, GameState, LevelData } from '../types.ts';
+import type { GameInstance } from '../GameInstance.ts';
 import { makeLevelGeometry } from '../systems/collision.ts';
 
 /**
