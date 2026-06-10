@@ -1149,20 +1149,6 @@ function buildRampFromSurface(surf: ReturnType<typeof analyzeTopSurface>, box: T
   }
   const halfSlope = span / 2;
   const halfPerp = (maxP - minP) / 2;
-  const wallThickness = 0.12;
-  const makeSideWall = (side: -1 | 1) => {
-    const wallCenterP = side * (halfPerp + wallThickness * 0.5);
-    return {
-      cx: centerS * slopeDirX + wallCenterP * perpX,
-      cz: centerS * slopeDirZ + wallCenterP * perpZ,
-      dirX: slopeDirX,
-      dirZ: slopeDirZ,
-      halfLength: halfSlope,
-      halfThickness: wallThickness,
-      bottomY: box.min.y,
-      topY: box.max.y,
-    };
-  };
   return {
     cx, cz,
     halfSlope,
@@ -1170,7 +1156,6 @@ function buildRampFromSurface(surf: ReturnType<typeof analyzeTopSurface>, box: T
     slopeDirX, slopeDirZ,
     lowY: Number.isFinite(lowMax) ? lowMax : surf.lowY,
     highY: Number.isFinite(highMax) ? highMax : surf.highY,
-    sideWalls: [makeSideWall(-1), makeSideWall(1)],
   };
 }
 

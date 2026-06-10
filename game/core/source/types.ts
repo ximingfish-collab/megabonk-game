@@ -699,21 +699,6 @@ export interface WallBox {
   blockProjectile?: boolean;
 }
 
-/** 斜坡侧面实体墙：有方向的窄长阻挡条，用于阻止从 ramp_ 左右侧钻入三角体。 */
-export interface RampSideWall {
-  cx: number;
-  cz: number;
-  /** 沿墙方向（通常等于 ramp.slopeDir）的单位向量。 */
-  dirX: number;
-  dirZ: number;
-  /** 沿墙方向半长。 */
-  halfLength: number;
-  /** 垂直墙方向半厚。 */
-  halfThickness: number;
-  bottomY: number;
-  topY: number;
-}
-
 /**
  * 斜坡 —— 可**行走**上去的倾斜地面（区别于 climb_ 攀爬）。
  *
@@ -738,8 +723,6 @@ export interface RampVolume {
   lowY: number;
   /** 高端顶面高度。 */
   highY: number;
-  /** 左右侧面实体墙。缺省为空，兼容旧关卡。 */
-  sideWalls?: RampSideWall[];
 }
 
 /** 攀爬体。玩家可在 bottomY~topY 间攀爬；怪物可经此登高。 */

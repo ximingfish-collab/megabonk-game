@@ -16,8 +16,7 @@
     "@minigame/core": "workspace:*",
     "@minigame/i18n": "workspace:*",
     "@minigame/platform": "workspace:*",
-    "@minigame/render-adapter": "workspace:*",
-    "gsap": "^3.15.0"
+    "@minigame/render-adapter": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "20.11.0",
