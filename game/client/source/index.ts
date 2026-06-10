@@ -19,6 +19,7 @@ import {
   CHARACTER_CONFIGS,
   WEAPON_STATS,
   WEAPON_EVOLUTIONS,
+  TOME_MAX_LEVELS,
   SHOP_UPGRADES,
   QUESTS,
   TIER_CONFIGS,
@@ -39,6 +40,9 @@ import {
   type GameState,
   type GameResult,
   type InputState,
+  type WeaponState,
+  type TomeState,
+  type WeaponLevelStats,
   type EnemyState,
   type EnemyType,
   type ProjectileState,
@@ -858,6 +862,24 @@ const TOME_COLORS: Record<string, string> = {
   speed_tome: '#44ffaa',
 };
 
+function escapeTooltipText(value: string | number): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatTooltipNumber(value: number, digits = 1): string {
+  if (Number.isInteger(value)) return String(value);
+  return value.toFixed(digits).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+}
+
+function formatTooltipPercent(value: number, digits = 0): string {
+  return `${formatTooltipNumber(value * 100, digits)}%`;
+}
+
 const TIER_COLORS: Record<number, string> = {
   1: '#aaaaaa',
   2: '#ff8844',
@@ -1662,6 +1684,8 @@ export class GameScene {
   private weaponSlotsContainer!: HTMLDivElement;
   private tomesSlotsContainer!: HTMLDivElement;
   private relicSlotsContainer!: HTMLDivElement;
+  private itemTooltip: HTMLDivElement | null = null;
+  private itemTooltipContent = new WeakMap<HTMLElement, string>();
   private bossHpContainer!: HTMLDivElement;
   private bossHpBarInner!: HTMLDivElement;
   private bossNameLabel!: HTMLDivElement;
@@ -1859,6 +1883,8 @@ export class GameScene {
     this.shrineIndicator?.remove();
     this.finalSwarmLabel?.remove();
     this.finalSwarmBorder?.remove();
+    this.itemTooltip?.remove();
+    this.itemTooltip = null;
     this.screenFlashEl?.remove();
     this.comboLabel?.remove();
     for (const el of this.damageNums) el.remove();
@@ -2818,18 +2844,35 @@ export class GameScene {
 
     // Weapon slots container (bottom-left)
     this.weaponSlotsContainer = document.createElement('div');
-    this.weaponSlotsContainer.style.cssText = 'position:absolute;bottom:70px;left:12px;display:flex;gap:4px;flex-wrap:wrap;max-width:240px;';
+    this.weaponSlotsContainer.dataset.cameraBlock = 'true';
+    this.weaponSlotsContainer.style.cssText = 'position:absolute;bottom:70px;left:12px;display:flex;gap:4px;flex-wrap:wrap;max-width:240px;pointer-events:auto;';
     this.hudContainer.appendChild(this.weaponSlotsContainer);
 
     // Tome slots container (bottom-right, above mobile buttons)
     this.tomesSlotsContainer = document.createElement('div');
-    this.tomesSlotsContainer.style.cssText = 'position:absolute;bottom:70px;right:12px;display:flex;gap:3px;flex-wrap:wrap;max-width:180px;justify-content:flex-end;';
+    this.tomesSlotsContainer.dataset.cameraBlock = 'true';
+    this.tomesSlotsContainer.style.cssText = 'position:absolute;bottom:70px;right:12px;display:flex;gap:3px;flex-wrap:wrap;max-width:180px;justify-content:flex-end;pointer-events:auto;';
     this.hudContainer.appendChild(this.tomesSlotsContainer);
 
     // Relic stacks (bottom-center above level / XP)
     this.relicSlotsContainer = document.createElement('div');
-    this.relicSlotsContainer.style.cssText = 'position:absolute;bottom:70px;left:50%;transform:translateX(-50%);display:flex;gap:6px;flex-wrap:wrap;max-width:min(420px,70vw);justify-content:center;align-items:center;';
+    this.relicSlotsContainer.dataset.cameraBlock = 'true';
+    this.relicSlotsContainer.style.cssText = 'position:absolute;bottom:70px;left:50%;transform:translateX(-50%);display:flex;gap:6px;flex-wrap:wrap;max-width:min(420px,70vw);justify-content:center;align-items:center;pointer-events:auto;';
     this.hudContainer.appendChild(this.relicSlotsContainer);
+
+    this.itemTooltip = document.createElement('div');
+    this.itemTooltip.style.cssText = `
+      position:fixed;left:0;top:0;display:none;z-index:260;pointer-events:none;
+      max-width:min(320px,calc(100vw - 24px));padding:10px 12px;border-radius:10px;
+      background:linear-gradient(180deg,rgba(18,18,32,0.96),rgba(8,8,16,0.96));
+      border:1px solid rgba(255,255,255,0.18);box-shadow:0 12px 34px rgba(0,0,0,0.55);
+      color:#f5f2ff;font-size:12px;line-height:1.35;text-shadow:0 1px 2px rgba(0,0,0,0.9);
+      backdrop-filter:blur(4px);
+    `;
+    document.body.appendChild(this.itemTooltip);
+    this.installItemTooltipHandlers(this.weaponSlotsContainer);
+    this.installItemTooltipHandlers(this.tomesSlotsContainer);
+    this.installItemTooltipHandlers(this.relicSlotsContainer);
 
     // Boss HP bar (top-center, hidden by default)
     this.bossHpContainer = document.createElement('div');
@@ -5858,7 +5901,8 @@ export class GameScene {
       const slot = document.createElement('div');
       const borderColor = weapon.evolved ? '#ffcc00' : '#555';
       const borderWidth = weapon.evolved ? '2px' : '2px';
-      slot.style.cssText = `width:44px;height:44px;background:rgba(0,0,0,0.6);border:${borderWidth} solid ${borderColor};border-radius:6px;position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0;`;
+      slot.style.cssText = `width:44px;height:44px;background:rgba(0,0,0,0.6);border:${borderWidth} solid ${borderColor};border-radius:6px;position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:help;`;
+      this.setItemTooltip(slot, this.createWeaponTooltipHtml(weapon));
       // Weapon icon
       const icon = document.createElement('span');
       icon.style.cssText = 'font-size:20px;';
@@ -5884,7 +5928,8 @@ export class GameScene {
     for (const tome of p.tomes) {
       const slot = document.createElement('div');
       const bgColor = TOME_COLORS[tome.type] ?? '#444';
-      slot.style.cssText = `width:36px;height:36px;background:${bgColor}33;border:1px solid ${bgColor};border-radius:5px;position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0;`;
+      slot.style.cssText = `width:36px;height:36px;background:${bgColor}33;border:1px solid ${bgColor};border-radius:5px;position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:help;`;
+      this.setItemTooltip(slot, this.createTomeTooltipHtml(tome));
       const icon = document.createElement('span');
       icon.style.cssText = 'font-size:16px;';
       icon.textContent = TOME_ICONS[tome.type] ?? '📖';
@@ -5905,11 +5950,11 @@ export class GameScene {
       if (!relic) continue;
       const borderColor = RARITY_COLORS[relic.rarity] ?? '#aaaaaa';
       const slot = document.createElement('div');
-      slot.title = `${relic.name} x${count}\n${relic.description}`;
+      this.setItemTooltip(slot, this.createRelicTooltipHtml(id, count, state));
       slot.style.cssText = `
         width:34px;height:34px;background:rgba(10,10,22,0.78);border:1px solid ${borderColor};
         border-radius:8px;position:relative;display:flex;align-items:center;justify-content:center;
-        flex-shrink:0;box-shadow:0 0 10px ${borderColor}40;
+        flex-shrink:0;box-shadow:0 0 10px ${borderColor}40;cursor:help;
       `;
       const icon = document.createElement('span');
       icon.style.cssText = 'font-size:17px;';
@@ -6137,6 +6182,252 @@ export class GameScene {
     const maxCd = 4.0;
     const pct = Math.max(0, Math.min(100, (weapon.cooldownTimer / maxCd) * 100));
     return { cooldownPercent: pct };
+  }
+
+  private installItemTooltipHandlers(container: HTMLElement): void {
+    container.addEventListener('mousemove', (event) => {
+      const target = (event.target as HTMLElement).closest('[data-tooltip-item]') as HTMLElement | null;
+      if (!target || !container.contains(target)) {
+        this.hideItemTooltip();
+        return;
+      }
+      const html = this.itemTooltipContent.get(target);
+      if (!html) {
+        this.hideItemTooltip();
+        return;
+      }
+      this.showItemTooltip(html, event);
+    });
+    container.addEventListener('mouseleave', () => this.hideItemTooltip());
+  }
+
+  private setItemTooltip(el: HTMLElement, html: string): void {
+    el.dataset.tooltipItem = 'true';
+    this.itemTooltipContent.set(el, html);
+  }
+
+  private showItemTooltip(html: string, event: MouseEvent): void {
+    if (!this.itemTooltip) return;
+    if (this.itemTooltip.innerHTML !== html) {
+      this.itemTooltip.innerHTML = html;
+    }
+    this.itemTooltip.style.display = 'block';
+    this.moveItemTooltip(event);
+  }
+
+  private hideItemTooltip(): void {
+    if (!this.itemTooltip) return;
+    this.itemTooltip.style.display = 'none';
+  }
+
+  private moveItemTooltip(event: MouseEvent): void {
+    if (!this.itemTooltip) return;
+    const gap = 16;
+    const margin = 8;
+    const rect = this.itemTooltip.getBoundingClientRect();
+    let x = event.clientX + gap;
+    let y = event.clientY + gap;
+    if (x + rect.width > window.innerWidth - margin) {
+      x = event.clientX - rect.width - gap;
+    }
+    if (y + rect.height > window.innerHeight - margin) {
+      y = event.clientY - rect.height - gap;
+    }
+    this.itemTooltip.style.left = `${Math.max(margin, x)}px`;
+    this.itemTooltip.style.top = `${Math.max(margin, y)}px`;
+  }
+
+  private buildItemTooltipHtml(args: {
+    title: string;
+    subtitle?: string;
+    description?: string;
+    rows: Array<[string, string]>;
+    accent: string;
+  }): string {
+    const rows = args.rows.map(([label, value]) => `
+      <div style="display:flex;justify-content:space-between;gap:18px;margin-top:3px;">
+        <span style="color:#b9b4cc;">${escapeTooltipText(label)}</span>
+        <span style="color:#ffffff;font-weight:700;text-align:right;">${escapeTooltipText(value)}</span>
+      </div>
+    `).join('');
+
+    return `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+        <div style="width:7px;height:24px;border-radius:999px;background:${args.accent};box-shadow:0 0 12px ${args.accent}aa;"></div>
+        <div>
+          <div style="font-size:14px;font-weight:800;color:#fff;">${escapeTooltipText(args.title)}</div>
+          ${args.subtitle ? `<div style="font-size:10px;color:${args.accent};font-weight:700;letter-spacing:0.4px;">${escapeTooltipText(args.subtitle)}</div>` : ''}
+        </div>
+      </div>
+      ${args.description ? `<div style="color:#d8d1ee;margin:6px 0 8px;">${escapeTooltipText(args.description)}</div>` : ''}
+      ${rows ? `<div style="border-top:1px solid rgba(255,255,255,0.12);padding-top:6px;">${rows}</div>` : ''}
+    `;
+  }
+
+  private getEffectiveWeaponStats(weapon: WeaponState): WeaponLevelStats {
+    const levelStats = WEAPON_STATS[weapon.type] ?? WEAPON_STATS.bone_bouncer;
+    const base = levelStats[0];
+    let effective: WeaponLevelStats;
+
+    if (weapon.growth) {
+      const g = weapon.growth;
+      effective = {
+        damage: Math.round(base.damage + g.damage),
+        cooldown: Math.max(0.1, base.cooldown + g.cooldown),
+        projectileCount: Math.floor(base.projectileCount + g.projectileCount),
+        bounces: Math.floor(base.bounces + g.bounces),
+        chains: Math.floor(base.chains + g.chains),
+        range: base.range + g.range,
+        aoeRadius: base.aoeRadius + g.aoeRadius,
+        pierce: Math.floor(base.pierce + g.pierce),
+        speed: base.speed + g.speed,
+      };
+    } else {
+      const idx = Math.max(0, Math.min((weapon.evolved ? levelStats.length - 1 : weapon.level - 1), levelStats.length - 1));
+      effective = levelStats[idx];
+    }
+
+    if (!weapon.evolved) return effective;
+    const evolution = WEAPON_EVOLUTIONS.find(e => e.baseWeapon === weapon.type);
+    if (!evolution) return effective;
+    return {
+      ...effective,
+      damage: Math.round(effective.damage * evolution.damageMultiplier),
+      projectileCount: effective.projectileCount + 1,
+    };
+  }
+
+  private createWeaponTooltipHtml(weapon: WeaponState): string {
+    const stats = this.getEffectiveWeaponStats(weapon);
+    const rows: Array<[string, string]> = [
+      [t('upgrade.stat.damage'), String(stats.damage)],
+      [t('upgrade.stat.cooldown'), `${formatTooltipNumber(stats.cooldown, 2)}s`],
+    ];
+    if (stats.projectileCount > 0) rows.push([t('upgrade.stat.projectiles'), String(stats.projectileCount)]);
+    if (stats.range > 0) rows.push([t('upgrade.stat.range'), formatTooltipNumber(stats.range, 1)]);
+    if (stats.aoeRadius > 0) rows.push([t('upgrade.stat.aoe'), formatTooltipNumber(stats.aoeRadius, 1)]);
+    if (stats.pierce > 0 && stats.pierce < 999) rows.push([t('upgrade.stat.pierce'), String(stats.pierce)]);
+    if (stats.pierce >= 999) rows.push([t('upgrade.stat.pierce'), '∞']);
+    if (stats.bounces > 0) rows.push([t('upgrade.stat.bounces'), String(stats.bounces)]);
+    if (stats.chains > 0) rows.push([t('upgrade.stat.chains'), String(stats.chains)]);
+    if (stats.speed > 0) rows.push([t('upgrade.stat.projSpeed'), formatTooltipNumber(stats.speed, 1)]);
+    if (weapon.cooldownTimer > 0) rows.push(['剩余冷却', `${formatTooltipNumber(weapon.cooldownTimer, 1)}s`]);
+
+    return this.buildItemTooltipHtml({
+      title: `${WEAPON_ICONS[weapon.type] ?? '?'} ${t(`upgrade.weapon.${weapon.type}`)}`,
+      subtitle: weapon.evolved ? `Lv.${weapon.level} · 已进化` : `Lv.${weapon.level}`,
+      description: t(`upgrade.weapon.${weapon.type}_desc`),
+      rows,
+      accent: weapon.evolved ? '#ffcc00' : '#7aa7ff',
+    });
+  }
+
+  private createTomeTooltipHtml(tome: TomeState): string {
+    const power = tome.growth ?? tome.level;
+    const rows: Array<[string, string]> = [];
+    switch (tome.type) {
+      case 'attack_speed_tome':
+        rows.push([t('upgrade.stat.attackSpeed'), `+${formatTooltipPercent(0.10 * power)}`]);
+        break;
+      case 'life_tome':
+        rows.push([t('upgrade.stat.maxHp'), `+${formatTooltipNumber(15 * power, 0)}`]);
+        break;
+      case 'consumable_tome':
+        rows.push([t('upgrade.stat.consumableDrop'), `+${formatTooltipPercent(0.05 * power)}`]);
+        break;
+      case 'luck_tome':
+        rows.push([t('upgrade.stat.luck'), `+${formatTooltipNumber(5 * power, 0)}`]);
+        break;
+      case 'thorns_tome':
+        rows.push([t('upgrade.stat.thorns'), `${formatTooltipNumber(3 * power, 0)}`]);
+        break;
+      case 'shield_tome':
+        rows.push([t('upgrade.stat.armor'), `+${formatTooltipNumber(2 * power, 0)}`]);
+        rows.push([t('upgrade.stat.shieldReduction'), `+${formatTooltipPercent(0.05 * power)}`]);
+        break;
+      case 'xp_gain_tome':
+        rows.push([t('upgrade.stat.xpGain'), `+${formatTooltipPercent(0.15 * power)}`]);
+        break;
+      case 'attraction_tome':
+        rows.push([t('upgrade.stat.pickupRadius'), `+${formatTooltipNumber(1.2 * power, 1)}`]);
+        break;
+      case 'curse_tome':
+        rows.push([t('upgrade.stat.curseSpawn'), `+${formatTooltipPercent(0.10 * power)}`]);
+        rows.push([t('upgrade.stat.xpGain'), `+${formatTooltipPercent(0.20 * power)}`]);
+        break;
+      case 'precision_tome':
+        rows.push([t('upgrade.stat.critChance'), `+${formatTooltipPercent(0.05 * power)}`]);
+        rows.push([t('upgrade.stat.critDamage'), `+${formatTooltipPercent(0.10 * power)}`]);
+        break;
+      case 'knockback_tome':
+        rows.push([t('upgrade.stat.knockback'), `+${formatTooltipPercent(0.30 * power)}`]);
+        break;
+      case 'speed_tome':
+        rows.push([t('upgrade.stat.moveSpeed'), `+${formatTooltipPercent(0.08 * power)}`]);
+        break;
+    }
+
+    return this.buildItemTooltipHtml({
+      title: `${TOME_ICONS[tome.type] ?? '📖'} ${t(`upgrade.tome.${tome.type}`)}`,
+      subtitle: `Lv.${tome.level}/${TOME_MAX_LEVELS[tome.type] ?? 8} · 强度 ${formatTooltipNumber(power, 1)}`,
+      description: t(`upgrade.tome.${tome.type}_desc`),
+      rows,
+      accent: TOME_COLORS[tome.type] ?? '#aa88ff',
+    });
+  }
+
+  private createRelicTooltipHtml(id: RelicId, stacks: number, state: GameState): string {
+    const relic = RELICS[id];
+    const rows: Array<[string, string]> = [];
+    switch (id) {
+      case 'keen_lens':
+        rows.push([t('upgrade.stat.critChance'), `+${formatTooltipPercent(0.03 * stacks)}`]);
+        break;
+      case 'small_shield_charm':
+        rows.push(['护盾值', `+${2 * stacks}`]);
+        rows.push(['最大护盾', `+${5 * stacks}`]);
+        break;
+      case 'blood_fang':
+        rows.push(['击杀回复', `${2 * stacks} HP`]);
+        rows.push(['精英击杀回复', `${6 * stacks} HP`]);
+        break;
+      case 'pact_coin':
+        rows.push(['击杀金币', `+${stacks}`]);
+        break;
+      case 'arsenal_badge': {
+        const level10Weapons = state.player.weapons.filter(w => w.level >= 10).length;
+        rows.push(['每把 Lv10 武器', `+${formatTooltipPercent(0.04 * stacks)} 伤害`]);
+        rows.push(['当前总伤害', `+${formatTooltipPercent(level10Weapons * 0.04 * stacks)}`]);
+        break;
+      }
+      case 'elite_writ':
+        rows.push(['对精英伤害', `+${formatTooltipPercent(0.10 * stacks)}`]);
+        break;
+      case 'regen_core':
+        rows.push(['生命恢复', `+${formatTooltipNumber(0.5 * stacks, 1)}/s`]);
+        break;
+      case 'magazine_expander':
+        rows.push([t('upgrade.stat.projectiles'), `+${stacks}`]);
+        break;
+      case 'hourglass':
+        rows.push(['Overtime 每秒全伤', `+${formatTooltipPercent(0.0012 * stacks, 2)}`]);
+        if (state.overtimeSeconds > 0) {
+          rows.push(['当前全伤', `+${formatTooltipPercent(state.overtimeSeconds * 0.0012 * stacks, 1)}`]);
+        }
+        break;
+      case 'iron_heart':
+        rows.push([t('upgrade.stat.maxHp'), `+${formatTooltipPercent(0.12 * stacks)}`]);
+        rows.push([t('upgrade.stat.armor'), `+${2 * stacks}`]);
+        break;
+    }
+
+    return this.buildItemTooltipHtml({
+      title: `${relic.emoji} ${relic.name}`,
+      subtitle: `${relic.rarity.toUpperCase()} · x${stacks}`,
+      description: relic.description,
+      rows,
+      accent: RARITY_COLORS[relic.rarity] ?? '#aaaaaa',
+    });
   }
 
   // ===========================================================================

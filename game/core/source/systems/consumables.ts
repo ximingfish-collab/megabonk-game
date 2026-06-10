@@ -18,6 +18,8 @@ import type { ConsumableId, ConsumablePickupState, EnemyState } from '../types.t
 import type { Engine } from './types.ts';
 
 const XP_PICKUP_TYPES = new Set(['xp_green', 'xp_blue', 'xp_purple', 'xp_orange']);
+const CONSUMABLE_ATTRACT_RADIUS = 0.65;
+const CONSUMABLE_COLLECT_RADIUS = 0.32;
 
 export function spawnConsumablesFromEnemy(engine: Engine, enemy: EnemyState): void {
   const player = engine.state.player;
@@ -72,10 +74,17 @@ export function tickConsumablePickups(engine: Engine, dt: number): void {
     }
 
     const dist = distanceBetween(player.x, player.z, pickup.x, pickup.z);
-    if (dist < player.pickupRadius) pickup.attracted = true;
+    if (dist < CONSUMABLE_COLLECT_RADIUS) {
+      applyConsumable(engine, pickup.consumableId);
+      pickups.splice(i, 1);
+      continue;
+    }
 
+    // Consumables intentionally ignore pickupRadius / magnet bonuses; they only
+    // nudge toward the player when almost touched.
+    pickup.attracted = dist < CONSUMABLE_ATTRACT_RADIUS;
     if (pickup.attracted) {
-      const maxDist = player.pickupRadius;
+      const maxDist = CONSUMABLE_ATTRACT_RADIUS;
       const t = Math.max(0, 1 - dist / maxDist);
       const attractSpeed = PICKUP_ATTRACT_SPEED * (0.3 + t * t * 2.0);
       const dir = normalizeDirection(player.x - pickup.x, player.z - pickup.z);
@@ -83,7 +92,7 @@ export function tickConsumablePickups(engine: Engine, dt: number): void {
       pickup.z += dir.z * attractSpeed * dt;
 
       const newDist = distanceBetween(player.x, player.z, pickup.x, pickup.z);
-      if (newDist < 0.5) {
+      if (newDist < CONSUMABLE_COLLECT_RADIUS) {
         applyConsumable(engine, pickup.consumableId);
         pickups.splice(i, 1);
       }
