@@ -1704,7 +1704,6 @@ export class GameScene {
   private damageNumIndex = 0;
   private finalSwarmLabel: HTMLDivElement | null = null;
   private finalSwarmBorder: HTMLDivElement | null = null;
-  private lastXp = 0;
   private xpFlashTimer = 0;
   private seenChestOpenEvents = new Set<string>();
 
@@ -2792,7 +2791,7 @@ export class GameScene {
     const hpContainer = document.createElement('div');
     hpContainer.style.cssText = 'position:absolute;top:12px;left:50%;transform:translateX(-50%);width:200px;height:16px;background:rgba(40,40,40,0.8);border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,0.2);';
     this.hpBarInner = document.createElement('div');
-    this.hpBarInner.style.cssText = 'width:100%;height:100%;background:linear-gradient(90deg,#cc2222,#ff4444);transition:width 0.15s;border-radius:8px;';
+    this.hpBarInner.style.cssText = 'width:100%;height:100%;background:linear-gradient(90deg,#cc2222,#ff4444);border-radius:8px;';
     hpContainer.appendChild(this.hpBarInner);
     this.hpBar = hpContainer;
     this.hudContainer.appendChild(hpContainer);
@@ -2801,7 +2800,7 @@ export class GameScene {
     const xpContainer = document.createElement('div');
     xpContainer.style.cssText = 'position:absolute;bottom:16px;left:50%;transform:translateX(-50%);width:260px;height:12px;background:rgba(40,40,40,0.8);border-radius:6px;overflow:hidden;border:1px solid rgba(255,255,255,0.15);';
     this.xpBarInner = document.createElement('div');
-    this.xpBarInner.style.cssText = 'width:0%;height:100%;background:linear-gradient(90deg,#cc9900,#ffcc00);transition:width 0.15s;border-radius:6px;';
+    this.xpBarInner.style.cssText = 'width:0%;height:100%;background:linear-gradient(90deg,#cc9900,#ffcc00);border-radius:6px;';
     xpContainer.appendChild(this.xpBarInner);
     this.xpBar = xpContainer;
     this.hudContainer.appendChild(xpContainer);
@@ -2883,7 +2882,7 @@ export class GameScene {
     this.bossHpContainer = document.createElement('div');
     this.bossHpContainer.style.cssText = 'position:absolute;top:36px;left:50%;transform:translateX(-50%);width:60%;max-width:500px;height:22px;background:rgba(20,20,20,0.9);border-radius:4px;overflow:hidden;border:1px solid rgba(255,100,0,0.4);display:none;';
     this.bossHpBarInner = document.createElement('div');
-    this.bossHpBarInner.style.cssText = 'width:100%;height:100%;background:linear-gradient(90deg,#cc3300,#ff6600);transition:width 0.2s;border-radius:4px;';
+    this.bossHpBarInner.style.cssText = 'width:100%;height:100%;background:linear-gradient(90deg,#cc3300,#ff6600);border-radius:4px;';
     this.bossHpContainer.appendChild(this.bossHpBarInner);
     // Phase threshold markers
     this.bossPhaseMarkers = document.createElement('div');
@@ -5831,13 +5830,6 @@ export class GameScene {
       this.lastXpPercent = xpPercent;
     }
     this.xpNumbers.textContent = `${p.xp} / ${p.xpToNext}`;
-
-    // XP flash on gain with GSAP
-    if (p.xp !== this.lastXp) {
-      // 使用 GSAP 创建闪光效果
-      gsapAnimations.playLevelUpEffect(this.xpBarInner);
-      this.lastXp = p.xp;
-    }
 
     // Level label with GSAP pulse animation
     this.levelLabel.textContent = t('hud.level', { level: String(p.level) });
