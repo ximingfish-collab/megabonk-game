@@ -27,7 +27,7 @@ import {
   TICK_INTERVAL_MS,
   TIER_CONFIGS,
 } from './config.ts';
-import { MAX_PROJECTILES } from './config.ts';
+import { MAX_PROJECTILES, MAX_AREA_EFFECTS } from './config.ts';
 import type { AiEffects, AiContext } from './ai/types.ts';
 
 import { SpatialHash } from './spatial-hash.ts';
@@ -469,6 +469,7 @@ function makeEffects(engine: Engine): AiEffects {
       return id;
     },
     spawnAreaEffect: (a) => {
+      if (engine.state.areaEffects.length >= MAX_AREA_EFFECTS) return null;
       const id = engine.nextAreaEffectId++;
       engine.state.areaEffects.push({ id, ...a });
       return id;
