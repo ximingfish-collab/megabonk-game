@@ -11,6 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.19.3",
     "@eebuk/cli": "1.0.5",
     "@minigame/client": "workspace:*",
     "@minigame/core": "workspace:*",
