@@ -24,7 +24,6 @@ interface PlayerPos {
 }
 
 const PITCH_LIMIT = (Math.PI / 180) * 75;
-const MOUSE_SENS_LOCK = 0.002;
 const MOUSE_SENS_DRAG = 0.005;
 const TOUCH_SENS = 0.005;
 const CAM_DISTANCE = 7;
@@ -44,36 +43,25 @@ export class CameraOrbit {
   private dragLastX = 0;
   private dragLastY = 0;
   private enabled = true;
-  private mouseInsideCanvas = false;
   /** 当前指针是否位于可交互 UI 上（HUD 按钮 / 面板 / 菜单等）。 */
   private pointerOverUi = false;
-  private lastPointerX = 0;
-  private lastPointerY = 0;
   private cleanups: Array<() => void> = [];
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     // 全局指针跟踪：进入 UI 区域时立刻阻断镜头输入。
     const onGlobalPointerMove = (e: PointerEvent) => {
-      this.lastPointerX = e.clientX;
-      this.lastPointerY = e.clientY;
       this.updatePointerUiState(e.clientX, e.clientY);
     };
     document.addEventListener('pointermove', onGlobalPointerMove);
     this.cleanups.push(() => document.removeEventListener('pointermove', onGlobalPointerMove));
 
     const onEnter = (e: PointerEvent) => {
-      this.mouseInsideCanvas = true;
-      this.updatePointerUiState(e.clientX, e.clientY);
       // 桌面端不自动抢 pointer lock；只有按住左键拖动时才旋转镜头。
-    };
-    const onLeave = () => {
-      this.mouseInsideCanvas = false;
+      this.updatePointerUiState(e.clientX, e.clientY);
     };
     canvas.addEventListener('pointerenter', onEnter);
-    canvas.addEventListener('pointerleave', onLeave);
     this.cleanups.push(
       () => canvas.removeEventListener('pointerenter', onEnter),
-      () => canvas.removeEventListener('pointerleave', onLeave),
     );
 
     // 桌面端改为“按住左键拖拽”旋转，不再监听 pointer lock mousemove。
@@ -162,13 +150,6 @@ export class CameraOrbit {
     );
   }
 
-  snap(p: PlayerPos): void {
-    this.ghostX = p.x;
-    this.ghostY = p.y;
-    this.ghostZ = p.z;
-    this.ghostInitialized = true;
-  }
-
   dispose(): void {
     for (const c of this.cleanups) c();
     this.cleanups = [];
@@ -212,8 +193,5 @@ export class CameraOrbit {
       if (this.isPointerOverBlockingUi(clientX, clientY)) return false;
     }
     return true;
-  }
-  private isTouchDevice(): boolean {
-    return (navigator.maxTouchPoints ?? 0) > 0;
   }
 }
