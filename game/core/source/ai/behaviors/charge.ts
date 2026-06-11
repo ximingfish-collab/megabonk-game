@@ -12,6 +12,9 @@
  */
 import type { EnemyBehaviorFn } from '../types.ts';
 import { applyMovement } from './_move.ts';
+import { tryMoveHorizontally } from '../../systems/horizontalMove.ts';
+
+const CHARGE_RADIUS = 0.4; // 与 _move.ts 的 ENEMY_RADIUS 一致
 
 export const charge: EnemyBehaviorFn = (enemy, ctx, i) => {
   const dt = ctx.dt;
@@ -64,8 +67,15 @@ export const charge: EnemyBehaviorFn = (enemy, ctx, i) => {
         const nx = dx / dist;
         const nz = dz / dist;
         const halfMap = (ctx.mapSize + 10) * 0.5;
-        enemy.x = Math.max(-halfMap, Math.min(halfMap, enemy.x + nx * actualMove));
-        enemy.z = Math.max(-halfMap, Math.min(halfMap, enemy.z + nz * actualMove));
+        const targetX = Math.max(-halfMap, Math.min(halfMap, enemy.x + nx * actualMove));
+        const targetZ = Math.max(-halfMap, Math.min(halfMap, enemy.z + nz * actualMove));
+        // 冲撞尊重墙体：撞墙停 / 沿墙滑，不再冲进墙里（仍由 chargeTimer 收尾进 cooldown）
+        const moved = tryMoveHorizontally(ctx.geo, enemy.x, enemy.z, targetX, targetZ, enemy.y, {
+          radius: CHARGE_RADIUS,
+          includeClimb: true,
+        });
+        enemy.x = moved.x;
+        enemy.z = moved.z;
       }
       if (enemy.chargeTimer <= 0 || dist <= 0.5) {
         enemy.chargeState = 'cooldown';

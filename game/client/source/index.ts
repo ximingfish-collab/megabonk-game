@@ -5,6 +5,10 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 // @ts-ignore
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { Pass } from 'three/examples/jsm/postprocessing/Pass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 // @ts-ignore
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 // @ts-ignore
@@ -879,8 +883,15 @@ const DAMAGE_NUM_POOL_SIZE = 30;
 
 /** 3-step gradient map for MeshToonMaterial (shadow / mid / highlight) */
 function createToonGradientMap(): THREE.DataTexture {
-  const colors = new Uint8Array([40, 150, 255]); // 3 discrete light steps
-  const gradMap = new THREE.DataTexture(colors, 3, 1, THREE.RedFormat);
+  // 3 段明暗阶梯（阴影 / 中间调 / 高光）—— 荒野乱斗式光影断层。
+  // MeshToonMaterial 按 NdotL 采样此 ramp 的 .r 通道；NearestFilter 保证硬断层不被插值糊掉。
+  // 暗端用高地板（130 而非 0）：背光面仍明亮、阴影不发黑发闷 —— 荒野乱斗的高亮通透感。
+  const colors = new Uint8Array([
+    85, 85, 85, 255,     // 阴影（拉开对比找回立体感，但不死黑）
+    180, 180, 180, 255,  // 中间调
+    255, 255, 255, 255,  // 高光
+  ]);
+  const gradMap = new THREE.DataTexture(colors, colors.length / 4, 1, THREE.RGBAFormat);
   gradMap.minFilter = THREE.NearestFilter;
   gradMap.magFilter = THREE.NearestFilter;
   gradMap.needsUpdate = true;
@@ -893,6 +904,36 @@ const toonGradientMap = createToonGradientMap();
  * Convert all mesh materials in a scene to MeshToonMaterial (cel-shading).
  * Preserves color/map/normalMap from original materials.
  */
+/** 提升颜色饱和度（HSL 的 s ×factor），用于 toon 的"饱满高饱和纯色块"观感。 */
+function boostMaterialSaturation(color: THREE.Color, factor: number): void {
+  const hsl = { h: 0, s: 0, l: 0 };
+  color.getHSL(hsl);
+  color.setHSL(hsl.h, Math.min(1, hsl.s * factor), hsl.l);
+}
+
+/**
+ * EffectComposer 首道 pass：用 OutlineEffect 把「场景 + 黑描边」渲进 composer 缓冲，
+ * 让后续 bloom 能在保留描边的前提下叠加辉光（OutlineEffect 尊重预设 renderTarget）。
+ * 渲到目标时引擎自动禁 in-material tonemap → 缓冲为线性 HDR，交末端 OutputPass 统一 ACES+sRGB。
+ */
+class OutlineComposerPass extends Pass {
+  constructor(
+    private readonly outline: { render(scene: THREE.Scene, camera: THREE.Camera): void },
+    private readonly scene: THREE.Scene,
+    private readonly camera: THREE.Camera,
+  ) {
+    super();
+    this.needsSwap = false;
+    this.clear = true;
+  }
+
+  render(renderer: THREE.WebGLRenderer, _writeBuffer: THREE.WebGLRenderTarget, readBuffer: THREE.WebGLRenderTarget): void {
+    renderer.setRenderTarget(this.renderToScreen ? null : readBuffer);
+    if (this.clear) renderer.clear();
+    this.outline.render(this.scene, this.camera);
+  }
+}
+
 function convertToToonMaterials(root: THREE.Object3D): void {
   root.traverse((child) => {
     if (!(child as THREE.Mesh).isMesh) return;
@@ -901,8 +942,10 @@ function convertToToonMaterials(root: THREE.Object3D): void {
     const toonMats = materials.map((mat) => {
       if (mat instanceof THREE.MeshToonMaterial) return mat; // already toon
       const oldMat = mat as THREE.MeshStandardMaterial | THREE.MeshPhongMaterial | THREE.MeshLambertMaterial;
+      const color = (oldMat.color ?? new THREE.Color(0xffffff)).clone();
+      boostMaterialSaturation(color, 1.5); // 敌人/场景/道具统一高饱和（与玩家 ×1.6 对齐）
       const toon = new THREE.MeshToonMaterial({
-        color: oldMat.color ?? new THREE.Color(0xffffff),
+        color,
         map: oldMat.map ?? null,
         gradientMap: toonGradientMap,
         side: oldMat.side ?? THREE.FrontSide,
@@ -1369,6 +1412,7 @@ function parseLevelGltf(root: THREE.Object3D): LevelData {
 
   const data: LevelData = {
     collisionRects: [],
+    collisionDiscs: [],
     walls: [],
     climbVolumes: [],
     ramps: [],
@@ -1380,7 +1424,18 @@ function parseLevelGltf(root: THREE.Object3D): LevelData {
     const name = node.name;
     if (!name) return;
 
-    if (name.startsWith('col_')) {
+    if (name.startsWith('colcyl_')) {
+      // 圆形可站立平台：半径取包围盒 XZ 半宽的较大值，顶面取 box.max.y。
+      _box.setFromObject(node);
+      if (_box.isEmpty()) return;
+      data.collisionDiscs!.push({
+        cx: (_box.min.x + _box.max.x) / 2,
+        cz: (_box.min.z + _box.max.z) / 2,
+        radius: Math.max(_box.max.x - _box.min.x, _box.max.z - _box.min.z) / 2,
+        height: _box.max.y,
+        baseY: _box.min.y,
+      });
+    } else if (name.startsWith('col_')) {
       _box.setFromObject(node);
       if (_box.isEmpty()) return;
       pushColOrRamp(node, _box, data, false);
@@ -1699,6 +1754,7 @@ export class GameScene {
   private readonly container: HTMLElement;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly outlineEffect: any; // OutlineEffect
+  private composer: EffectComposer | null = null;
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.PerspectiveCamera;
   private readonly platformInput: PlatformInput;
@@ -1914,6 +1970,8 @@ export class GameScene {
   // 镜头朝向 + 跟随逻辑全部封装在 CameraOrbit（systems/cameraOrbit.ts）。
   // 这里只持有引用；事件监听、yaw/pitch 状态、平滑 lookAt 都在 CameraOrbit 内。
   private cameraOrbit!: CameraOrbit;
+  /** 碰撞推镜的静态遮挡物（关卡平台/支柱 + 加载关卡根；不含怪/特效/地面）。 */
+  private cameraOccluders: THREE.Object3D[] = [];
   // 主角无敌闪烁效果（半透明脉冲，避免硬 visible 频闪）。封装在 PlayerInvincibilityFx。
   private readonly playerFx = new PlayerInvincibilityFx();
   private currentFOV = 60;
@@ -1945,16 +2003,17 @@ export class GameScene {
     });
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.3;
+    this.renderer.toneMapping = THREE.NeutralToneMapping; // 更亮、更保饱和（Q 版鲜艳调性，替代偏暗去饱和的 ACES）
+    this.renderer.toneMappingExposure = 1.5; // 整体再提亮
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace; // 显式 sRGB，保证饱和度正确还原
     this.renderer.domElement.style.display = 'block';
     this.container.appendChild(this.renderer.domElement);
 
     // Outline Effect (cel-shading edge lines)
     this.outlineEffect = new OutlineEffect(this.renderer, {
-      defaultThickness: 0.003,
+      defaultThickness: 0.003, // 黑描边（细一点，更轻）
       defaultColor: [0, 0, 0],
-      defaultAlpha: 0.9,
+      defaultAlpha: 0.8,
     });
 
     // Scene
@@ -2019,12 +2078,18 @@ export class GameScene {
     this.setupHUD();
     this.setupDamageNumbers();
 
+    this.setupComposer();
+
     this.removeDisplayListener = installThreeHighDpi({
       renderer: this.renderer,
       container: this.container,
-      onResize: ({ width, height }) => {
+      onResize: ({ width, height, pixelRatio }) => {
         this.camera.aspect = width / height;
         this.camera.updateProjectionMatrix();
+        if (this.composer) {
+          this.composer.setPixelRatio(pixelRatio);
+          this.composer.setSize(width, height);
+        }
       },
     });
 
@@ -2072,13 +2137,15 @@ export class GameScene {
   // ===========================================================================
 
   private setupLighting(): void {
-    // Bright ambient — lifts overall scene brightness
-    const ambient = new THREE.AmbientLight('#ffffff', 0.9);
+    // 通透阳光基底：抬高环境光让暗部仍有色彩（不死黑）。
+    // 仍低于平行光，使 toon 阶梯保留：平行光被 gradientMap 量化成断层、主导明面；
+    // 环境光只是给阴影侧兜底色彩。
+    const ambient = new THREE.AmbientLight('#eef4ff', 0.9);
     ambient.name = 'AmbientLight';
     this.scene.add(ambient);
 
-    // Strong warm directional sunlight with shadows
-    const dir = new THREE.DirectionalLight('#FFF5E0', 2.0);
+    // 暖色方向主光（被阶梯化的那束）——降低强度/对比，明暗反差柔和但断层仍在。
+    const dir = new THREE.DirectionalLight('#FFF5E0', 1.5);
     dir.name = 'DirectionalLight';
     dir.position.set(5, 10, 5);
     dir.castShadow = true;
@@ -2092,15 +2159,10 @@ export class GameScene {
     dir.shadow.camera.bottom = -60;
     this.scene.add(dir);
 
-    // Sky/ground hemisphere bounce light
-    const hemi = new THREE.HemisphereLight('#87CEEB', '#8B7355', 1.2);
+    // 半球补光：天蓝/地暖给暗部一点通透的环境色（删去第二个冗余半球）。
+    const hemi = new THREE.HemisphereLight('#bfe4ff', '#b8a888', 0.7);
     hemi.name = 'HemisphereLight';
     this.scene.add(hemi);
-
-    // Secondary hemisphere for extra sky/ground bounce
-    const hemi2 = new THREE.HemisphereLight('#87CEEB', '#8B7355', 0.5);
-    hemi2.name = 'HemisphereLight_Bounce';
-    this.scene.add(hemi2);
 
     // Player spotlight (softer, warm tint)
     this.playerSpotLight = new THREE.SpotLight('#FFF5E0', 0.3, 25, Math.PI / 5, 0.6, 1);
@@ -2108,6 +2170,38 @@ export class GameScene {
     this.playerSpotLight.position.set(0, 12, 0);
     this.scene.add(this.playerSpotLight);
     this.scene.add(this.playerSpotLight.target);
+  }
+
+  /**
+   * 后处理：OutlineEffect（场景+描边）→ 微微 bloom（仅高亮 / 发光特效）→ OutputPass（ACES+sRGB）。
+   * bloom 阈值高、强度低：只让大招特效、发光物等"超亮"像素辉光，不糊整体画面。
+   */
+  private setupComposer(): void {
+    const composer = new EffectComposer(this.renderer); // 默认 HalfFloat 目标，保 HDR
+    const w = this.container.clientWidth || window.innerWidth;
+    const h = this.container.clientHeight || window.innerHeight;
+    const dpr = this.renderer.getPixelRatio();
+    composer.setPixelRatio(dpr);
+    composer.setSize(w, h);
+
+    composer.addPass(new OutlineComposerPass(this.outlineEffect, this.scene, this.camera));
+
+    const bloom = new UnrealBloomPass(
+      new THREE.Vector2(Math.max(1, w * dpr * 0.5), Math.max(1, h * dpr * 0.5)), // 半分辨率省手机
+      0.35, // strength：微微
+      0.5,  // radius
+      0.9,  // threshold：高 → 只让发光体辉光
+    );
+    composer.addPass(bloom);
+
+    composer.addPass(new OutputPass()); // 末端唯一 tone map：ACES + sRGB
+
+    this.composer = composer;
+  }
+
+  private renderFrame(): void {
+    if (this.composer) this.composer.render();
+    else this.outlineEffect.render(this.scene, this.camera);
   }
 
   private setupGround(): void {
@@ -2130,9 +2224,13 @@ export class GameScene {
       const levelScene = cloneSkeleton(loadedLevel.scene) as THREE.Object3D;
       levelScene.name = 'LevelRoot';
       this.scene.add(levelScene);
+      this.cameraOccluders.push(levelScene); // 加载关卡整根作为镜头遮挡目标
     } else {
       this.buildArena();
     }
+
+    // 把收集到的静态遮挡物交给镜头做碰撞推镜
+    this.cameraOrbit.setOccluders(this.cameraOccluders);
 
     // =========================================================================
     // 3. Hidden grid lines (required by type)
@@ -2155,6 +2253,10 @@ export class GameScene {
     clone.rotation.y = rotY;
     clone.scale.set(scale, scale, scale);
     this.scene.add(clone);
+    // 只把结构性大件（平台/支柱）登记为镜头遮挡物，避免管道/招牌等小道具造成噪声推镜。
+    if (modelKey.startsWith('platform_') || (modelKey as string).startsWith('support')) {
+      this.cameraOccluders.push(clone);
+    }
   }
 
   private buildArena(): void {
@@ -2472,9 +2574,11 @@ export class GameScene {
           const color = oldMat.color ? oldMat.color.clone() : new THREE.Color(0xffffff);
           const hsl = { h: 0, s: 0, l: 0 };
           color.getHSL(hsl);
-          color.setHSL(hsl.h, Math.min(hsl.s * 1.6, 1.0), hsl.l);
+          // 主角更明艳：饱和更高（艳）+ 明度略提（明）
+          color.setHSL(hsl.h, Math.min(hsl.s * 2.0, 1.0), Math.min(hsl.l * 1.12, 1.0));
           const toon = new THREE.MeshToonMaterial({
             color,
+            emissive: color.clone().multiplyScalar(0.12), // 一点本色自发光：阴影侧也保持明艳、主角更跳（低于 bloom 阈值，不发光）
             map: oldMat.map ?? null,
             gradientMap: toonGradientMap,
             side: oldMat.side ?? THREE.FrontSide,
@@ -3310,7 +3414,7 @@ export class GameScene {
     if (this.hitStopTimer > 0) {
       this.hitStopTimer -= dt;
       // Still render the frozen frame
-      this.outlineEffect.render(this.scene, this.camera);
+      this.renderFrame();
       return;
     }
 
@@ -3359,7 +3463,7 @@ export class GameScene {
 
     this.updateHUD(state);
 
-    this.outlineEffect.render(this.scene, this.camera);
+    this.renderFrame();
   }
 
   // ===========================================================================

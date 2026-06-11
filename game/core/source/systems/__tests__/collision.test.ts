@@ -267,6 +267,30 @@ describe('collision', () => {
     });
   });
 
+  // ─── colcyl_ 圆形平台（disc）──────────────────────────────────────
+  describe('disc（colcyl_ 圆形平台）', () => {
+    const discGeo = () => geoFor({
+      collisionDiscs: [{ cx: 0, cz: 0, radius: 3, height: 2 }],
+    });
+
+    it('高度查询按圆形 footprint：圆内有顶面、外接方角处无（修复"方形碰撞")', () => {
+      expect(getTerrainHeightAt(discGeo(), 0, 0)).toBe(2);       // 圆心
+      expect(getTerrainHeightAt(discGeo(), 2.9, 0)).toBe(2);     // 半径内
+      expect(getTerrainHeightAt(discGeo(), 2.9, 2.9)).toBe(0);   // 外接方角（dist≈4.1>3）→ 圆外，软虚空
+      expect(getTerrainHeightAt(discGeo(), 5, 0)).toBe(0);       // 圆外
+    });
+
+    it('横向阻挡按圆形 footprint：圆内挡、方角不挡', () => {
+      expect(isBlockedHorizontallyAt(discGeo(), 0, 0, 0)).toBe(true);    // 圆内、顶面高于迈步 → 挡
+      expect(isBlockedHorizontallyAt(discGeo(), 2.9, 2.9, 0)).toBe(false); // 方角圆外 → 不挡（方形会误挡）
+    });
+
+    it('顶面在迈步内 → 可踩上去不挡', () => {
+      const lowDisc = geoFor({ collisionDiscs: [{ cx: 0, cz: 0, radius: 3, height: 0.3 }] });
+      expect(isBlockedHorizontallyAt(lowDisc, 0, 0, 0)).toBe(false);
+    });
+  });
+
   // ─── findClimbAt ───────────────────────────────────────────────────
 
   describe('findClimbAt', () => {

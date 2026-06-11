@@ -778,6 +778,16 @@ export interface CollisionRect {
   baseY?: number;
 }
 
+/** 圆形/圆柱可站立平台（col_ 的圆形版，glb 前缀 colcyl_）。顶面 height、半径 radius。 */
+export interface DiscVolume {
+  cx: number;
+  cz: number;
+  radius: number;
+  height: number;
+  /** 圆柱底面 y。缺省视为 -∞（实心到底）。 */
+  baseY?: number;
+}
+
 /** 实心遮挡体（水平阻挡）。bottomY~topY 为竖直占据区间。 */
 export interface WallBox {
   cx: number;
@@ -839,6 +849,8 @@ export interface LevelSpawnPoints {
  */
 export interface LevelData {
   collisionRects: CollisionRect[];
+  /** 圆形可站立平台（colcyl_）。缺省为空，兼容旧关卡。 */
+  collisionDiscs?: DiscVolume[];
   walls: WallBox[];
   climbVolumes: ClimbVolume[];
   ramps: RampVolume[];
