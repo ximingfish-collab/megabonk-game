@@ -460,6 +460,8 @@ export interface AreaEffectState {
   kind: AreaEffectKind;
   weaponType: WeaponType;
   x: number;
+  /** 效果所在支撑面高度（玩家脚下 / 敌人死亡点）；用于垂直分层 AoE 结算与客户端贴地渲染。 */
+  y: number;
   z: number;
   /** 当前半径（void_ripple 每帧扩大；其它为固定作用半径）。 */
   radius: number;

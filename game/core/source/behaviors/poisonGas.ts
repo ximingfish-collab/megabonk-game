@@ -38,6 +38,7 @@ export function poisonGas(_world: GameWorld, ctx: BehaviorContext): void {
     kind: 'gas_cloud',
     weaponType: 'poison_bomb',
     x: tx,
+    y: target?.y ?? player.y,
     z: tz,
     radius: stats.aoeRadius,
     lifetime: GAS_CLOUD_LIFETIME,

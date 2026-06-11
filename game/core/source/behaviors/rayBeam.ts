@@ -72,6 +72,7 @@ export function rayBeam(_world: GameWorld, ctx: BehaviorContext): void {
     kind: 'ray_beam',
     weaponType: 'ray_gun',
     x: player.x,
+    y: player.y,
     z: player.z,
     radius: halfWidth,
     lifetime: RAY_BEAM_VISUAL_LIFETIME,

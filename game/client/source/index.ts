@@ -5793,7 +5793,7 @@ export class GameScene {
           break;
         }
         case 'void_ripple': {
-          obj.position.set(ae.x, 0.08, ae.z);
+          obj.position.set(ae.x, ae.y + 0.08, ae.z);
           obj.scale.setScalar(Math.max(0.01, ae.radius));
           const m = (obj as THREE.Mesh).material as THREE.MeshBasicMaterial;
           m.color.setHex(0x00ffff);
@@ -5801,7 +5801,7 @@ export class GameScene {
           break;
         }
         case 'scorch_trail': {
-          obj.position.set(ae.x, 0.06, ae.z);
+          obj.position.set(ae.x, ae.y + 0.06, ae.z);
           obj.scale.setScalar(ae.radius);
           const m = (obj as THREE.Mesh).material as THREE.MeshBasicMaterial;
           m.opacity = 0.7 * ratio;
@@ -6116,7 +6116,7 @@ export class GameScene {
     if (hasFlameRing && player.alive) {
       const disk = this.ensureFlameRingDisk();
       disk.visible = true;
-      disk.position.set(player.x, 0.05, player.z);
+      disk.position.set(player.x, player.y + 0.05, player.z);
       this.flameRingTime += dt;
       const pulse = 0.35 + Math.sin(this.flameRingTime * 4) * 0.15;
       (disk.material as THREE.MeshBasicMaterial).opacity = pulse;
