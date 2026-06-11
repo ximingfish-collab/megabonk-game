@@ -602,16 +602,37 @@ const CHARACTER_SELECT_BACK_ICON = '/ui/button/back.png';
 const LANG_BUTTON_CN = '/ui/button/btn_lang_cn.png';
 const LANG_BUTTON_EN = '/ui/button/btn_lang_en.png';
 const CHARACTER_DETAIL_PANEL_BG = '/ui/panel/character_detail.png';
-/** character_detail.png 原图 820×820，文本 inset 按原图像素换算为百分比 */
-const CHARACTER_DETAIL_PANEL_PX = 820;
+/** character_detail.png 原图 1025×1651，背景可拉伸；文本 inset 按原图像素换算为百分比 */
+const CHARACTER_DETAIL_PANEL_SIZE = { w: 1025, h: 1651 } as const;
+const CHARACTER_WEAPON_DETAIL_PANEL_BG = '/ui/panel/character_weapon_detail.png';
+/** character_weapon_detail.png 原图 1435×621 */
+const CHARACTER_WEAPON_DETAIL_PANEL_SIZE = { w: 1435, h: 621 } as const;
 const CHARACTER_DETAIL_LAYOUT = {
-  mainRow: 492 / CHARACTER_DETAIL_PANEL_PX,
-  mainPad: { top: 84, left: 108, right: 76, bottom: 12 },
-  weaponPad: { top: 16, left: 120, right: 86, bottom: 46 },
+  /** 背景内边距：左右对称；顶部高于名称；底部低于确认按钮 */
+  pad: { top: 84, x: 92, bottom: 80 },
+  sectionGap: 'clamp(6px,1.2vw,10px)',
+  weaponPad: { top: 24, left: 100, right: 60, bottom: 24 },
+  /** 武器子面板相对内容区宽度 */
+  weaponPanelWidth: '100%',
+  confirmGap: 'clamp(4px,1vw,8px)',
 } as const;
 
-function characterDetailInsetPct(value: number): string {
-  return `${((value / CHARACTER_DETAIL_PANEL_PX) * 100).toFixed(3)}%`;
+const CHARACTER_CONFIRM_BUTTON_WIDTH = '96px';
+
+function characterDetailInsetXPct(value: number): string {
+  return `${((value / CHARACTER_DETAIL_PANEL_SIZE.w) * 100).toFixed(3)}%`;
+}
+
+function characterDetailInsetYPct(value: number): string {
+  return `${((value / CHARACTER_DETAIL_PANEL_SIZE.h) * 100).toFixed(3)}%`;
+}
+
+function weaponDetailInsetXPct(value: number): string {
+  return `${((value / CHARACTER_WEAPON_DETAIL_PANEL_SIZE.w) * 100).toFixed(3)}%`;
+}
+
+function weaponDetailInsetYPct(value: number): string {
+  return `${((value / CHARACTER_WEAPON_DETAIL_PANEL_SIZE.h) * 100).toFixed(3)}%`;
 }
 
 const TIER_PANEL_BGS: Record<DifficultyTier, string> = {
@@ -701,9 +722,8 @@ const STARTING_WEAPON_IMAGE_PATHS: Record<string, string> = {
 
 /** 选角右侧详情面板正文色（深蓝，与主菜单按钮字色一致） */
 const CHARACTER_DETAIL_TEXT_COLOR = '#1a3a6e';
+const CHARACTER_DETAIL_TRAIT_DESC_COLOR = '#5a5a6e';
 const CHARACTER_PREVIEW_STAGE_BG = 'rgba(220,225,232,0.7)';
-const WEAPON_ICON_PANEL_BG = '#e8e8ec';
-const WEAPON_ICON_PANEL_BORDER = '#5a5a66';
 
 /** 与 docs/index.html#characters 百分条分母一致 */
 const CHARACTER_STAT_BAR_MAX = {
@@ -7275,7 +7295,7 @@ const PREP_SCREEN_HEADER_STYLE = `
 
 /** 预备界面（英雄/难度选择）的固定设计尺寸：横屏锚定，不随屏幕放大、不换行重排 */
 const PREP_STAGE_WIDTH = 860;
-const PREP_STAGE_HEIGHT = 380;
+const PREP_STAGE_HEIGHT = 450;
 const PREP_STAGE_STYLE = `
   flex:1;min-height:0;width:100%;display:flex;align-items:center;justify-content:center;
   padding:0 14px 14px;box-sizing:border-box;overflow:auto;
@@ -7335,7 +7355,7 @@ function createPrepScreenHeader(
 const SHOP_OVERLAY_STYLE = `
   position:fixed;top:0;left:0;width:100%;height:100%;box-sizing:border-box;
   background:#0a0a1a url(${SHOP_BG_PATH}) center center/cover no-repeat;
-  display:flex;flex-direction:column;
+  display:flex;align-items:center;justify-content:center;
   z-index:600;font-family:Arial,sans-serif;
   padding-top:env(safe-area-inset-top,0px);
   padding-bottom:env(safe-area-inset-bottom,0px);
@@ -7362,27 +7382,55 @@ function characterColorHex(char: CharacterType): string {
 let characterSelectSlotsHost: HTMLElement | null = null;
 let characterSelectPreviewHost: HTMLElement | null = null;
 let characterSelectDetailHost: HTMLElement | null = null;
-let characterSelectConfirmHost: HTMLElement | null = null;
 let characterSelectBodyEl: HTMLElement | null = null;
 let characterSelectResizeHandler: (() => void) | null = null;
 
-/** 确认按钮底边与立绘灰色背景 stage 底边对齐（padding-top 无效：confirm 贴在 detail 列底） */
-function alignCharacterSelectConfirmToStage(): void {
-  const confirmWrap = characterSelectConfirmHost;
+/** 详情面板高度与立绘灰色背景对齐，内容过高时等比缩小，禁止滚动 */
+function syncCharacterSelectDetailLayout(): void {
   const stage = characterSelectPreviewHost?.firstElementChild as HTMLElement | null;
-  const detail = confirmWrap?.parentElement as HTMLElement | null;
-  if (!confirmWrap || !stage || !detail) return;
+  const host = characterSelectDetailHost;
+  const card = host?.querySelector('[data-region="detail-card"]') as HTMLElement | null;
+  const scaleOuter = card?.querySelector('[data-region="detail-scale"]') as HTMLElement | null;
+  const contentWrap = card?.querySelector('[data-region="detail-content"]') as HTMLElement | null;
+  const confirmSection = card?.querySelector('[data-region="detail-confirm"]') as HTMLElement | null;
+  if (!stage || !host || !card || !scaleOuter || !contentWrap || !confirmSection) return;
 
-  const stageRect = stage.getBoundingClientRect();
-  const detailRect = detail.getBoundingClientRect();
-  const inset = detailRect.bottom - stageRect.bottom;
-  confirmWrap.style.paddingTop = '0';
-  confirmWrap.style.paddingBottom = `${Math.max(0, Math.round(inset))}px`;
+  const stageHeight = stage.getBoundingClientRect().height;
+  if (stageHeight <= 0) return;
+
+  host.style.height = `${Math.round(stageHeight)}px`;
+  host.style.overflow = 'hidden';
+
+  card.style.height = `${Math.round(stageHeight)}px`;
+  card.style.width = '100%';
+
+  contentWrap.style.transform = 'none';
+  contentWrap.style.width = '100%';
+  contentWrap.style.maxWidth = '100%';
+
+  const cardStyles = getComputedStyle(card);
+  const padT = parseFloat(cardStyles.paddingTop) || 0;
+  const padB = parseFloat(cardStyles.paddingBottom) || 0;
+  const confirmStyles = getComputedStyle(confirmSection);
+  const confirmBlock =
+    confirmSection.offsetHeight
+    + (parseFloat(confirmStyles.marginTop) || 0)
+    + (parseFloat(confirmStyles.marginBottom) || 0);
+  const available = stageHeight - padT - padB - confirmBlock;
+  const contentHeight = contentWrap.scrollHeight;
+
+  if (contentHeight > available + 0.5) {
+    const scale = available / contentHeight;
+    contentWrap.style.transformOrigin = 'top center';
+    contentWrap.style.transform = `scale(${scale})`;
+    contentWrap.style.width = `${(100 / scale).toFixed(4)}%`;
+    contentWrap.style.maxWidth = `${(100 / scale).toFixed(4)}%`;
+  }
 }
 
-function scheduleCharacterSelectConfirmAlign(): void {
+function scheduleCharacterSelectDetailLayout(): void {
   requestAnimationFrame(() => {
-    alignCharacterSelectConfirmToStage();
+    syncCharacterSelectDetailLayout();
   });
 }
 
@@ -7502,7 +7550,7 @@ function createCharacterConfirmButton(label: string, onClick: () => void): HTMLD
   const btn = document.createElement('div');
   btn.dataset.action = 'confirm';
   btn.style.cssText = `
-    position:relative;width:116px;min-width:44px;max-width:100%;
+    position:relative;width:${CHARACTER_CONFIRM_BUTTON_WIDTH};min-width:44px;max-width:100%;
     cursor:pointer;user-select:none;touch-action:manipulation;transition:transform 0.15s;
   `;
 
@@ -7516,7 +7564,7 @@ function createCharacterConfirmButton(label: string, onClick: () => void): HTMLD
   labelEl.textContent = label;
   labelEl.style.cssText = `
     position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-    color:#ffffff;font-size:15px;font-weight:bold;line-height:1.2;
+    color:#ffffff;font-size:clamp(12px,2.8vw,13px);font-weight:bold;line-height:1.2;
     pointer-events:none;text-shadow:0 1px 2px rgba(0,0,0,0.35);
   `;
 
@@ -7534,7 +7582,7 @@ function createCharacterStatBar(label: string, valueText: string, ratio: number,
   const row = document.createElement('div');
   row.style.cssText = `
     display:flex;align-items:center;gap:10px;
-    font-size:12px;margin:5px 0;width:100%;
+    font-size:clamp(10px,2.2vw,12px);margin:3px 0;width:100%;
   `;
 
   const labelEl = document.createElement('span');
@@ -7605,38 +7653,45 @@ function refreshCharacterSelectDetail(): void {
   const detailFont = (size: string, extra = '') =>
     `margin:0;color:${textColor};font-size:${size};line-height:1.45;${extra}`;
 
-  const { mainRow, mainPad, weaponPad } = CHARACTER_DETAIL_LAYOUT;
-  const mainRowPct = `${(mainRow * 100).toFixed(3)}%`;
+  const { pad, sectionGap, weaponPad, weaponPanelWidth, confirmGap } = CHARACTER_DETAIL_LAYOUT;
 
   const card = document.createElement('div');
+  card.dataset.region = 'detail-card';
   card.style.cssText = `
-    width:100%;max-width:100%;aspect-ratio:1/1;max-height:100%;
-    margin:0 auto;box-sizing:border-box;display:grid;
-    grid-template-rows:${mainRowPct} minmax(0,1fr);
+    width:100%;max-width:100%;height:100%;box-sizing:border-box;
+    display:flex;flex-direction:column;align-items:stretch;overflow:hidden;
     background:url(${CHARACTER_DETAIL_PANEL_BG}) center center/100% 100% no-repeat;
-    filter:drop-shadow(0 4px 16px rgba(0,40,80,0.15));color:${textColor};overflow:hidden;
+    padding:${characterDetailInsetYPct(pad.top)} ${characterDetailInsetXPct(pad.x)}
+      ${characterDetailInsetYPct(pad.bottom)} ${characterDetailInsetXPct(pad.x)};
+    filter:drop-shadow(0 4px 16px rgba(0,40,80,0.15));color:${textColor};
   `;
 
-  const mainSection = document.createElement('div');
-  mainSection.style.cssText = `
-    box-sizing:border-box;display:flex;flex-direction:column;gap:7px;
-    min-height:0;overflow-y:auto;
-    padding:${characterDetailInsetPct(mainPad.top)} ${characterDetailInsetPct(mainPad.right)}
-      ${characterDetailInsetPct(mainPad.bottom)} ${characterDetailInsetPct(mainPad.left)};
+  const scaleOuter = document.createElement('div');
+  scaleOuter.dataset.region = 'detail-scale';
+  scaleOuter.style.cssText = `
+    width:100%;flex:1 1 auto;min-height:0;box-sizing:border-box;
+    display:flex;justify-content:center;align-items:flex-start;overflow:hidden;
+  `;
+
+  const contentWrap = document.createElement('div');
+  contentWrap.dataset.region = 'detail-content';
+  contentWrap.style.cssText = `
+    display:flex;flex-direction:column;align-items:stretch;
+    gap:${sectionGap};width:100%;max-width:100%;box-sizing:border-box;
   `;
 
   const nameEl = document.createElement('h2');
-  nameEl.style.cssText = detailFont('24px', 'font-weight:bold;');
+  nameEl.style.cssText = detailFont('clamp(18px,4.5vw,24px)', 'font-weight:bold;flex:0 0 auto;');
   nameEl.textContent = t(`character.${id}`);
-  mainSection.appendChild(nameEl);
+  contentWrap.appendChild(nameEl);
 
   const descEl = document.createElement('p');
-  descEl.style.cssText = detailFont('14px', 'font-weight:bold;');
+  descEl.style.cssText = detailFont('clamp(11px,2.6vw,14px)', 'font-weight:bold;flex:0 0 auto;');
   descEl.textContent = t(`character.${id}_desc`);
-  mainSection.appendChild(descEl);
+  contentWrap.appendChild(descEl);
 
   const statsEl = document.createElement('div');
-  statsEl.style.cssText = 'display:flex;flex-direction:column;width:100%;margin:0;';
+  statsEl.style.cssText = 'display:flex;flex-direction:column;width:100%;flex:0 0 auto;';
   const characterStatRows: Array<{ key: keyof typeof CHARACTER_STAT_BAR_MAX; value: number; text: string }> = [
     { key: 'hp', value: cfg.hp, text: String(cfg.hp) },
     { key: 'speed', value: cfg.speed, text: cfg.speed.toFixed(1) },
@@ -7652,40 +7707,43 @@ function refreshCharacterSelectDetail(): void {
       textColor,
     ));
   }
-  mainSection.appendChild(statsEl);
+  contentWrap.appendChild(statsEl);
 
-  const traitTitleEl = document.createElement('div');
-  traitTitleEl.style.cssText = detailFont('13px', 'font-weight:bold;margin-top:2px;');
-  traitTitleEl.textContent = t('characterSelect.traitTitle');
-  mainSection.appendChild(traitTitleEl);
-
-  const traitDescEl = document.createElement('p');
-  traitDescEl.style.cssText = detailFont('12px', 'font-weight:bold;');
-  traitDescEl.textContent = t(`character.${id}_trait`);
-  mainSection.appendChild(traitDescEl);
-
-  card.appendChild(mainSection);
+  const traitEl = document.createElement('p');
+  traitEl.style.cssText = detailFont(
+    'clamp(10px,2.2vw,12px)',
+    `color:${CHARACTER_DETAIL_TRAIT_DESC_COLOR};font-weight:bold;flex:0 0 auto;`,
+  );
+  traitEl.textContent = `${t('characterSelect.traitTitle')}：${t(`character.${id}_trait`)}`;
+  contentWrap.appendChild(traitEl);
 
   const weaponSection = document.createElement('div');
   weaponSection.style.cssText = `
-    box-sizing:border-box;display:flex;align-items:center;min-height:0;
-    padding:${characterDetailInsetPct(weaponPad.top)} ${characterDetailInsetPct(weaponPad.right)}
-      ${characterDetailInsetPct(weaponPad.bottom)} ${characterDetailInsetPct(weaponPad.left)};
+    flex:0 0 auto;width:100%;box-sizing:border-box;
+    display:flex;justify-content:center;
+  `;
+
+  const weaponPanel = document.createElement('div');
+  weaponPanel.style.cssText = `
+    box-sizing:border-box;width:${weaponPanelWidth};max-width:100%;
+    aspect-ratio:${CHARACTER_WEAPON_DETAIL_PANEL_SIZE.w}/${CHARACTER_WEAPON_DETAIL_PANEL_SIZE.h};
+    background:url(${CHARACTER_WEAPON_DETAIL_PANEL_BG}) center center/100% 100% no-repeat;
+    display:flex;align-items:center;
+    padding:${weaponDetailInsetYPct(weaponPad.top)} ${weaponDetailInsetXPct(weaponPad.right)}
+      ${weaponDetailInsetYPct(weaponPad.bottom)} ${weaponDetailInsetXPct(weaponPad.left)};
   `;
 
   const weaponRow = document.createElement('div');
   weaponRow.style.cssText = `
-    display:flex;align-items:center;gap:12px;width:100%;box-sizing:border-box;
+    display:flex;align-items:center;gap:clamp(6px,1.5vw,10px);width:100%;box-sizing:border-box;
   `;
 
-  const weaponBoxSize = '88px';
+  const weaponBoxSize = 'clamp(48px,14vw,72px)';
   const weaponImgWrap = document.createElement('div');
   weaponImgWrap.style.cssText = `
     flex-shrink:0;display:flex;align-items:center;justify-content:center;
     width:${weaponBoxSize};height:${weaponBoxSize};aspect-ratio:1/1;
-    margin-top:0;box-sizing:border-box;
-    background:${WEAPON_ICON_PANEL_BG};border:2px solid ${WEAPON_ICON_PANEL_BORDER};
-    border-radius:10px;padding:10px;
+    box-sizing:border-box;padding:6px;
   `;
   const weaponSrc = STARTING_WEAPON_IMAGE_PATHS[weapon];
   if (weaponSrc) {
@@ -7717,17 +7775,17 @@ function refreshCharacterSelectDetail(): void {
   `;
 
   const weaponNameEl = document.createElement('div');
-  weaponNameEl.style.cssText = detailFont('16px', 'font-weight:bold;margin-top:0;');
+  weaponNameEl.style.cssText = detailFont('clamp(12px,2.8vw,15px)', 'font-weight:bold;');
   weaponNameEl.textContent = t(`upgrade.weapon.${weapon}`);
   weaponTextCol.appendChild(weaponNameEl);
 
   const weaponDescEl = document.createElement('p');
-  weaponDescEl.style.cssText = detailFont('13px', 'font-weight:bold;margin-top:4px;margin-bottom:2px;');
+  weaponDescEl.style.cssText = detailFont('clamp(10px,2.2vw,12px)', 'font-weight:bold;margin-top:2px;margin-bottom:1px;');
   weaponDescEl.textContent = t(`upgrade.weapon.${weapon}_desc`);
   weaponTextCol.appendChild(weaponDescEl);
 
   const weaponStatsEl = document.createElement('div');
-  weaponStatsEl.style.cssText = detailFont('12px', 'display:flex;flex-direction:column;gap:2px;');
+  weaponStatsEl.style.cssText = detailFont('clamp(9px,2vw,11px)', 'display:flex;flex-direction:column;gap:1px;');
   for (const line of formatWeaponStatLines(weapon)) {
     const row = document.createElement('div');
     row.textContent = line;
@@ -7736,10 +7794,27 @@ function refreshCharacterSelectDetail(): void {
   weaponTextCol.appendChild(weaponStatsEl);
 
   weaponRow.appendChild(weaponTextCol);
-  weaponSection.appendChild(weaponRow);
-  card.appendChild(weaponSection);
+  weaponPanel.appendChild(weaponRow);
+  weaponSection.appendChild(weaponPanel);
+  contentWrap.appendChild(weaponSection);
+
+  scaleOuter.appendChild(contentWrap);
+  card.appendChild(scaleOuter);
+
+  const confirmSection = document.createElement('div');
+  confirmSection.dataset.region = 'detail-confirm';
+  confirmSection.style.cssText = `
+    flex:0 0 auto;width:100%;display:flex;align-items:center;justify-content:center;
+    box-sizing:border-box;margin-top:${confirmGap};
+  `;
+  confirmSection.appendChild(createCharacterConfirmButton(t('characterSelect.confirm'), () => {
+    destroyCharacterSelectScreen();
+    showTierSelectScreen();
+  }));
+  card.appendChild(confirmSection);
 
   characterSelectDetailHost.replaceChildren(card);
+  scheduleCharacterSelectDetailLayout();
 }
 
 function refreshCharacterSelectPreview(): void {
@@ -7767,13 +7842,13 @@ function refreshCharacterSelectPreview(): void {
     preview.src = CHARACTER_AVATAR_PATHS[id];
     preview.style.height = 'auto';
     preview.style.maxHeight = '100%';
-    scheduleCharacterSelectConfirmAlign();
+    scheduleCharacterSelectDetailLayout();
   };
-  preview.onload = () => scheduleCharacterSelectConfirmAlign();
+  preview.onload = () => scheduleCharacterSelectDetailLayout();
 
   stage.appendChild(preview);
   characterSelectPreviewHost.replaceChildren(stage);
-  scheduleCharacterSelectConfirmAlign();
+  scheduleCharacterSelectDetailLayout();
 }
 
 function refreshCharacterSelectUI(): void {
@@ -7808,7 +7883,7 @@ function showCharacterSelectScreen(): void {
 
   const stageWrap = document.createElement('div');
   stageWrap.dataset.region = 'stage';
-  stageWrap.style.cssText = PREP_STAGE_STYLE;
+  stageWrap.style.cssText = `${PREP_STAGE_STYLE}overflow:hidden;`;
 
   const body = document.createElement('main');
   body.dataset.region = 'body';
@@ -7830,7 +7905,7 @@ function showCharacterSelectScreen(): void {
   const center = document.createElement('section');
   center.dataset.region = 'center';
   center.style.cssText = `
-    flex:1 1 52%;min-width:0;min-height:0;display:flex;align-items:flex-end;justify-content:center;
+    flex:1 1 52%;min-width:0;min-height:0;display:flex;align-items:stretch;justify-content:center;
     padding:0;box-sizing:border-box;overflow:hidden;
   `;
   characterSelectPreviewHost = center;
@@ -7840,27 +7915,18 @@ function showCharacterSelectScreen(): void {
   detail.dataset.region = 'detail';
   detail.style.cssText = `
     flex:1 1 44%;width:auto;min-width:300px;max-width:420px;
-    display:flex;flex-direction:column;min-height:0;align-self:stretch;position:relative;
+    display:flex;flex-direction:column;min-height:0;align-self:stretch;
+    align-items:stretch;justify-content:flex-start;position:relative;
   `;
 
   const detailInner = document.createElement('div');
   detailInner.dataset.region = 'detail-inner';
-  detailInner.style.cssText = 'flex:1;min-height:0;width:100%;display:flex;flex-direction:column;';
+  detailInner.style.cssText = `
+    flex:1;min-height:0;width:100%;display:flex;flex-direction:column;
+    align-items:stretch;justify-content:flex-start;overflow:hidden;box-sizing:border-box;
+  `;
   characterSelectDetailHost = detailInner;
   detail.appendChild(detailInner);
-
-  const confirmWrap = document.createElement('div');
-  confirmWrap.dataset.region = 'confirm';
-  characterSelectConfirmHost = confirmWrap;
-  confirmWrap.style.cssText = `
-    flex-shrink:0;width:100%;display:flex;align-items:center;justify-content:center;
-    padding:0 8px 0;box-sizing:border-box;
-  `;
-  confirmWrap.appendChild(createCharacterConfirmButton(t('characterSelect.confirm'), () => {
-    destroyCharacterSelectScreen();
-    showTierSelectScreen();
-  }));
-  detail.appendChild(confirmWrap);
 
   body.appendChild(detail);
 
@@ -7868,7 +7934,7 @@ function showCharacterSelectScreen(): void {
   characterSelectEl.appendChild(stageWrap);
   refreshCharacterSelectUI();
 
-  characterSelectResizeHandler = () => scheduleCharacterSelectConfirmAlign();
+  characterSelectResizeHandler = () => scheduleCharacterSelectDetailLayout();
   window.addEventListener('resize', characterSelectResizeHandler);
 
   document.body.appendChild(characterSelectEl);
@@ -7884,7 +7950,6 @@ function destroyCharacterSelectScreen(): void {
   characterSelectSlotsHost = null;
   characterSelectPreviewHost = null;
   characterSelectDetailHost = null;
-  characterSelectConfirmHost = null;
   characterSelectBodyEl = null;
 }
 
@@ -8193,7 +8258,7 @@ function showShopOverlay(): void {
   const save = loadSave();
   const silverWrap = document.createElement('div');
   silverWrap.appendChild(createSilverBadge(save.silver));
-  shopOverlayEl.appendChild(createPrepScreenHeader(t('menu.shop'), () => {
+  const header = createPrepScreenHeader(t('menu.shop'), () => {
     hideShopOverlay();
     if (mainMenuEl) {
       const silverDisp = mainMenuEl.querySelector('[data-silver-badge]') as HTMLDivElement | null;
@@ -8201,15 +8266,26 @@ function showShopOverlay(): void {
         setSilverBadgeAmount(silverDisp, loadSave().silver);
       }
     }
-  }, silverWrap));
+  }, silverWrap);
+  header.style.position = 'absolute';
+  header.style.top = '0';
+  header.style.left = '0';
+  header.style.right = '0';
+  header.style.zIndex = '2';
+  shopOverlayEl.appendChild(header);
 
   const content = document.createElement('div');
-  content.style.cssText = 'flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;align-items:center;padding:8px 14px 20px;box-sizing:border-box;';
+  content.style.cssText = `
+    display:flex;align-items:center;justify-content:center;
+    width:100%;height:100%;max-width:100%;max-height:100%;
+    padding:clamp(52px,14vw,68px) clamp(8px,3vw,14px) clamp(12px,3vw,20px);
+    box-sizing:border-box;overflow-y:auto;
+  `;
 
   const itemListPanel = document.createElement('div');
   itemListPanel.style.cssText = `
-    position:relative;box-sizing:border-box;
-    width:min(94vw,840px);
+    position:relative;box-sizing:border-box;flex-shrink:0;
+    width:min(94vw,840px);max-height:100%;
     aspect-ratio:${SHOP_ITEM_LIST_PANEL_SIZE.w}/${SHOP_ITEM_LIST_PANEL_SIZE.h};
     background:url(${SHOP_ITEM_LIST_PANEL_BG}) center center/contain no-repeat;
   `;
@@ -8794,8 +8870,8 @@ function showQuestsOverlay(): void {
     }
     entries.sort((a, b) => {
       const rank = (p: QuestProgress) => {
-        if (!p.completed) return 0;
-        if (!p.claimed) return 1;
+        if (p.completed && !p.claimed) return 0;
+        if (!p.completed) return 1;
         return 2;
       };
       const rankDiff = rank(a.progress) - rank(b.progress);
