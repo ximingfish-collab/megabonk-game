@@ -284,6 +284,12 @@ function getCoverSurfaceHeight(engine: Engine, x: number, z: number, referenceY?
     const t = ramp.halfSlope > 0 ? (sCoord + ramp.halfSlope) / (ramp.halfSlope * 2) : 0;
     consider(ramp.lowY + (ramp.highY - ramp.lowY) * t);
   }
+  // discs = colcyl_ 圆形平台顶面
+  for (const disc of engine.geo.discs) {
+    const dx = x - disc.cx;
+    const dz = z - disc.cz;
+    if (dx * dx + dz * dz <= disc.radius * disc.radius) consider(disc.topY);
+  }
   return best;
 }
 
