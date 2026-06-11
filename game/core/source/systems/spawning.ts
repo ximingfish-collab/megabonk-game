@@ -32,8 +32,10 @@ const SPAWN_ATTEMPTS = 24;
 const ENEMY_SPAWN_RADIUS = 0.4;
 const EDGE_CHECK_RING = ENEMY_SPAWN_RADIUS + 0.15;
 const EDGE_MAX_HEIGHT_DELTA = STEP_HEIGHT + 0.25;
-/** 刷怪面与玩家高度差上限：超过则不在该台面刷，避免刷在玩家头顶的高台/塔顶（"空中刷出"）。 */
-const SPAWN_MAX_HEIGHT_DELTA = 2.0;
+/** 刷怪面**高于**玩家的上限：基本不许在玩家头顶之上的台面刷（=空中刷出）。 */
+const SPAWN_MAX_ABOVE_PLAYER = 1.0;
+/** 刷怪面**低于**玩家的上限：允许怪从下方的地面/低层来（玩家在高台时怪在地面集结）。 */
+const SPAWN_MAX_BELOW_PLAYER = 6.0;
 
 export function tickSpawning(engine: Engine, dt: number): void {
   // boss 阶段不刷怪
@@ -226,8 +228,9 @@ function getSpawnPositionAroundPlayer(engine: Engine): { x: number; z: number } 
     // 只允许刷在关卡可走面（col_/ramp_）上：取最接近玩家高度的面。
     const y = getCoverSurfaceHeight(engine, x, z, p.y);
     if (y === null) continue;
-    // 不在比玩家高/低过多的台面刷（避免怪从空中/塔顶刷出）。
-    if (Math.abs(y - p.y) > SPAWN_MAX_HEIGHT_DELTA) continue;
+    // 非对称高度门：头顶之上几乎不刷（空中刷出），脚下可以（怪从地面来）。
+    if (y - p.y > SPAWN_MAX_ABOVE_PLAYER) continue;
+    if (p.y - y > SPAWN_MAX_BELOW_PLAYER) continue;
 
     // 额外避开墙/攀爬体等阻挡体，半径与敌人体型一致，防止刷在墙里。
     if (isBlockedHorizontallyAt(engine.geo, x, z, y, true, ENEMY_SPAWN_RADIUS)) continue;
