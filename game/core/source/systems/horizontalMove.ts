@@ -70,6 +70,19 @@ export function tryMoveHorizontally(
 ): { x: number; z: number } {
   const includeClimb = options.includeClimb ?? true;
   const radius = options.radius;
+  const blocked = (x: number, z: number): boolean =>
+    isBlockedHorizontallyAt(geo, x, z, feetY, includeClimb, radius);
+
+  // 脱困：当前位置已嵌在实体内（dash / 击退 / 出生点等绕过碰撞导致）。
+  // 此时常规路径采样会因"起点就被挡"而每个方向都失败 → 永久卡死。
+  // 改为直接挑一个"终点未被挡"的相邻候选把 mover 救出去；都被挡则放行 desired，
+  // 靠玩家朝向脱困，避免冻死原地。
+  if (blocked(oldX, oldZ)) {
+    if (!blocked(desiredX, desiredZ)) return { x: desiredX, z: desiredZ };
+    if (!blocked(desiredX, oldZ)) return { x: desiredX, z: oldZ };
+    if (!blocked(oldX, desiredZ)) return { x: oldX, z: desiredZ };
+    return { x: desiredX, z: desiredZ };
+  }
 
   // Path 1: 整体直走
   if (canMoveAlong(geo, oldX, oldZ, desiredX, desiredZ, feetY, includeClimb, radius)) {

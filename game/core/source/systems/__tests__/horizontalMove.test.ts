@@ -85,4 +85,11 @@ describe('tryMoveHorizontally', () => {
     const r2 = tryMoveHorizontally(geo, 0, 0, 0, 5, 0, { includeClimb: false });
     expect(r2.z).toBe(5);
   });
+
+  it('已嵌入墙体（起点就被挡）→ 朝空地脱困，不卡死（dash/击退 撞墙回归）', () => {
+    // 墙在原点 (halfW/halfD 2)，mover 被 dash/击退 卡在墙心 (0,0)。
+    const geo = levelWithWall({ cx: 0, cz: 0, halfW: 2, halfD: 2, bottomY: 0, topY: 3 });
+    const r = tryMoveHorizontally(geo, 0, 0, 5, 0, 0); // 朝 +X 空地
+    expect(r.x).toBe(5); // 脱困到空地，而非永久卡在 (0,0)
+  });
 });
