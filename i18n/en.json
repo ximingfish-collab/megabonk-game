@@ -83,6 +83,8 @@
     "silver": "Silver: {{count}}",
     "finalSwarm": "FINAL SWARM!",
     "combo": "COMBO x{{count}}",
+    "quest": "Find the altar, summon and defeat the BOSS",
+    "weaponSlotLocked": "Unlocked after completing the \"equip 7 different weapons\" quest",
     "compass": {
       "altar": "Altar",
       "portal": "Portal"
@@ -450,6 +452,32 @@
     "quests": "Quests completed: {{count}}",
     "retry": "Try Again",
     "menu": "Main Menu"
+  },
+  "pause": {
+    "title": "Paused",
+    "resume": "Resume",
+    "exit": "Exit",
+    "restart": "Restart",
+    "confirmExitMessage": "Quit this run? You will not receive any rewards from this run!",
+    "cancel": "Cancel",
+    "inventory": "Inventory",
+    "weapons": "Weapons",
+    "tomes": "Tomes",
+    "relics": "Relics",
+    "attributes": "Attributes",
+    "empty": "None",
+    "attr": {
+      "maxHp": "Max HP",
+      "shield": "Shield",
+      "damage": "Damage",
+      "attackSpeed": "Attack Speed",
+      "critChance": "Crit Rate",
+      "critDamage": "Crit Damage",
+      "armor": "Armor",
+      "moveSpeed": "Move Speed",
+      "pickupRadius": "Pickup Range",
+      "projectileBonus": "Extra Ammo"
+    }
   },
   "tutorial": {
     "move": "← Joystick to move",

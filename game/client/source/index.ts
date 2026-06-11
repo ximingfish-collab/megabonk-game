@@ -33,6 +33,7 @@ import {
   bondThresholds,
   type BondId,
   type BondTier,
+  type ConsumableId,
   getChestGoldCost,
   loadSave,
   purchaseUpgrade,
@@ -833,6 +834,22 @@ function createGoldBadge(count: number): HTMLDivElement {
 function setGoldBadgeAmount(badge: HTMLDivElement, count: number): void {
   const amount = badge.querySelector('.gold-badge-amount');
   if (amount) amount.textContent = String(count);
+}
+
+/** Strip the pill background/border so a coin badge renders as a bare icon + number (for the in-run HUD). */
+function stripBadgeBackground(badge: HTMLDivElement): void {
+  badge.style.background = 'transparent';
+  badge.style.border = 'none';
+  badge.style.boxShadow = 'none';
+  badge.style.padding = '0';
+  badge.style.gap = '4px';
+  badge.style.textShadow = '0 1px 3px rgba(0,0,0,0.9)';
+  // Normalize an oversized image icon (silver coin is 36px in the pill) to match the row.
+  const img = badge.querySelector('img');
+  if (img) {
+    (img as HTMLImageElement).style.width = '22px';
+    (img as HTMLImageElement).style.height = '22px';
+  }
 }
 
 function languageButtonIconSrc(): string {
@@ -1902,6 +1919,10 @@ export class GameScene {
   private hudContainer!: HTMLDivElement;
   private hpBar!: HTMLDivElement;
   private hpBarInner!: HTMLDivElement;
+  private hpText!: HTMLDivElement;
+  private shieldBar!: HTMLDivElement;
+  private shieldBarInner!: HTMLDivElement;
+  private shieldText!: HTMLDivElement;
   private xpBar!: HTMLDivElement;
   private xpBarInner!: HTMLDivElement;
   private xpNumbers!: HTMLDivElement;
@@ -1910,6 +1931,18 @@ export class GameScene {
   private killLabel!: HTMLDivElement;
   private goldLabel!: HTMLDivElement;
   private silverLabel!: HTMLDivElement;
+  /** 局内任务条（武器槽下方）。 */
+  private questRow!: HTMLDivElement;
+  private questCheckbox!: HTMLDivElement;
+  /** 经验条上方的 buff 行：左消耗品 / 右羁绊。 */
+  private buffRow!: HTMLDivElement;
+  private consumableBuffsContainer!: HTMLDivElement;
+  /** 羁绊点击展开的详情浮层。 */
+  private bondDetailOverlay!: HTMLDivElement;
+  private openBondId: BondId | null = null;
+  private bondDetailOutsideHandler: ((ev: PointerEvent) => void) | null = null;
+  /** timed 消耗品记录到的最大剩余时间，用于阴影下降比例。 */
+  private consumableMaxRemaining = 0;
   private consumableLabel!: HTMLDivElement;
   private weaponSlotsContainer!: HTMLDivElement;
   private tomesSlotsContainer!: HTMLDivElement;
@@ -1928,6 +1961,7 @@ export class GameScene {
   private pauseBtn!: HTMLDivElement;
   private upgradePanel: HTMLDivElement | null = null;
   private gameOverPanel: HTMLDivElement | null = null;
+  private pausePanel: HTMLDivElement | null = null;
   private questCompleteAtRunStart: Set<string> = new Set();
   private damageNums: HTMLDivElement[] = [];
   private damageNumIndex = 0;
@@ -2120,6 +2154,8 @@ export class GameScene {
     this.hudContainer?.remove();
     this.upgradePanel?.remove();
     this.gameOverPanel?.remove();
+    this.pausePanel?.remove();
+    this.pausePanel = null;
     this.shrinePanel?.remove();
     this.chestRewardPanel?.remove();
     this.shrineIndicator?.remove();
@@ -2127,6 +2163,8 @@ export class GameScene {
     this.finalSwarmBorder?.remove();
     this.itemTooltip?.remove();
     this.itemTooltip = null;
+    this.closeBondDetail();
+    this.bondDetailOverlay?.remove();
     this.screenFlashEl?.remove();
     this.comboLabel?.remove();
     for (const el of this.damageNums) el.remove();
@@ -3064,88 +3102,170 @@ export class GameScene {
     this.hudContainer.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:100;font-family:Arial,sans-serif;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right);box-sizing:border-box;';
     document.body.appendChild(this.hudContainer);
 
-    // HP bar (top-center)
+    // ---------------------------------------------------------------------
+    // Top-left cluster: HP + shield row → weapon slots → quest line
+    // ---------------------------------------------------------------------
+    const topLeft = document.createElement('div');
+    topLeft.style.cssText = 'position:absolute;top:max(12px,env(safe-area-inset-top));left:max(12px,env(safe-area-inset-left));display:flex;flex-direction:column;align-items:flex-start;gap:8px;max-width:min(70vw,420px);pointer-events:none;';
+
+    // HP + shield bars on one row
+    const barsRow = document.createElement('div');
+    barsRow.style.cssText = 'display:flex;align-items:center;gap:6px;';
+
     const hpContainer = document.createElement('div');
-    hpContainer.style.cssText = 'position:absolute;top:12px;left:50%;transform:translateX(-50%);width:200px;height:16px;background:rgba(40,40,40,0.8);border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,0.2);';
+    hpContainer.style.cssText = 'position:relative;width:clamp(150px,42vw,220px);height:clamp(18px,5vw,22px);background:rgba(40,12,12,0.82);border-radius:11px;overflow:hidden;border:1px solid rgba(255,90,90,0.45);box-shadow:0 1px 4px rgba(0,0,0,0.5);';
     this.hpBarInner = document.createElement('div');
-    this.hpBarInner.style.cssText = 'width:100%;height:100%;background:linear-gradient(90deg,#cc2222,#ff4444);border-radius:8px;';
+    this.hpBarInner.style.cssText = 'width:100%;height:100%;background:linear-gradient(90deg,#cc2222,#ff4d4d);border-radius:11px;';
     hpContainer.appendChild(this.hpBarInner);
+    this.hpText = document.createElement('div');
+    this.hpText.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:clamp(10px,2.6vw,13px);font-weight:bold;text-shadow:0 1px 2px rgba(0,0,0,0.95);white-space:nowrap;';
+    hpContainer.appendChild(this.hpText);
     this.hpBar = hpContainer;
-    this.hudContainer.appendChild(hpContainer);
+    barsRow.appendChild(hpContainer);
 
-    // XP bar (bottom-center)
-    const xpContainer = document.createElement('div');
-    xpContainer.style.cssText = 'position:absolute;bottom:16px;left:50%;transform:translateX(-50%);width:260px;height:12px;background:rgba(40,40,40,0.8);border-radius:6px;overflow:hidden;border:1px solid rgba(255,255,255,0.15);';
-    this.xpBarInner = document.createElement('div');
-    this.xpBarInner.style.cssText = 'width:0%;height:100%;background:linear-gradient(90deg,#cc9900,#ffcc00);border-radius:6px;';
-    xpContainer.appendChild(this.xpBarInner);
-    this.xpBar = xpContainer;
-    this.hudContainer.appendChild(xpContainer);
+    const shieldContainer = document.createElement('div');
+    shieldContainer.style.cssText = 'position:relative;width:clamp(90px,26vw,138px);height:clamp(16px,4.4vw,19px);background:rgba(16,30,46,0.82);border-radius:10px;overflow:hidden;border:1px solid rgba(120,200,255,0.5);box-shadow:0 1px 4px rgba(0,0,0,0.5);display:none;';
+    this.shieldBarInner = document.createElement('div');
+    this.shieldBarInner.style.cssText = 'width:100%;height:100%;background:linear-gradient(90deg,#3a86c9,#7fd0ff);border-radius:10px;';
+    shieldContainer.appendChild(this.shieldBarInner);
+    this.shieldText = document.createElement('div');
+    this.shieldText.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#eaf7ff;font-size:clamp(9px,2.3vw,12px);font-weight:bold;text-shadow:0 1px 2px rgba(0,0,0,0.95);white-space:nowrap;';
+    shieldContainer.appendChild(this.shieldText);
+    this.shieldBar = shieldContainer;
+    barsRow.appendChild(shieldContainer);
 
-    // XP numbers above XP bar
-    this.xpNumbers = document.createElement('div');
-    this.xpNumbers.style.cssText = 'position:absolute;bottom:30px;left:50%;transform:translateX(-50%);color:#cccccc;font-size:10px;text-shadow:0 1px 3px rgba(0,0,0,0.8);white-space:nowrap;';
-    this.hudContainer.appendChild(this.xpNumbers);
+    topLeft.appendChild(barsRow);
 
-    // Level label (prominent, above XP numbers)
-    this.levelLabel = document.createElement('div');
-    this.levelLabel.style.cssText = 'position:absolute;bottom:42px;left:50%;transform:translateX(-50%);color:#ffcc00;font-size:18px;font-weight:bold;text-shadow:0 0 8px rgba(255,200,0,0.4),0 1px 3px rgba(0,0,0,0.8);transition:color 0.3s;';
-    this.hudContainer.appendChild(this.levelLabel);
-
-    // Top-right HUD column — flex stack avoids silver badge overlapping consumable row
-    const rightHudStack = document.createElement('div');
-    rightHudStack.style.cssText = 'position:absolute;top:12px;right:16px;display:flex;flex-direction:column;align-items:flex-end;gap:8px;pointer-events:none;';
-
-    this.timerLabel = document.createElement('div');
-    this.timerLabel.style.cssText = 'color:#ffffff;font-size:clamp(10px, 2.5vw, 18px);font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.8);background:rgba(20,20,40,0.7);padding:4px 12px;border-radius:12px;';
-    rightHudStack.appendChild(this.timerLabel);
-
-    this.killLabel = document.createElement('div');
-    this.killLabel.style.cssText = 'color:#cccccc;font-size:clamp(10px, 2.5vw, 14px);text-shadow:0 1px 3px rgba(0,0,0,0.8);';
-    rightHudStack.appendChild(this.killLabel);
-
-    this.silverLabel = createSilverBadge(0);
-    rightHudStack.appendChild(this.silverLabel);
-
-    this.consumableLabel = document.createElement('div');
-    this.consumableLabel.style.cssText = 'display:none;flex-direction:column;align-items:flex-end;gap:2px;background:rgba(20,20,40,0.82);padding:6px 12px;border-radius:12px;border:1px solid rgba(180,120,255,0.4);color:#e8d8ff;font-size:clamp(11px,2.8vw,13px);font-weight:600;text-shadow:0 1px 3px rgba(0,0,0,0.8);max-width:min(260px,48vw);';
-    rightHudStack.appendChild(this.consumableLabel);
-
-    this.hudContainer.appendChild(rightHudStack);
-
-    // Tier badge (top-left small)
-    this.tierBadge = document.createElement('div');
-    this.tierBadge.style.cssText = 'position:absolute;top:12px;left:16px;color:#ffffff;font-size:11px;font-weight:bold;background:rgba(40,40,60,0.8);padding:3px 8px;border-radius:4px;border:1px solid #555;';
-    this.hudContainer.appendChild(this.tierBadge);
-
-    // Gold this run (used to open chests)
-    this.goldLabel = createGoldBadge(0);
-    this.goldLabel.style.cssText += 'position:absolute;top:40px;left:16px;';
-    this.hudContainer.appendChild(this.goldLabel);
-
-    // Bond diamonds (top-left, below the gold badge — does not overlap difficulty/gold)
-    this.bondSlotsContainer = document.createElement('div');
-    this.bondSlotsContainer.dataset.cameraBlock = 'true';
-    this.bondSlotsContainer.style.cssText = 'position:absolute;top:72px;left:14px;display:flex;flex-direction:column;gap:8px;align-items:flex-start;pointer-events:auto;';
-    this.hudContainer.appendChild(this.bondSlotsContainer);
-
-    // Weapon slots container (bottom-left)
+    // Weapon slots (6 total: 5 base + 1 lockable)
     this.weaponSlotsContainer = document.createElement('div');
     this.weaponSlotsContainer.dataset.cameraBlock = 'true';
-    this.weaponSlotsContainer.style.cssText = 'position:absolute;bottom:70px;left:12px;display:flex;gap:4px;flex-wrap:wrap;max-width:240px;pointer-events:auto;';
-    this.hudContainer.appendChild(this.weaponSlotsContainer);
+    this.weaponSlotsContainer.style.cssText = 'display:flex;gap:5px;flex-wrap:wrap;max-width:min(70vw,420px);pointer-events:auto;';
+    topLeft.appendChild(this.weaponSlotsContainer);
 
-    // Tome slots container (bottom-right, above mobile buttons)
+    // Quest line (checkbox + text)
+    this.questRow = document.createElement('div');
+    this.questRow.style.cssText = 'display:flex;align-items:center;gap:8px;background:rgba(15,15,28,0.66);padding:5px 10px;border-radius:9px;max-width:min(70vw,420px);pointer-events:none;';
+    this.questCheckbox = document.createElement('div');
+    this.questCheckbox.style.cssText = 'flex-shrink:0;width:16px;height:16px;border:2px solid rgba(255,255,255,0.6);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:12px;line-height:1;color:#5dff9b;font-weight:bold;';
+    const questLabel = document.createElement('div');
+    questLabel.style.cssText = 'color:#e6e6f0;font-size:clamp(10px,2.6vw,13px);line-height:1.3;text-shadow:0 1px 2px rgba(0,0,0,0.9);';
+    questLabel.textContent = t('hud.quest');
+    this.questRow.appendChild(this.questCheckbox);
+    this.questRow.appendChild(questLabel);
+    topLeft.appendChild(this.questRow);
+
+    this.hudContainer.appendChild(topLeft);
+
+    // ---------------------------------------------------------------------
+    // Top-right cluster: stats column (difficulty/timer/silver/kills/pause)
+    // then a tome stack row beneath it.
+    // ---------------------------------------------------------------------
+    const topRight = document.createElement('div');
+    topRight.style.cssText = 'position:absolute;top:max(12px,env(safe-area-inset-top));right:max(12px,env(safe-area-inset-right));display:flex;flex-direction:column;align-items:flex-end;gap:8px;pointer-events:none;';
+
+    // Row 1: difficulty / timer / silver / kills / pause — laid out horizontally.
+    const rightHudStack = document.createElement('div');
+    rightHudStack.style.cssText = 'display:flex;flex-direction:row;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:min(88vw,540px);pointer-events:none;';
+
+    // Difficulty badge (no background box — text only, colored by tier)
+    this.tierBadge = document.createElement('div');
+    this.tierBadge.style.cssText = 'color:#ffffff;font-size:clamp(11px,2.8vw,15px);font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.9);white-space:nowrap;';
+    rightHudStack.appendChild(this.tierBadge);
+
+    // Timer (no background box)
+    this.timerLabel = document.createElement('div');
+    this.timerLabel.style.cssText = 'display:flex;align-items:center;gap:5px;color:#ffffff;font-size:clamp(11px,2.8vw,18px);font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.9);font-variant-numeric:tabular-nums;white-space:nowrap;';
+    rightHudStack.appendChild(this.timerLabel);
+
+    // Gold this run (moved into the top-right cluster, no background box)
+    this.goldLabel = createGoldBadge(0);
+    stripBadgeBackground(this.goldLabel);
+    rightHudStack.appendChild(this.goldLabel);
+
+    // Silver earned this run (no background box)
+    this.silverLabel = createSilverBadge(0);
+    stripBadgeBackground(this.silverLabel);
+    rightHudStack.appendChild(this.silverLabel);
+
+    // Kill count (no background box)
+    this.killLabel = document.createElement('div');
+    this.killLabel.style.cssText = 'display:flex;align-items:center;gap:5px;color:#ffffff;font-size:clamp(11px,2.8vw,15px);font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.9);font-variant-numeric:tabular-nums;white-space:nowrap;';
+    rightHudStack.appendChild(this.killLabel);
+
+    // Pause button (end of row)
+    this.pauseBtn = document.createElement('div');
+    this.pauseBtn.dataset.cameraBlock = 'true';
+    this.pauseBtn.style.cssText = 'color:#ffffff;font-size:clamp(12px, 2.5vw, 16px);background:rgba(80,80,120,0.7);padding:8px 16px;border-radius:8px;cursor:pointer;pointer-events:auto;user-select:none;min-width:44px;min-height:44px;display:flex;align-items:center;justify-content:center;touch-action:manipulation;';
+    this.pauseBtn.textContent = t('hud.pause');
+    this.pauseBtn.addEventListener('click', () => this.togglePause());
+    rightHudStack.appendChild(this.pauseBtn);
+
+    topRight.appendChild(rightHudStack);
+
+    // Row 2: tome stack (newest tome appended at the right, older shift left)
     this.tomesSlotsContainer = document.createElement('div');
     this.tomesSlotsContainer.dataset.cameraBlock = 'true';
-    this.tomesSlotsContainer.style.cssText = 'position:absolute;bottom:70px;right:12px;display:flex;gap:3px;flex-wrap:wrap;max-width:180px;justify-content:flex-end;pointer-events:auto;';
-    this.hudContainer.appendChild(this.tomesSlotsContainer);
+    this.tomesSlotsContainer.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;max-width:min(60vw,260px);justify-content:flex-end;pointer-events:auto;';
+    topRight.appendChild(this.tomesSlotsContainer);
 
-    // Relic stacks (bottom-center above level / XP)
+    this.hudContainer.appendChild(topRight);
+
+    // Hidden legacy consumable label (kept to satisfy references; buffs now render in the buff row)
+    this.consumableLabel = document.createElement('div');
+    this.consumableLabel.style.cssText = 'display:none;';
+
+    // ---------------------------------------------------------------------
+    // Bottom cluster: buff row → green XP bar → relic bar (flush to bottom)
+    // ---------------------------------------------------------------------
+    const bottomGroup = document.createElement('div');
+    bottomGroup.style.cssText = 'position:absolute;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;gap:6px;padding-bottom:max(6px,env(safe-area-inset-bottom));pointer-events:none;';
+
+    // Buff row: consumables on the left, bonds on the right
+    this.buffRow = document.createElement('div');
+    this.buffRow.style.cssText = 'width:min(86vw,560px);display:flex;justify-content:space-between;align-items:flex-end;pointer-events:none;';
+    this.consumableBuffsContainer = document.createElement('div');
+    this.consumableBuffsContainer.style.cssText = 'display:flex;gap:6px;align-items:flex-end;pointer-events:none;';
+    this.buffRow.appendChild(this.consumableBuffsContainer);
+    this.bondSlotsContainer = document.createElement('div');
+    this.bondSlotsContainer.dataset.cameraBlock = 'true';
+    this.bondSlotsContainer.style.cssText = 'display:flex;gap:6px;align-items:flex-end;justify-content:flex-end;flex-wrap:wrap;max-width:60vw;pointer-events:auto;';
+    this.buffRow.appendChild(this.bondSlotsContainer);
+    bottomGroup.appendChild(this.buffRow);
+
+    // XP bar (green) with level in the middle
+    const xpContainer = document.createElement('div');
+    xpContainer.style.cssText = 'position:relative;width:min(86vw,560px);height:clamp(16px,4.2vw,22px);background:rgba(20,40,22,0.82);border-radius:8px;overflow:hidden;border:1px solid rgba(120,255,140,0.35);box-shadow:0 1px 4px rgba(0,0,0,0.5);';
+    this.xpBarInner = document.createElement('div');
+    this.xpBarInner.style.cssText = 'width:0%;height:100%;background:linear-gradient(90deg,#2f9e44,#69db7c);border-radius:8px;';
+    xpContainer.appendChild(this.xpBarInner);
+    this.levelLabel = document.createElement('div');
+    this.levelLabel.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#ffffff;font-size:clamp(10px,2.8vw,15px);font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.9);transition:color 0.3s;';
+    xpContainer.appendChild(this.levelLabel);
+    this.xpBar = xpContainer;
+    bottomGroup.appendChild(xpContainer);
+
+    // Legacy xp numbers element kept (hidden) for compatibility
+    this.xpNumbers = document.createElement('div');
+    this.xpNumbers.style.cssText = 'display:none;';
+
+    // Relic bar (long, flush to bottom edge, relics added left→right)
     this.relicSlotsContainer = document.createElement('div');
     this.relicSlotsContainer.dataset.cameraBlock = 'true';
-    this.relicSlotsContainer.style.cssText = 'position:absolute;bottom:70px;left:50%;transform:translateX(-50%);display:flex;gap:6px;flex-wrap:wrap;max-width:min(420px,70vw);justify-content:center;align-items:center;pointer-events:auto;';
-    this.hudContainer.appendChild(this.relicSlotsContainer);
+    this.relicSlotsContainer.style.cssText = 'width:min(94vw,640px);min-height:clamp(34px,9vw,42px);background:rgba(10,10,20,0.62);border-top:1px solid rgba(255,255,255,0.12);border-radius:10px 10px 0 0;display:flex;gap:6px;align-items:center;justify-content:flex-start;padding:4px 8px;overflow-x:auto;box-sizing:border-box;pointer-events:auto;';
+    bottomGroup.appendChild(this.relicSlotsContainer);
+
+    this.hudContainer.appendChild(bottomGroup);
+
+    // Bond detail floating layer (opens above buff row when a bond is tapped)
+    this.bondDetailOverlay = document.createElement('div');
+    this.bondDetailOverlay.style.cssText = `
+      position:fixed;left:0;bottom:0;display:none;z-index:240;pointer-events:auto;
+      max-width:min(320px,calc(100vw - 24px));padding:10px 12px;border-radius:10px;
+      background:linear-gradient(180deg,rgba(18,18,32,0.97),rgba(8,8,16,0.97));
+      border:1px solid rgba(255,255,255,0.18);box-shadow:0 12px 34px rgba(0,0,0,0.6);
+      color:#f5f2ff;font-size:12px;line-height:1.35;text-shadow:0 1px 2px rgba(0,0,0,0.9);
+    `;
+    document.body.appendChild(this.bondDetailOverlay);
 
     this.itemTooltip = document.createElement('div');
     this.itemTooltip.style.cssText = `
@@ -3164,7 +3284,7 @@ export class GameScene {
 
     // Boss HP bar (top-center, hidden by default)
     this.bossHpContainer = document.createElement('div');
-    this.bossHpContainer.style.cssText = 'position:absolute;top:36px;left:50%;transform:translateX(-50%);width:60%;max-width:500px;height:22px;background:rgba(20,20,20,0.9);border-radius:4px;overflow:hidden;border:1px solid rgba(255,100,0,0.4);display:none;';
+    this.bossHpContainer.style.cssText = 'position:absolute;top:50px;left:50%;transform:translateX(-50%);width:60%;max-width:500px;height:22px;background:rgba(20,20,20,0.9);border-radius:4px;overflow:hidden;border:1px solid rgba(255,100,0,0.4);display:none;';
     this.bossHpBarInner = document.createElement('div');
     this.bossHpBarInner.style.cssText = 'width:100%;height:100%;background:linear-gradient(90deg,#cc3300,#ff6600);border-radius:4px;';
     this.bossHpContainer.appendChild(this.bossHpBarInner);
@@ -3206,14 +3326,6 @@ export class GameScene {
     this.overtimeBanner = document.createElement('div');
     this.overtimeBanner.style.cssText = 'position:absolute;top:50px;left:50%;transform:translateX(-50%);color:#ffaa00;font-size:14px;font-weight:bold;background:rgba(60,20,0,0.7);padding:6px 18px;border-radius:6px;border:1px solid #ff6600;display:none;text-shadow:0 1px 3px rgba(0,0,0,0.9);';
     this.hudContainer.appendChild(this.overtimeBanner);
-
-    // Pause button
-    this.pauseBtn = document.createElement('div');
-    this.pauseBtn.dataset.cameraBlock = 'true';
-    this.pauseBtn.style.cssText = 'position:absolute;top:86px;right:16px;color:#ffffff;font-size:clamp(10px, 2.5vw, 16px);background:rgba(80,80,120,0.6);padding:8px 16px;border-radius:4px;cursor:pointer;pointer-events:auto;user-select:none;min-width:44px;min-height:44px;display:flex;align-items:center;justify-content:center;';
-    this.pauseBtn.textContent = t('hud.pause');
-    this.pauseBtn.addEventListener('click', () => this.togglePause());
-    this.hudContainer.appendChild(this.pauseBtn);
 
     // Combo label (hidden initially)
     this.comboLabel = document.createElement('div');
@@ -6343,26 +6455,37 @@ export class GameScene {
     const p = state.player;
     const time = performance.now();
 
-    // HP bar with GSAP animation
+    // HP bar with GSAP animation + numeric label (current / max)
     const hpPercent = Math.max(0, Math.min(100, (p.hp / p.maxHp) * 100));
     if (hpPercent !== this.lastHpPercent) {
       gsapAnimations.animateHealthBar(this.hpBarInner, hpPercent);
       this.lastHpPercent = hpPercent;
     }
+    this.hpText.textContent = `${Math.max(0, Math.ceil(p.hp))} / ${Math.ceil(p.maxHp)}`;
 
-    // XP bar with exact numbers and GSAP animation
+    // Shield bar (only shown when player has shield capacity)
+    const maxShield = p.maxShield ?? 0;
+    const shield = p.shield ?? 0;
+    if (maxShield > 0) {
+      this.shieldBar.style.display = 'block';
+      const shieldPercent = Math.max(0, Math.min(100, (shield / maxShield) * 100));
+      this.shieldBarInner.style.width = `${shieldPercent}%`;
+      this.shieldText.textContent = `${Math.max(0, Math.ceil(shield))} / ${Math.ceil(maxShield)}`;
+    } else {
+      this.shieldBar.style.display = 'none';
+    }
+
+    // XP bar with GSAP animation
     const xpPercent = p.xpToNext > 0 ? Math.max(0, Math.min(100, (p.xp / p.xpToNext) * 100)) : 0;
     if (xpPercent !== this.lastXpPercent) {
       gsapAnimations.animateHealthBar(this.xpBarInner, xpPercent);
       this.lastXpPercent = xpPercent;
     }
-    this.xpNumbers.textContent = `${p.xp} / ${p.xpToNext}`;
 
-    // Level label with GSAP pulse animation
+    // Level label (centered inside the XP bar) with GSAP pulse animation
     this.levelLabel.textContent = t('hud.level', { level: String(p.level) });
     if (this.levelCompPulseTimer > 0) {
       this.levelCompPulseTimer -= 1 / 60;
-      // 使用 GSAP 实现平滑脉冲效果
       if (!this.levelPulseAnimation) {
         this.levelPulseAnimation = gsapAnimations.playLevelLabelPulse(this.levelLabel);
       }
@@ -6371,113 +6494,94 @@ export class GameScene {
         this.levelPulseAnimation.kill();
         this.levelPulseAnimation = null;
       }
-      this.levelLabel.style.transform = 'translateX(-50%) scale(1)';
-      this.levelLabel.style.color = '#ffcc00';
-      this.levelLabel.style.textShadow = '0 0 8px rgba(255,200,0,0.4),0 1px 3px rgba(0,0,0,0.8)';
+      this.levelLabel.style.transform = 'scale(1)';
+      this.levelLabel.style.color = '#ffffff';
+      this.levelLabel.style.textShadow = '0 1px 3px rgba(0,0,0,0.9)';
     }
 
-    // Timer
+    // Difficulty / timer / silver / kills
     const totalSec = Math.floor(state.gameTime);
     const minutes = Math.floor(totalSec / 60);
     const seconds = totalSec % 60;
     const timeStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-    this.timerLabel.textContent = timeStr;
-
-    // Kill count
+    this.timerLabel.textContent = `⏱ ${timeStr}`;
     this.killLabel.textContent = `💀 ${state.stats.killCount}`;
-
-    // Silver this run
     setSilverBadgeAmount(this.silverLabel, state.stats.silverEarned);
     setGoldBadgeAmount(this.goldLabel, p.gold);
 
-    // Active consumable buff (below silver)
-    const active = p.activeConsumable;
-    if (active) {
-      const emoji = CONSUMABLE_EMOJI[active.id] ?? '✨';
-      const name = t(`consumable.${active.id}`);
-      const desc = t(`consumable.${active.id}_desc`);
-      const timerText = active.remaining < 0
-        ? t('consumable.pending')
-        : t('consumable.timer', { seconds: String(Math.ceil(active.remaining)) });
-      // 使用 GSAP 动画显示消耗品标签
-      gsapAnimations.animateConsumableLabel(this.consumableLabel, true, 0.3);
-      this.consumableLabel.innerHTML = `
-        <div style="display:flex;align-items:center;gap:6px;width:100%;justify-content:flex-end;">
-          <span style="font-size:18px;line-height:1;flex-shrink:0;">${emoji}</span>
-          <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</span>
-          <span style="opacity:0.85;font-size:11px;flex-shrink:0;">${timerText}</span>
-        </div>
-        <div style="font-size:10px;font-weight:500;opacity:0.88;color:#d8c8ff;text-align:right;line-height:1.3;max-width:100%;">${desc}</div>
-      `;
+    // --- Quest line: mark complete once the boss is defeated (altar becomes a portal) ---
+    const bossDefeated = state.altars.some(a => a.phase === 'portal_ready' || a.phase === 'portal_used');
+    if (bossDefeated) {
+      this.questCheckbox.textContent = '✓';
+      this.questCheckbox.style.background = 'rgba(93,255,155,0.18)';
+      this.questCheckbox.style.borderColor = '#5dff9b';
     } else {
-      // 使用 GSAP 动画隐藏消耗品标签
-      gsapAnimations.animateConsumableLabel(this.consumableLabel, false, 0.3);
-      this.consumableLabel.innerHTML = '';
+      this.questCheckbox.textContent = '';
+      this.questCheckbox.style.background = 'transparent';
+      this.questCheckbox.style.borderColor = 'rgba(255,255,255,0.6)';
     }
 
-    // --- Weapon Icons Bar (bottom-left) ---
-    this.weaponSlotsContainer.innerHTML = '';
-    for (const weapon of p.weapons) {
-      const slot = document.createElement('div');
-      const borderColor = weapon.evolved ? '#ffcc00' : '#555';
-      const borderWidth = weapon.evolved ? '2px' : '2px';
-      slot.style.cssText = `width:44px;height:44px;background:rgba(0,0,0,0.6);border:${borderWidth} solid ${borderColor};border-radius:6px;position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:help;`;
-      this.setItemTooltip(slot, this.createWeaponTooltipHtml(weapon));
-      // Weapon icon
-      const icon = document.createElement('span');
-      icon.style.cssText = 'font-size:20px;';
-      icon.textContent = WEAPON_ICONS[weapon.type] ?? '?';
-      slot.appendChild(icon);
-      // Cooldown overlay
-      const stats = this.getWeaponCooldownInfo(weapon);
-      if (stats.cooldownPercent > 0) {
-        const overlay = document.createElement('div');
-        overlay.style.cssText = `position:absolute;bottom:0;left:0;right:0;height:${stats.cooldownPercent}%;background:rgba(0,0,0,0.7);border-radius:0 0 4px 4px;pointer-events:none;`;
-        slot.appendChild(overlay);
-      }
-      // Level number
-      const lvl = document.createElement('span');
-      lvl.style.cssText = 'position:absolute;bottom:2px;right:3px;font-size:9px;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,0.9);';
-      lvl.textContent = String(weapon.level);
-      slot.appendChild(lvl);
-      this.weaponSlotsContainer.appendChild(slot);
-    }
+    // --- Consumable buff icons (left of buff row) with timed countdown shadow ---
+    this.renderConsumableBuffs(p);
 
-    // --- Tome Icons Bar (bottom-right) ---
+    // --- Weapon slots (top-left): fixed grid of maxWeaponSlots + a locked 6th slot ---
+    this.renderWeaponSlots(p);
+
+    // --- Tome stack (top-right second column): newest on the right ---
     this.tomesSlotsContainer.innerHTML = '';
     for (const tome of p.tomes) {
       const slot = document.createElement('div');
       const bgColor = TOME_COLORS[tome.type] ?? '#444';
-      slot.style.cssText = `width:36px;height:36px;background:${bgColor}33;border:1px solid ${bgColor};border-radius:5px;position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:help;`;
+      slot.style.cssText = `width:clamp(34px,9vw,40px);height:clamp(34px,9vw,40px);background:${bgColor}33;border:1px solid ${bgColor};border-radius:6px;position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:help;`;
       this.setItemTooltip(slot, this.createTomeTooltipHtml(tome));
       const icon = document.createElement('span');
-      icon.style.cssText = 'font-size:16px;';
+      icon.style.cssText = 'font-size:clamp(14px,4vw,18px);';
       icon.textContent = TOME_ICONS[tome.type] ?? '📖';
       slot.appendChild(icon);
-      // Level number
+      // Level number (Lv.N) bottom-center
       const lvl = document.createElement('span');
-      lvl.style.cssText = 'position:absolute;bottom:1px;right:2px;font-size:8px;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,0.9);';
-      lvl.textContent = String(tome.level);
+      lvl.style.cssText = 'position:absolute;bottom:-1px;left:0;right:0;text-align:center;font-size:8px;font-weight:bold;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,0.95);';
+      lvl.textContent = `Lv.${tome.level}`;
       slot.appendChild(lvl);
       this.tomesSlotsContainer.appendChild(slot);
     }
 
-    // --- Relic Icons Bar (bottom-center) ---
+    // --- Relic bar (bottom): fixed empty placeholder slots, filled left → right ---
     this.relicSlotsContainer.innerHTML = '';
-    for (const [id, count] of Object.entries(p.relicStacks ?? {}) as Array<[RelicId, number]>) {
-      if (!count) continue;
-      const relic = RELICS[id];
-      if (!relic) continue;
-      const borderColor = RARITY_COLORS[relic.rarity] ?? '#aaaaaa';
+    const acquiredRelics = (Object.entries(p.relicStacks ?? {}) as Array<[RelicId, number]>)
+      .filter(([id, count]) => count > 0 && RELICS[id]);
+    // 槽位数：先按遗物种类数兜底，再按遗物栏实际宽度算出能铺满整条框的数量，
+    // 用空占位槽把整个框填满（已获取数量更多时则以已获取数为准，多出的由横向滚动承载）。
+    const slotPx = Math.min(36, Math.max(30, window.innerWidth * 0.08)); // 对应 clamp(30px,8vw,36px)
+    const gapPx = 6;
+    const barInnerWidth = this.relicSlotsContainer.clientWidth - 16; // padding 左右各 8px
+    const fitCount = barInnerWidth > 0
+      ? Math.floor((barInnerWidth + gapPx) / (slotPx + gapPx))
+      : 0;
+    const RELIC_SLOT_COUNT = Math.max(acquiredRelics.length, Object.keys(RELICS).length, fitCount);
+    for (let i = 0; i < RELIC_SLOT_COUNT; i++) {
+      const entry = acquiredRelics[i];
       const slot = document.createElement('div');
+      if (!entry) {
+        // 空占位槽
+        slot.style.cssText = `
+          width:clamp(30px,8vw,36px);height:clamp(30px,8vw,36px);background:rgba(0,0,0,0.32);
+          border:1px dashed rgba(255,255,255,0.16);border-radius:8px;flex-shrink:0;box-sizing:border-box;
+        `;
+        this.relicSlotsContainer.appendChild(slot);
+        continue;
+      }
+      const [id, count] = entry;
+      const relic = RELICS[id];
+      const borderColor = RARITY_COLORS[relic.rarity] ?? '#aaaaaa';
       this.setItemTooltip(slot, this.createRelicTooltipHtml(id, count, state));
       slot.style.cssText = `
-        width:34px;height:34px;background:rgba(10,10,22,0.78);border:1px solid ${borderColor};
+        width:clamp(30px,8vw,36px);height:clamp(30px,8vw,36px);background:rgba(10,10,22,0.78);border:1px solid ${borderColor};
         border-radius:8px;position:relative;display:flex;align-items:center;justify-content:center;
         flex-shrink:0;box-shadow:0 0 10px ${borderColor}40;cursor:help;
       `;
       const icon = document.createElement('span');
-      icon.style.cssText = 'font-size:17px;';
+      icon.style.cssText = 'font-size:clamp(15px,4vw,18px);';
       icon.textContent = relic.emoji;
       slot.appendChild(icon);
       const stack = document.createElement('span');
@@ -6487,24 +6591,8 @@ export class GameScene {
       this.relicSlotsContainer.appendChild(slot);
     }
 
-    // --- Bond Diamonds (top-left, below gold) ---
-    this.bondSlotsContainer.innerHTML = '';
-    for (const prog of p.bonds ?? []) {
-      const def = BONDS[prog.bondId];
-      if (!def) continue;
-      const tierColor = BOND_TIER_COLORS[prog.tier] ?? BOND_TIER_COLORS[1];
-      const slot = document.createElement('div');
-      slot.style.cssText = 'width:32px;height:32px;position:relative;flex-shrink:0;display:flex;align-items:center;justify-content:center;cursor:help;';
-      this.setItemTooltip(slot, this.createBondTooltipHtml(prog.bondId, prog.tier, state));
-      const diamond = document.createElement('div');
-      diamond.style.cssText = `position:absolute;inset:2px;transform:rotate(45deg);background:rgba(10,10,22,0.82);border:2px solid ${tierColor};border-radius:5px;box-shadow:0 0 10px ${tierColor}66;`;
-      slot.appendChild(diamond);
-      const icon = document.createElement('span');
-      icon.style.cssText = 'position:relative;z-index:1;font-size:14px;line-height:1;';
-      icon.textContent = def.icon;
-      slot.appendChild(icon);
-      this.bondSlotsContainer.appendChild(slot);
-    }
+    // --- Bond slots (right of buff row); tap to expand a detail layer ---
+    this.renderBondSlots(state);
 
     // --- Boss HP Bar with GSAP animation ---
     if (state.boss && state.boss.hp > 0) {
@@ -6721,6 +6809,200 @@ export class GameScene {
     const maxCd = 4.0;
     const pct = Math.max(0, Math.min(100, (weapon.cooldownTimer / maxCd) * 100));
     return { cooldownPercent: pct };
+  }
+
+  /**
+   * 武器槽（左上角，血条下方）。
+   * 固定展示 6 个格子：前 `maxWeaponSlots` 个为开放槽（有武器则显示武器，否则空），
+   * 第 6 个槽在未完成「7 把不同武器」局外任务（maxWeaponSlots < 6）时显示一把锁。
+   */
+  private renderWeaponSlots(p: GameState['player']): void {
+    const TOTAL_SLOTS = 6;
+    const unlocked = Math.max(1, Math.min(TOTAL_SLOTS, p.maxWeaponSlots ?? 5));
+    this.weaponSlotsContainer.innerHTML = '';
+    for (let i = 0; i < TOTAL_SLOTS; i++) {
+      const weapon = p.weapons[i];
+      const isLocked = i >= unlocked;
+      const slot = document.createElement('div');
+      const borderColor = weapon?.evolved ? '#ffcc00' : (isLocked ? 'rgba(255,255,255,0.18)' : '#555');
+      slot.style.cssText = `width:clamp(40px,11vw,46px);height:clamp(40px,11vw,46px);background:${isLocked ? 'rgba(0,0,0,0.4)' : 'rgba(0,0,0,0.6)'};border:2px solid ${borderColor};border-radius:6px;position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0;${isLocked ? '' : 'cursor:help;'}`;
+
+      if (isLocked) {
+        const lock = document.createElement('span');
+        lock.style.cssText = 'font-size:clamp(16px,4.5vw,20px);opacity:0.7;';
+        lock.textContent = '🔒';
+        slot.appendChild(lock);
+        this.setItemTooltip(slot, `<div style="max-width:200px;">${escapeTooltipText(t('hud.weaponSlotLocked'))}</div>`);
+        this.weaponSlotsContainer.appendChild(slot);
+        continue;
+      }
+
+      if (weapon) {
+        this.setItemTooltip(slot, this.createWeaponTooltipHtml(weapon));
+        const icon = document.createElement('span');
+        icon.style.cssText = 'font-size:clamp(18px,5vw,22px);';
+        icon.textContent = WEAPON_ICONS[weapon.type] ?? '?';
+        slot.appendChild(icon);
+        const cd = this.getWeaponCooldownInfo(weapon);
+        if (cd.cooldownPercent > 0) {
+          const overlay = document.createElement('div');
+          overlay.style.cssText = `position:absolute;bottom:0;left:0;right:0;height:${cd.cooldownPercent}%;background:rgba(0,0,0,0.7);border-radius:0 0 4px 4px;pointer-events:none;`;
+          slot.appendChild(overlay);
+        }
+        const lvl = document.createElement('span');
+        lvl.style.cssText = 'position:absolute;bottom:-1px;left:0;right:0;text-align:center;font-size:8px;font-weight:bold;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,0.95);';
+        lvl.textContent = `Lv.${weapon.level}`;
+        slot.appendChild(lvl);
+      }
+      this.weaponSlotsContainer.appendChild(slot);
+    }
+  }
+
+  /**
+   * 消耗品 buff 图标（buff 行左侧）。
+   * 限时 buff 用从顶部向下降的阴影表示剩余时间；时间到 / 一次性 buff 触发后图标消失。
+   */
+  private renderConsumableBuffs(p: GameState['player']): void {
+    const active = p.activeConsumable;
+    if (!active) {
+      this.consumableMaxRemaining = 0;
+      this.consumableBuffsContainer.innerHTML = '';
+      return;
+    }
+    // 追踪 timed buff 的最大剩余值，用于阴影下降比例
+    if (active.remaining > this.consumableMaxRemaining) {
+      this.consumableMaxRemaining = active.remaining;
+    }
+
+    this.consumableBuffsContainer.innerHTML = '';
+    const slot = document.createElement('div');
+    slot.style.cssText = 'width:clamp(38px,10vw,44px);height:clamp(38px,10vw,44px);background:rgba(20,12,34,0.82);border:1px solid rgba(180,120,255,0.5);border-radius:8px;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 0 10px rgba(160,90,255,0.25);';
+    this.setItemTooltip(slot, this.createConsumableTooltipHtml(active.id, active.remaining));
+
+    const icon = document.createElement('span');
+    icon.style.cssText = 'font-size:clamp(18px,5vw,22px);line-height:1;';
+    icon.textContent = CONSUMABLE_EMOJI[active.id] ?? '✨';
+    slot.appendChild(icon);
+
+    // 限时 buff：顶部向下降的阴影（剩余越少阴影越高）
+    if (active.remaining > 0 && this.consumableMaxRemaining > 0) {
+      const ratio = Math.max(0, Math.min(1, active.remaining / this.consumableMaxRemaining));
+      const shade = document.createElement('div');
+      shade.style.cssText = `position:absolute;top:0;left:0;right:0;height:${Math.round((1 - ratio) * 100)}%;background:rgba(0,0,0,0.62);pointer-events:none;`;
+      slot.appendChild(shade);
+      const secs = document.createElement('span');
+      secs.style.cssText = 'position:absolute;bottom:-1px;left:0;right:0;text-align:center;font-size:8px;font-weight:bold;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,0.95);';
+      secs.textContent = `${Math.ceil(active.remaining)}s`;
+      slot.appendChild(secs);
+    }
+    this.consumableBuffsContainer.appendChild(slot);
+  }
+
+  private createConsumableTooltipHtml(id: ConsumableId, remaining: number): string {
+    const name = t(`consumable.${id}`);
+    const desc = t(`consumable.${id}_desc`);
+    const timerText = remaining < 0
+      ? t('consumable.pending')
+      : t('consumable.timer', { seconds: String(Math.ceil(remaining)) });
+    return `
+      <div style="display:flex;align-items:center;gap:6px;font-weight:700;">
+        <span style="font-size:16px;">${CONSUMABLE_EMOJI[id] ?? '✨'}</span>
+        <span>${escapeTooltipText(name)}</span>
+        <span style="opacity:0.8;font-size:11px;">${escapeTooltipText(timerText)}</span>
+      </div>
+      <div style="margin-top:4px;color:#d8c8ff;font-size:11px;line-height:1.35;">${escapeTooltipText(desc)}</div>
+    `;
+  }
+
+  /**
+   * 羁绊槽（buff 行右侧）。每个槽内部下方显示档位（T1/T2/T3）；
+   * 点击展开 / 收起上方的羁绊详情浮层。
+   */
+  private renderBondSlots(state: GameState): void {
+    const bonds = state.player.bonds ?? [];
+    this.bondSlotsContainer.innerHTML = '';
+    // 当前展开的羁绊若已不存在则关闭浮层
+    if (this.openBondId && !bonds.some(b => b.bondId === this.openBondId)) {
+      this.closeBondDetail();
+    }
+    for (const prog of bonds) {
+      const def = BONDS[prog.bondId];
+      if (!def) continue;
+      const tierColor = BOND_TIER_COLORS[prog.tier] ?? BOND_TIER_COLORS[1];
+      const slot = document.createElement('div');
+      slot.dataset.cameraBlock = 'true';
+      slot.style.cssText = `width:clamp(36px,9.5vw,42px);height:clamp(36px,9.5vw,42px);position:relative;flex-shrink:0;display:flex;align-items:center;justify-content:center;cursor:pointer;touch-action:manipulation;`;
+      const diamond = document.createElement('div');
+      diamond.style.cssText = `position:absolute;inset:3px;transform:rotate(45deg);background:rgba(10,10,22,0.85);border:2px solid ${tierColor};border-radius:6px;box-shadow:0 0 10px ${tierColor}66;`;
+      slot.appendChild(diamond);
+      const icon = document.createElement('span');
+      icon.style.cssText = 'position:relative;z-index:1;font-size:clamp(14px,4vw,17px);line-height:1;';
+      icon.textContent = def.icon;
+      slot.appendChild(icon);
+      // Tier label (T1/T2/T3) bottom-center
+      const tierLabel = document.createElement('span');
+      tierLabel.style.cssText = `position:absolute;bottom:-3px;left:0;right:0;text-align:center;font-size:9px;font-weight:bold;color:${tierColor};text-shadow:0 1px 2px rgba(0,0,0,0.95);z-index:2;`;
+      tierLabel.textContent = `T${prog.tier}`;
+      slot.appendChild(tierLabel);
+
+      const bondId = prog.bondId;
+      const tier = prog.tier;
+      slot.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if (this.openBondId === bondId) {
+          this.closeBondDetail();
+        } else {
+          this.openBondDetail(bondId, tier, state, slot);
+        }
+      });
+      this.bondSlotsContainer.appendChild(slot);
+    }
+
+    // 浮层若已打开，刷新其内容（数值会随游戏推进变化）
+    if (this.openBondId) {
+      const prog = bonds.find(b => b.bondId === this.openBondId);
+      if (prog) this.bondDetailOverlay.innerHTML = this.createBondTooltipHtml(prog.bondId, prog.tier, state);
+    }
+  }
+
+  private openBondDetail(bondId: BondId, tier: BondTier, state: GameState, anchor: HTMLElement): void {
+    this.openBondId = bondId;
+    this.bondDetailOverlay.innerHTML = this.createBondTooltipHtml(bondId, tier, state);
+    this.bondDetailOverlay.style.display = 'block';
+    // 定位到锚点正上方，避免超出视口
+    const rect = anchor.getBoundingClientRect();
+    const ov = this.bondDetailOverlay;
+    ov.style.bottom = `${Math.round(window.innerHeight - rect.top + 8)}px`;
+    // 先显示再测宽度
+    const ovWidth = ov.offsetWidth || 280;
+    let left = Math.round(rect.left + rect.width / 2 - ovWidth / 2);
+    left = Math.max(12, Math.min(left, window.innerWidth - ovWidth - 12));
+    ov.style.left = `${left}px`;
+    if (!this.bondDetailOutsideHandler) {
+      this.bondDetailOutsideHandler = (ev: PointerEvent) => {
+        const target = ev.target as Node | null;
+        // 点击浮层内部或羁绊槽时不关闭（羁绊槽自己的 click 负责切换）
+        if (target && (this.bondDetailOverlay.contains(target) || this.bondSlotsContainer.contains(target))) {
+          return;
+        }
+        this.closeBondDetail();
+      };
+      // 延迟注册，避免本次点击立即触发关闭
+      setTimeout(() => {
+        if (this.bondDetailOutsideHandler) {
+          window.addEventListener('pointerdown', this.bondDetailOutsideHandler);
+        }
+      }, 0);
+    }
+  }
+
+  private closeBondDetail(): void {
+    this.openBondId = null;
+    this.bondDetailOverlay.style.display = 'none';
+    if (this.bondDetailOutsideHandler) {
+      window.removeEventListener('pointerdown', this.bondDetailOutsideHandler);
+      this.bondDetailOutsideHandler = null;
+    }
   }
 
   private installItemTooltipHandlers(container: HTMLElement): void {
@@ -7353,16 +7635,278 @@ export class GameScene {
 
   private togglePause(): void {
     if (this.isPaused) {
-      this.session.resume();
-      this.isPaused = false;
-      this.pauseBtn.textContent = t('hud.pause');
-      this.cameraOrbit.setEnabled(true);
+      this.resumeGame();
     } else {
       this.session.pause();
       this.isPaused = true;
       this.pauseBtn.textContent = '▶';
       this.cameraOrbit.setEnabled(false);
+      this.showPauseMenu();
     }
+  }
+
+  /** 关闭暂停菜单并继续游戏。 */
+  private resumeGame(): void {
+    this.hidePauseMenu();
+    this.session.resume();
+    this.isPaused = false;
+    this.pauseBtn.textContent = t('hud.pause');
+    this.cameraOrbit.setEnabled(true);
+  }
+
+  private hidePauseMenu(): void {
+    this.pausePanel?.remove();
+    this.pausePanel = null;
+  }
+
+  /**
+   * 暂停弹窗：左侧背包（武器 / 典籍 / 遗物），右侧人物属性，底部操作按钮。
+   * 窄屏（flex-wrap）自动转单列；内容过高时整列可滚动。
+   */
+  private showPauseMenu(): void {
+    if (this.pausePanel) return;
+
+    const state = this.session.getRenderState();
+
+    const overlay = document.createElement('div');
+    overlay.dataset.cameraBlock = 'true';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.84);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:420;font-family:Arial,sans-serif;padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left));box-sizing:border-box;overflow:hidden;';
+
+    const panel = document.createElement('div');
+    panel.style.cssText = 'width:min(96vw,880px);max-height:100%;display:flex;flex-direction:column;gap:clamp(10px,2.2vh,16px);box-sizing:border-box;';
+
+    const title = document.createElement('div');
+    title.style.cssText = 'flex:0 0 auto;text-align:center;color:#ffffff;font-size:clamp(24px,6vw,38px);font-weight:bold;text-shadow:0 2px 8px rgba(0,0,0,0.9);';
+    title.textContent = t('pause.title');
+    panel.appendChild(title);
+
+    const makeBtn = (label: string, bg: string, onClick: () => void): HTMLDivElement => {
+      const btn = document.createElement('div');
+      btn.dataset.cameraBlock = 'true';
+      btn.style.cssText = `width:100%;max-width:260px;min-height:48px;display:flex;align-items:center;justify-content:center;padding:12px 20px;background:${bg};color:#ffffff;font-size:clamp(15px,4vw,18px);font-weight:bold;border-radius:10px;cursor:pointer;pointer-events:auto;user-select:none;touch-action:manipulation;box-sizing:border-box;text-align:center;`;
+      btn.textContent = label;
+      btn.addEventListener('click', (ev) => { ev.stopPropagation(); onClick(); });
+      return btn;
+    };
+
+    // 三列：左背包 / 中按钮 / 右属性（窄屏 flex-wrap 自动竖排）。
+    const contentRow = document.createElement('div');
+    contentRow.style.cssText = 'flex:1 1 auto;min-height:0;display:flex;flex-wrap:wrap;gap:clamp(8px,2vw,14px);align-items:stretch;justify-content:center;overflow-y:auto;';
+
+    const left = this.buildPauseInventory(state);
+    left.style.cssText += 'flex:2 1 300px;min-width:min(100%,280px);';
+
+    const middle = document.createElement('div');
+    middle.style.cssText = 'flex:0 1 200px;min-width:min(100%,170px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(10px,2vh,16px);';
+    middle.appendChild(makeBtn(t('pause.resume'), '#44aa44', () => this.resumeGame()));
+    middle.appendChild(makeBtn(t('pause.restart'), '#555566', () => this.restartGame()));
+    middle.appendChild(makeBtn(t('pause.exit'), '#aa5544', () => this.showExitConfirm(overlay)));
+
+    const right = this.buildPauseStats(state);
+    right.style.cssText += 'flex:1 1 220px;min-width:min(100%,220px);';
+
+    contentRow.appendChild(left);
+    contentRow.appendChild(middle);
+    contentRow.appendChild(right);
+    panel.appendChild(contentRow);
+
+    overlay.appendChild(panel);
+    this.pausePanel = overlay;
+    document.body.appendChild(overlay);
+  }
+
+  /** 暂停面板左侧：背包（武器 / 典籍 / 遗物，均为本局获得）。 */
+  private buildPauseInventory(state: GameState): HTMLDivElement {
+    const p = state.player;
+    const card = document.createElement('div');
+    card.style.cssText = 'background:linear-gradient(180deg,rgba(28,28,44,0.92),rgba(16,16,28,0.92));border:1px solid rgba(255,255,255,0.14);border-radius:14px;padding:clamp(12px,2.5vw,18px);box-sizing:border-box;display:flex;flex-direction:column;gap:clamp(10px,2vh,16px);';
+
+    const header = document.createElement('div');
+    header.style.cssText = 'color:#ffd97a;font-size:clamp(16px,4vw,20px);font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.8);';
+    header.textContent = t('pause.inventory');
+    card.appendChild(header);
+
+    card.appendChild(this.buildPauseItemSection(
+      t('pause.weapons'),
+      p.weapons.map(w => ({
+        icon: WEAPON_ICONS[w.type] ?? '?',
+        name: t(`upgrade.weapon.${w.type}`),
+        inner: `Lv.${w.level}`,
+        accent: w.evolved ? '#ffcc00' : '#7aa7ff',
+      })),
+    ));
+
+    card.appendChild(this.buildPauseItemSection(
+      t('pause.tomes'),
+      p.tomes.map(tm => ({
+        icon: TOME_ICONS[tm.type] ?? '📖',
+        name: t(`upgrade.tome.${tm.type}`),
+        inner: `Lv.${tm.level}`,
+        accent: TOME_COLORS[tm.type] ?? '#aa88ff',
+      })),
+    ));
+
+    const relics = (Object.entries(p.relicStacks ?? {}) as Array<[RelicId, number]>)
+      .filter(([id, count]) => count > 0 && RELICS[id]);
+    card.appendChild(this.buildPauseItemSection(
+      t('pause.relics'),
+      relics.map(([id, count]) => ({
+        icon: RELICS[id].emoji,
+        name: RELICS[id].name,
+        inner: `x${count}`,
+        accent: RARITY_COLORS[RELICS[id].rarity] ?? '#aaaaaa',
+      })),
+    ));
+
+    return card;
+  }
+
+  /**
+   * 背包内一个分组（武器 / 典籍 / 遗物）：标题 + 槽位流式排列。
+   * 每个槽位与局内一致：单独图标，图标内部下方显示等级（Lv.N）/层数（xN），图标下方再显示名字。
+   */
+  private buildPauseItemSection(
+    titleText: string,
+    items: Array<{ icon: string; name: string; inner: string; accent: string }>,
+  ): HTMLDivElement {
+    const section = document.createElement('div');
+    section.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+
+    const label = document.createElement('div');
+    label.style.cssText = 'color:#cfd2e0;font-size:clamp(12px,3vw,15px);font-weight:bold;opacity:0.85;';
+    label.textContent = titleText;
+    section.appendChild(label);
+
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;flex-wrap:wrap;gap:clamp(8px,2vw,12px);';
+
+    if (items.length === 0) {
+      const empty = document.createElement('div');
+      empty.style.cssText = 'color:#888;font-size:clamp(11px,2.8vw,13px);padding:4px 2px;';
+      empty.textContent = t('pause.empty');
+      row.appendChild(empty);
+    } else {
+      for (const it of items) {
+        const cell = document.createElement('div');
+        cell.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:3px;width:clamp(48px,13vw,58px);';
+
+        const box = document.createElement('div');
+        box.style.cssText = `position:relative;width:clamp(44px,12vw,52px);height:clamp(44px,12vw,52px);background:rgba(0,0,0,0.55);border:2px solid ${it.accent};border-radius:8px;display:flex;align-items:center;justify-content:center;box-shadow:0 0 8px ${it.accent}40;box-sizing:border-box;`;
+        const icon = document.createElement('span');
+        icon.style.cssText = 'font-size:clamp(20px,5.5vw,26px);line-height:1;';
+        icon.textContent = it.icon;
+        box.appendChild(icon);
+        const inner = document.createElement('span');
+        inner.style.cssText = 'position:absolute;bottom:-1px;left:0;right:0;text-align:center;font-size:9px;font-weight:bold;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,0.95);';
+        inner.textContent = it.inner;
+        box.appendChild(inner);
+        cell.appendChild(box);
+
+        const name = document.createElement('span');
+        name.style.cssText = 'width:100%;text-align:center;color:#dfe3f0;font-size:clamp(9px,2.4vw,11px);line-height:1.15;word-break:break-word;';
+        name.textContent = it.name;
+        cell.appendChild(name);
+
+        row.appendChild(cell);
+      }
+    }
+    section.appendChild(row);
+    return section;
+  }
+
+  /** 暂停面板右侧：当前人物属性一览。 */
+  private buildPauseStats(state: GameState): HTMLDivElement {
+    const p = state.player;
+    const card = document.createElement('div');
+    card.style.cssText = 'background:linear-gradient(180deg,rgba(28,28,44,0.92),rgba(16,16,28,0.92));border:1px solid rgba(255,255,255,0.14);border-radius:14px;padding:clamp(12px,2.5vw,18px);box-sizing:border-box;display:flex;flex-direction:column;gap:clamp(6px,1.4vh,10px);';
+
+    const header = document.createElement('div');
+    header.style.cssText = 'color:#7affc0;font-size:clamp(16px,4vw,20px);font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.8);';
+    header.textContent = t('pause.attributes');
+    card.appendChild(header);
+
+    const pct = (v: number) => `${Math.round(v * 100)}%`;
+    const num1 = (v: number) => formatTooltipNumber(v, 1);
+
+    const rows: Array<[string, string]> = [
+      [t('pause.attr.maxHp'), `${Math.round(p.hp)} / ${Math.round(p.maxHp)}`],
+      [t('pause.attr.shield'), `${Math.round(p.shield ?? 0)} / ${Math.round(p.maxShield ?? 0)}`],
+      [t('pause.attr.damage'), `${num1(p.damageMultiplier)}x`],
+      [t('pause.attr.attackSpeed'), `${num1(p.attackSpeedMultiplier)}x`],
+      [t('pause.attr.critChance'), pct(p.critChance)],
+      [t('pause.attr.critDamage'), pct(p.critDamage)],
+      [t('pause.attr.armor'), String(Math.round(p.armor))],
+      [t('pause.attr.moveSpeed'), num1(p.speed)],
+      [t('pause.attr.pickupRadius'), num1(p.pickupRadius)],
+      [t('pause.attr.projectileBonus'), `+${p.projectileBonus ?? 0}`],
+    ];
+
+    for (const [labelText, valueText] of rows) {
+      const r = document.createElement('div');
+      r.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:10px;padding:5px 2px;border-bottom:1px solid rgba(255,255,255,0.07);';
+      const l = document.createElement('span');
+      l.style.cssText = 'color:#cfd2e0;font-size:clamp(12px,3vw,14px);';
+      l.textContent = labelText;
+      const v = document.createElement('span');
+      v.style.cssText = 'color:#fff;font-size:clamp(12px,3vw,15px);font-weight:bold;font-variant-numeric:tabular-nums;white-space:nowrap;';
+      v.textContent = valueText;
+      r.appendChild(l);
+      r.appendChild(v);
+      card.appendChild(r);
+    }
+
+    return card;
+  }
+
+  /** 重新开始：清空所有游戏状态，重开本局。 */
+  private restartGame(): void {
+    this.hidePauseMenu();
+    this.isPaused = false;
+    this.pauseBtn.textContent = t('hud.pause');
+    this.cameraOrbit.setEnabled(true);
+    this.session.restart();
+  }
+
+  /** 退出二级确认弹窗：取消 / 退出（不结算奖励，回主菜单）。 */
+  private showExitConfirm(parent: HTMLElement): void {
+    const confirm = document.createElement('div');
+    confirm.dataset.cameraBlock = 'true';
+    confirm.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(12px,3vh,20px);padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);box-sizing:border-box;';
+
+    const box = document.createElement('div');
+    box.style.cssText = 'width:min(86vw,360px);background:linear-gradient(180deg,rgba(28,28,44,0.98),rgba(14,14,24,0.98));border:1px solid rgba(255,255,255,0.18);border-radius:14px;box-shadow:0 16px 44px rgba(0,0,0,0.6);padding:clamp(18px,4vw,26px);display:flex;flex-direction:column;align-items:center;gap:clamp(14px,3vh,22px);box-sizing:border-box;';
+
+    const msg = document.createElement('div');
+    msg.style.cssText = 'color:#f0e6e6;font-size:clamp(13px,3.6vw,16px);font-weight:600;line-height:1.5;text-align:center;';
+    msg.textContent = t('pause.confirmExitMessage');
+    box.appendChild(msg);
+
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:12px;width:100%;justify-content:center;flex-wrap:wrap;';
+
+    const cancelBtn = document.createElement('div');
+    cancelBtn.dataset.cameraBlock = 'true';
+    cancelBtn.style.cssText = 'flex:1;min-width:110px;min-height:46px;display:flex;align-items:center;justify-content:center;padding:10px 18px;background:#555566;color:#fff;font-size:clamp(14px,3.8vw,16px);font-weight:bold;border-radius:9px;cursor:pointer;pointer-events:auto;user-select:none;touch-action:manipulation;box-sizing:border-box;';
+    cancelBtn.textContent = t('pause.cancel');
+    cancelBtn.addEventListener('click', (ev) => { ev.stopPropagation(); confirm.remove(); });
+    row.appendChild(cancelBtn);
+
+    const exitBtn = document.createElement('div');
+    exitBtn.dataset.cameraBlock = 'true';
+    exitBtn.style.cssText = 'flex:1;min-width:110px;min-height:46px;display:flex;align-items:center;justify-content:center;padding:10px 18px;background:#cc3322;color:#fff;font-size:clamp(14px,3.8vw,16px);font-weight:bold;border-radius:9px;cursor:pointer;pointer-events:auto;user-select:none;touch-action:manipulation;box-sizing:border-box;';
+    exitBtn.textContent = t('pause.exit');
+    exitBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      // 退出本局：不结算奖励，直接销毁并回主菜单
+      this.hidePauseMenu();
+      this.destroy();
+      showMainMenu();
+    });
+    row.appendChild(exitBtn);
+
+    box.appendChild(row);
+    confirm.appendChild(box);
+    parent.appendChild(confirm);
   }
 
   setTierBadge(tier: DifficultyTier): void {

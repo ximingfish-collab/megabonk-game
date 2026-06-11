@@ -13,6 +13,7 @@ export type {
   BondId,
   BondTier,
   BondProgress,
+  ConsumableId,
   CharacterType,
   CharacterConfig,
   PlayerState,
