@@ -32,6 +32,8 @@ const SPAWN_ATTEMPTS = 24;
 const ENEMY_SPAWN_RADIUS = 0.4;
 const EDGE_CHECK_RING = ENEMY_SPAWN_RADIUS + 0.15;
 const EDGE_MAX_HEIGHT_DELTA = STEP_HEIGHT + 0.25;
+/** 刷怪面与玩家高度差上限：超过则不在该台面刷，避免刷在玩家头顶的高台/塔顶（"空中刷出"）。 */
+const SPAWN_MAX_HEIGHT_DELTA = 2.0;
 
 export function tickSpawning(engine: Engine, dt: number): void {
   // boss 阶段不刷怪
@@ -134,7 +136,7 @@ function spawnMiniBoss(engine: Engine): void {
     { mode: 'miniBoss' },
   );
   // 出生首帧直接贴地，避免 y=0 参与阻挡判定导致卡边/卡墙。
-  const h = getCoverSurfaceHeight(engine, enemy.x, enemy.z);
+  const h = getCoverSurfaceHeight(engine, enemy.x, enemy.z, engine.state.player.y);
   if (h !== null) enemy.y = h;
   engine.state.enemies.push(enemy);
 }
@@ -186,7 +188,7 @@ function spawnSingleEnemy(engine: Engine, type: string): void {
     { mode: 'wave' },
   );
   // 出生首帧直接贴地，避免 y=0 参与阻挡判定导致卡边/卡墙。
-  const h = getCoverSurfaceHeight(engine, enemy.x, enemy.z);
+  const h = getCoverSurfaceHeight(engine, enemy.x, enemy.z, engine.state.player.y);
   if (h !== null) enemy.y = h;
   engine.state.enemies.push(enemy);
 }
@@ -221,9 +223,11 @@ function getSpawnPositionAroundPlayer(engine: Engine): { x: number; z: number } 
     const z = p.z + Math.sin(angle) * radius;
     if (Math.abs(x) > halfMap || Math.abs(z) > halfMap) continue;
 
-    // 只允许刷在关卡可走面（col_/ramp_）上：必须被 rect 或 ramp 覆盖。
-    const y = getCoverSurfaceHeight(engine, x, z);
+    // 只允许刷在关卡可走面（col_/ramp_）上：取最接近玩家高度的面。
+    const y = getCoverSurfaceHeight(engine, x, z, p.y);
     if (y === null) continue;
+    // 不在比玩家高/低过多的台面刷（避免怪从空中/塔顶刷出）。
+    if (Math.abs(y - p.y) > SPAWN_MAX_HEIGHT_DELTA) continue;
 
     // 额外避开墙/攀爬体等阻挡体，半径与敌人体型一致，防止刷在墙里。
     if (isBlockedHorizontallyAt(engine.geo, x, z, y, true, ENEMY_SPAWN_RADIUS)) continue;
@@ -239,7 +243,7 @@ function hasStableSpawnNeighborhood(engine: Engine, x: number, z: number, y: num
     const a = (i / 8) * Math.PI * 2;
     const sx = x + Math.cos(a) * EDGE_CHECK_RING;
     const sz = z + Math.sin(a) * EDGE_CHECK_RING;
-    const h = getCoverSurfaceHeight(engine, sx, sz);
+    const h = getCoverSurfaceHeight(engine, sx, sz, y);
     if (h === null) return false;
     if (Math.abs(h - y) > EDGE_MAX_HEIGHT_DELTA) return false;
     if (isBlockedHorizontallyAt(engine.geo, sx, sz, h, true, ENEMY_SPAWN_RADIUS)) return false;
@@ -247,16 +251,25 @@ function hasStableSpawnNeighborhood(engine: Engine, x: number, z: number, y: num
   return true;
 }
 
-function getCoverSurfaceHeight(engine: Engine, x: number, z: number): number | null {
-  let best = Number.NEGATIVE_INFINITY;
-  let found = false;
+/**
+ * (x,z) 处的可走面高度（col_ 顶面 / ramp_ 顶面）。
+ * 传 referenceY 时返回**最接近该高度**的面（用玩家 y → 把怪刷在玩家所在的战斗平面，
+ * 而非叠层几何里最高的塔顶/天台，避免"空中刷出"）；不传则返回最高面（旧行为）。
+ */
+function getCoverSurfaceHeight(engine: Engine, x: number, z: number, referenceY?: number): number | null {
+  let best: number | null = null;
+  const consider = (h: number): void => {
+    if (best === null) { best = h; return; }
+    if (referenceY === undefined) {
+      if (h > best) best = h;
+    } else if (Math.abs(h - referenceY) < Math.abs(best - referenceY)) {
+      best = h;
+    }
+  };
   // rects = col_ 顶面
   for (const rect of engine.geo.rects) {
     const [cx, cz, halfW, halfD, height] = rect;
-    if (Math.abs(x - cx) <= halfW && Math.abs(z - cz) <= halfD) {
-      if (!found || height > best) best = height;
-      found = true;
-    }
+    if (Math.abs(x - cx) <= halfW && Math.abs(z - cz) <= halfD) consider(height);
   }
   // ramps = ramp_ 顶面
   for (const ramp of engine.geo.ramps) {
@@ -266,11 +279,9 @@ function getCoverSurfaceHeight(engine: Engine, x: number, z: number): number | n
     const pCoord = dx * (-ramp.slopeDirZ) + dz * ramp.slopeDirX;
     if (Math.abs(sCoord) > ramp.halfSlope || Math.abs(pCoord) > ramp.halfPerp) continue;
     const t = ramp.halfSlope > 0 ? (sCoord + ramp.halfSlope) / (ramp.halfSlope * 2) : 0;
-    const h = ramp.lowY + (ramp.highY - ramp.lowY) * t;
-    if (!found || h > best) best = h;
-    found = true;
+    consider(ramp.lowY + (ramp.highY - ramp.lowY) * t);
   }
-  return found ? best : null;
+  return best;
 }
 
 /**
