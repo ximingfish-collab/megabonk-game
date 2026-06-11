@@ -40,6 +40,17 @@ describe('gas_cloud', () => {
     tickAreaEffects(engine, 1 / 60);
     expect(engine.state.areaEffects).toHaveLength(0);
   });
+
+  it('水平范围内但垂直分层时不刷新中毒', () => {
+    const engine = makeEngine();
+    const below = enemyAt(1, 1, 0, 100);
+    below.y = 0;
+    engine.state.enemies.push(below);
+    engine.state.areaEffects.push(gasCloud({ y: 4 }));
+
+    tickAreaEffects(engine, 1 / 60);
+    expect(below.poisonTimer ?? 0).toBe(0);
+  });
 });
 
 describe('void_ripple', () => {

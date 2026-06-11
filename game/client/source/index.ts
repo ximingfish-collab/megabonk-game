@@ -4773,7 +4773,7 @@ export class GameScene {
       this.bossWarningRing.visible = true;
       // Position at the player (where damage will land)
       const state = this.session.getRenderState();
-      this.bossWarningRing.position.set(state.player.x, 0.05, state.player.z);
+      this.bossWarningRing.position.set(state.player.x, state.player.y + 0.05, state.player.z);
       // Scale from 0 to 1 as attack timer counts down
       const maxTimer = boss.enraged ? 2.5 : 3.5;
       const progress = 1 - Math.min(boss.attackTimer / maxTimer, 1);
@@ -5070,7 +5070,7 @@ export class GameScene {
     });
     this.spawnBillboard({
       texture: 'scorch',
-      x, y: 0.05, z,
+      x, y: y + 0.05, z,
       scale: 1.4,
       endScale: 1.8,
       lifetime: 1.5,
@@ -5842,7 +5842,7 @@ export class GameScene {
           // 细长发光盒：从玩家沿 dir 延伸 length，宽度 = width*2
           const dx = ae.dirX ?? 0, dz = ae.dirZ ?? 1;
           const len = ae.length ?? 40;
-          obj.position.set(ae.x + dx * len * 0.5, 1.0, ae.z + dz * len * 0.5);
+          obj.position.set(ae.x + dx * len * 0.5, ae.y + 1.0, ae.z + dz * len * 0.5);
           obj.rotation.set(0, Math.atan2(dx, dz), 0);
           const w = (ae.width ?? 0.5) * 2;
           obj.scale.set(w, w, len);
@@ -5851,7 +5851,7 @@ export class GameScene {
           break;
         }
         case 'gas_cloud': {
-          obj.position.set(ae.x, 0.1, ae.z);
+          obj.position.set(ae.x, ae.y + 0.1, ae.z);
           obj.scale.setScalar(ae.radius);
           const m = (obj as THREE.Mesh).material as THREE.MeshBasicMaterial;
           m.opacity = 0.32 * ratio;
@@ -5861,7 +5861,7 @@ export class GameScene {
             const a = Math.random() * Math.PI * 2;
             const r = Math.random() * ae.radius;
             this.spawnParticle(
-              ae.x + Math.cos(a) * r, 0.3 + Math.random() * 0.8, ae.z + Math.sin(a) * r,
+              ae.x + Math.cos(a) * r, ae.y + 0.3 + Math.random() * 0.8, ae.z + Math.sin(a) * r,
               0, 0.3 + Math.random() * 0.4, 0,
               0.6, 0.5, 0.25, 0.7, 0.12,
             );
@@ -6118,7 +6118,7 @@ export class GameScene {
     });
     // 地面蓝紫光环
     this.spawnBillboard({
-      texture: 'scorch', x, y: 0.06, z, scale: 1.6, endScale: 3.0, lifetime: 0.45,
+      texture: 'scorch', x, y: y - 1.0 + 0.06, z, scale: 1.6, endScale: 3.0, lifetime: 0.45,
       opacityCurve: 'fadeOut', opacity: 0.6, color: 0x6a4cff,
       facing: 'up', rotation: Math.random() * Math.PI * 2, blending: 'additive',
     });
@@ -6165,7 +6165,7 @@ export class GameScene {
       );
 
       if (isDeath) {
-        this.emitDeathBurst(event.x, event.y, event.z, 'generic');
+        this.emitDeathBurst(event.x, event.y - 1.0, event.z, 'generic');
       } else {
         // Prefer the event's source weapon for spark color; fall back to first equipped weapon
         const weaponType = event.weaponType
@@ -6175,7 +6175,7 @@ export class GameScene {
 
       // Lightning staff: drop a column at each strike
       if (event.weaponType === 'lightning_staff') {
-        this.spawnLightningBolt(event.x, 0, event.z);
+        this.spawnLightningBolt(event.x, event.y - 1.0, event.z);
       }
     }
 
@@ -6252,7 +6252,7 @@ export class GameScene {
         this.spawnBillboard({
           texture: 'slash',
           x: player.x + Math.sin(slashAngle) * 1.5,
-          y: 0.15,
+          y: player.y + 0.15,
           z: player.z + Math.cos(slashAngle) * 1.5,
           scale: 3.5,
           endScale: 4.5,

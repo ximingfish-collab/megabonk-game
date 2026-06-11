@@ -9,6 +9,8 @@
  */
 import { distanceBetween, normalizeDirection } from '../physics.ts';
 import { getTomePower } from '../tomeProgression.ts';
+import { AOE_MAX_Y_DELTA } from '../config.ts';
+import { targetHitCenterY } from '../combatHeight.ts';
 import type { EnemyState, WeaponType } from '../types.ts';
 import type { Engine } from './types.ts';
 import { onBossDefeated } from './altars.ts';
@@ -41,12 +43,14 @@ export function findNearestEnemyExcluding(
   x: number,
   z: number,
   excludeIds: readonly number[],
+  sourceY?: number,
 ): EnemyState | null {
   let nearest: EnemyState | null = null;
   let nearestDist = 20;
   for (const enemy of engine.state.enemies) {
     if (enemy.hp <= 0) continue;
     if (excludeIds.includes(enemy.id)) continue;
+    if (sourceY !== undefined && Math.abs(sourceY - targetHitCenterY(enemy)) > AOE_MAX_Y_DELTA) continue;
     const dist = distanceBetween(x, z, enemy.x, enemy.z);
     if (dist < nearestDist) {
       nearestDist = dist;
