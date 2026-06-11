@@ -865,9 +865,10 @@ const DAMAGE_NUM_POOL_SIZE = 30;
 function createToonGradientMap(): THREE.DataTexture {
   // 3 段明暗阶梯（阴影 / 中间调 / 高光）—— 荒野乱斗式光影断层。
   // MeshToonMaterial 按 NdotL 采样此 ramp 的 .r 通道；NearestFilter 保证硬断层不被插值糊掉。
+  // 暗端用高地板（130 而非 0）：背光面仍明亮、阴影不发黑发闷 —— 荒野乱斗的高亮通透感。
   const colors = new Uint8Array([
-    0, 0, 0, 255,        // 阴影
-    128, 128, 128, 255,  // 中间调
+    130, 130, 130, 255,  // 阴影（高地板，不死黑）
+    195, 195, 195, 255,  // 中间调
     255, 255, 255, 255,  // 高光
   ]);
   const gradMap = new THREE.DataTexture(colors, colors.length / 4, 1, THREE.RGBAFormat);
@@ -2119,7 +2120,7 @@ export class GameScene {
     // 通透阳光基底：抬高环境光让暗部仍有色彩（不死黑）。
     // 仍低于平行光，使 toon 阶梯保留：平行光被 gradientMap 量化成断层、主导明面；
     // 环境光只是给阴影侧兜底色彩。
-    const ambient = new THREE.AmbientLight('#e8eeff', 0.6);
+    const ambient = new THREE.AmbientLight('#eef4ff', 0.9);
     ambient.name = 'AmbientLight';
     this.scene.add(ambient);
 
@@ -2139,7 +2140,7 @@ export class GameScene {
     this.scene.add(dir);
 
     // 半球补光：天蓝/地暖给暗部一点通透的环境色（删去第二个冗余半球）。
-    const hemi = new THREE.HemisphereLight('#87CEEB', '#8B7355', 0.5);
+    const hemi = new THREE.HemisphereLight('#bfe4ff', '#b8a888', 0.7);
     hemi.name = 'HemisphereLight';
     this.scene.add(hemi);
 
