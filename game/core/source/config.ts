@@ -26,6 +26,8 @@ export const JUMP_FORCE = 6.0;
 export const GRAVITY = 18.0;
 /** 自动迈步高度：相邻地面高度差 ≤ 此值时走路无缝上去；超过则被当作墙挡住。 */
 export const STEP_HEIGHT = 0.5;
+/** 地面 AoE（烈焰环 / 涟漪 / 灼地痕）垂直命中容差：目标与效果面高度差超过此值不结算。 */
+export const AOE_MAX_Y_DELTA = 1.2;
 /** 跌落到此 y 以下（掉出关卡虚空）时，把玩家传送回出生点。 */
 export const FALL_RESPAWN_Y = -20;
 /** 攀爬上升 / 下降速度（单位/秒）。 */

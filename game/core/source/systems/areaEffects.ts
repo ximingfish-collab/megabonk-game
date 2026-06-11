@@ -14,7 +14,7 @@ import { distanceBetween } from '../physics.ts';
 import { addDamageEvent } from './helpers.ts';
 import { applyPoison } from './statusEffects.ts';
 import { onBondWeaponHit } from './bonds.ts';
-import { GAS_POISON_REFRESH_DURATION } from '../config.ts';
+import { AOE_MAX_Y_DELTA, GAS_POISON_REFRESH_DURATION } from '../config.ts';
 import type { AreaEffectState, EnemyState, BossState } from '../types.ts';
 import type { Engine } from './types.ts';
 
@@ -23,6 +23,10 @@ function damageEnemy(engine: Engine, enemy: EnemyState, dmg: number, ae: AreaEff
   enemy.hitFlashTimer = 0.1;
   engine.state.stats.damageDealt += dmg;
   addDamageEvent(engine, enemy.x, 1.0, enemy.z, dmg, ae.isCrit ?? false, false, ae.weaponType);
+}
+
+function withinAoeHeight(effectY: number, targetY: number): boolean {
+  return Math.abs(targetY - effectY) <= AOE_MAX_Y_DELTA;
 }
 
 function damageBoss(engine: Engine, boss: BossState, dmg: number, ae: AreaEffectState): void {
@@ -63,6 +67,7 @@ export function tickAreaEffects(engine: Engine, dt: number): void {
       case 'void_ripple': {
         if (ae.followPlayer) {
           ae.x = engine.state.player.x;
+          ae.y = engine.state.player.y;
           ae.z = engine.state.player.z;
         }
         const prev = ae.radius;
@@ -71,14 +76,20 @@ export function tickAreaEffects(engine: Engine, dt: number): void {
         for (const enemy of enemies) {
           if (enemy.hp <= 0) continue;
           if (ae.hitEnemyIds.includes(enemy.id)) continue;
-          if (distanceBetween(ae.x, ae.z, enemy.x, enemy.z) <= ae.radius) {
+          if (
+            distanceBetween(ae.x, ae.z, enemy.x, enemy.z) <= ae.radius
+            && withinAoeHeight(ae.y, enemy.y)
+          ) {
             damageEnemy(engine, enemy, ae.damage, ae);
             ae.hitEnemyIds.push(enemy.id);
             onBondWeaponHit(engine, ae.weaponType, enemy, ae.damage, ae.isCrit ?? false);
           }
         }
         if (boss && boss.hp > 0 && !ae.hitEnemyIds.includes(-1)) {
-          if (distanceBetween(ae.x, ae.z, boss.x, boss.z) <= ae.radius) {
+          if (
+            distanceBetween(ae.x, ae.z, boss.x, boss.z) <= ae.radius
+            && withinAoeHeight(ae.y, boss.y)
+          ) {
             damageBoss(engine, boss, ae.damage, ae);
             ae.hitEnemyIds.push(-1);
             onBondWeaponHit(engine, ae.weaponType, boss, ae.damage, ae.isCrit ?? false);
@@ -98,10 +109,15 @@ export function tickAreaEffects(engine: Engine, dt: number): void {
           for (const enemy of enemies) {
             if (enemy.hp <= 0) continue;
             if (distanceBetween(ae.x, ae.z, enemy.x, enemy.z) > ae.radius) continue;
+            if (!withinAoeHeight(ae.y, enemy.y)) continue;
             damageEnemy(engine, enemy, ae.damage, ae);
             onBondWeaponHit(engine, ae.weaponType, enemy, ae.damage, ae.isCrit ?? false);
           }
-          if (boss && boss.hp > 0 && distanceBetween(ae.x, ae.z, boss.x, boss.z) <= ae.radius) {
+          if (
+            boss && boss.hp > 0
+            && distanceBetween(ae.x, ae.z, boss.x, boss.z) <= ae.radius
+            && withinAoeHeight(ae.y, boss.y)
+          ) {
             damageBoss(engine, boss, ae.damage, ae);
             onBondWeaponHit(engine, ae.weaponType, boss, ae.damage, ae.isCrit ?? false);
           }

@@ -237,7 +237,7 @@ function onBondKill(engine: Engine, weaponType: WeaponType, killed: BondTarget):
     engine.effects.spawnAreaEffect({
       kind: 'scorch_trail',
       weaponType: 'scorch_boots',
-      x: killed.x, z: killed.z,
+      x: killed.x, y: killed.y, z: killed.z,
       radius,
       lifetime: p.t3ScorchDuration,
       maxLifetime: p.t3ScorchDuration,

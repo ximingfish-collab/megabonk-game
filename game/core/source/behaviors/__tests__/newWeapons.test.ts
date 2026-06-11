@@ -103,6 +103,7 @@ describe('voidRipple (void_ripple)', () => {
     const ae = ctx.effects.areaEffects[0];
     expect(ae.kind).toBe('void_ripple');
     expect(ae.x).toBe(2);
+    expect(ae.y).toBe(0);
     expect(ae.z).toBe(3);
     expect(ae.radius).toBe(0);
     expect(ae.maxRadius).toBe(6);
@@ -117,13 +118,14 @@ describe('scorchTrail (scorch_boots)', () => {
   afterEach(() => { spy.mockRestore(); });
 
   it('在玩家脚下生成灼地痕迹', () => {
-    const player = makePlayer({ x: 1, z: 1 });
+    const player = makePlayer({ x: 1, y: 4, z: 1 });
     const ctx = makeCtx(player, [], null,
       makeStats({ damage: 5, aoeRadius: 0.9 }), 'scorch_boots', 'scorchTrail', ['scorch_boots']);
     scorchTrail(createWorld(), ctx);
     expect(ctx.effects.areaEffects).toHaveLength(1);
     const ae = ctx.effects.areaEffects[0];
     expect(ae.kind).toBe('scorch_trail');
+    expect(ae.y).toBe(4);
     expect(ae.radius).toBe(0.9);
     expect(ae.damage).toBe(5);
   });
