@@ -893,6 +893,62 @@ function boostMaterialSaturation(color: THREE.Color, factor: number): void {
 }
 
 /**
+ * 风格化叠加 GLSL（注入到 MeshToonMaterial 片元，在 <opaque_fragment> 前）：
+ *   1) Rim light（菲涅尔边缘光）—— 角色边缘一圈冷亮，从背景弹出（荒野乱斗最关键的质感）。
+ *   2) Toon specular（硬边高光）—— 塑料玩具般的光泽点。
+ *   3) Colored shadow（暗部染冷色）—— 阴影不发黑发闷，带通透冷调。
+ * 全部在线性空间叠加；光向用「固定视空间方向」(随相机稳定，免每帧更新 uniform)。
+ * 调参直接改下面的常量：rim 的 pow(越大越细)/×强度/色；spec 的 pow(越大越紧)/边/强；shadow 的 tint/阈值/量。
+ */
+const STYLIZED_TOON_GLSL = `
+	{
+		vec3 N = normalize( normal );
+		vec3 V = normalize( vViewPosition );                       // 片元 -> 相机(视空间)
+		vec3 LDIR = normalize( vec3( -0.35, 0.65, 0.55 ) );        // 固定视空间光向(左上前)
+		float NdL = dot( N, LDIR );
+
+		// 1) Rim light（菲涅尔边缘光）
+		float fres = 1.0 - saturate( dot( N, V ) );
+		float rim = pow( fres, 2.5 ) * 0.55;                       // pow=细度, 0.55=强度
+		rim *= smoothstep( -0.3, 0.4, NdL );                       // 背光侧淡出
+		outgoingLight += rim * vec3( 1.0, 1.05, 1.2 );             // 冷白 rim 色
+
+		// 2) Toon specular（硬边高光）—— 强度按 uSpec（怪物/场景=0 哑光，主角/武器>0）
+		vec3 H = normalize( LDIR + V );
+		float sp = pow( saturate( dot( N, H ) ), 24.0 );           // 24=高光紧致度
+		sp = smoothstep( 0.5, 0.53, sp ) * uSpec;                  // 硬边 × per-material 强度
+		sp *= saturate( NdL );                                     // 背光无高光
+		outgoingLight += vec3( sp );
+
+		// 3) Colored shadow（暗部染冷色）
+		float lum = dot( outgoingLight, vec3( 0.299, 0.587, 0.114 ) );
+		float shMask = 1.0 - smoothstep( 0.0, 0.35, lum );         // 0.35=暗部判定阈值
+		outgoingLight = mix( outgoingLight, outgoingLight * vec3( 0.82, 0.88, 1.12 ), shMask * 0.4 ); // 冷 tint, 0.4 量
+	}
+`;
+
+/**
+ * 给 MeshToonMaterial 挂上风格化叠加（rim + toon spec + 染色阴影）。
+ * specStrength：toon 高光强度（per-material uniform）。怪物/场景传 0（哑光，避免"油光水滑"），
+ * 主角/武器传 >0 保留塑料玩具光泽。rim 与染色阴影对所有材质恒定。
+ * 幂等（userData 标记，避免重复注入触发重编译）；共享同一编译程序（uSpec 只是 uniform 值差异）。
+ */
+function applyStylizedToonShading(mat: THREE.MeshToonMaterial, specStrength = 0): void {
+  if (mat.userData['__stylized']) return;
+  mat.userData['__stylized'] = true;
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms['uSpec'] = { value: specStrength };
+    shader.fragmentShader = shader.fragmentShader
+      .replace('void main() {', 'uniform float uSpec;\nvoid main() {')
+      .replace(
+        '#include <opaque_fragment>',
+        `${STYLIZED_TOON_GLSL}\n\t#include <opaque_fragment>`,
+      );
+  };
+  mat.customProgramCacheKey = () => 'stylized-toon-v1';
+}
+
+/**
  * EffectComposer 首道 pass：用 OutlineEffect 把「场景 + 黑描边」渲进 composer 缓冲，
  * 让后续 bloom 能在保留描边的前提下叠加辉光（OutlineEffect 尊重预设 renderTarget）。
  * 渲到目标时引擎自动禁 in-material tonemap → 缓冲为线性 HDR，交末端 OutputPass 统一 ACES+sRGB。
@@ -921,7 +977,10 @@ function convertToToonMaterials(root: THREE.Object3D): void {
     const mesh = child as THREE.Mesh;
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     const toonMats = materials.map((mat) => {
-      if (mat instanceof THREE.MeshToonMaterial) return mat; // already toon
+      if (mat instanceof THREE.MeshToonMaterial) {
+        applyStylizedToonShading(mat); // 已是 toon：补挂风格化叠加
+        return mat;
+      }
       const oldMat = mat as THREE.MeshStandardMaterial | THREE.MeshPhongMaterial | THREE.MeshLambertMaterial;
       const color = (oldMat.color ?? new THREE.Color(0xffffff)).clone();
       boostMaterialSaturation(color, 1.5); // 敌人/场景/道具统一高饱和（与玩家 ×1.6 对齐）
@@ -934,6 +993,7 @@ function convertToToonMaterials(root: THREE.Object3D): void {
         opacity: oldMat.opacity ?? 1,
       });
       toon.name = oldMat.name || 'ToonMat';
+      applyStylizedToonShading(toon); // rim + toon spec + 染色阴影
       return toon;
     });
     mesh.material = toonMats.length === 1 ? toonMats[0] : toonMats;
@@ -973,6 +1033,7 @@ function brightenWeaponMaterials(root: THREE.Object3D): void {
         opacity: m.opacity ?? 1,
       });
       newMat.name = m.name || 'WeaponToon';
+      applyStylizedToonShading(newMat, 0.35); // 武器留一点高光
       return newMat;
     });
     mesh.material = lifted.length === 1 ? lifted[0] : lifted;
@@ -2528,6 +2589,7 @@ export class GameScene {
     // Always start with fallback — will be replaced once model loads
     const bodyGeo = new THREE.CapsuleGeometry(0.5, 1.0, 8, 16);
     const bodyMat = new THREE.MeshToonMaterial({ color: charColor, gradientMap: toonGradientMap });
+    applyStylizedToonShading(bodyMat, 0.3);
     this.playerMesh = new THREE.Mesh(bodyGeo, bodyMat);
     this.playerMesh.name = 'Player';
     this.playerMesh.position.y = 1.0;
@@ -2559,6 +2621,7 @@ export class GameScene {
             side: oldMat.side ?? THREE.FrontSide,
           });
           toon.name = 'PlayerToon';
+          applyStylizedToonShading(toon, 0.3); // 主角留一点塑料玩具光泽
           return toon;
         });
         mesh.material = toonMats.length === 1 ? toonMats[0] : toonMats;
