@@ -859,8 +859,14 @@ const DAMAGE_NUM_POOL_SIZE = 30;
 
 /** 3-step gradient map for MeshToonMaterial (shadow / mid / highlight) */
 function createToonGradientMap(): THREE.DataTexture {
-  const colors = new Uint8Array([40, 150, 255]); // 3 discrete light steps
-  const gradMap = new THREE.DataTexture(colors, 3, 1, THREE.RedFormat);
+  // 3 段明暗阶梯（阴影 / 中间调 / 高光）—— 荒野乱斗式光影断层。
+  // MeshToonMaterial 按 NdotL 采样此 ramp 的 .r 通道；NearestFilter 保证硬断层不被插值糊掉。
+  const colors = new Uint8Array([
+    0, 0, 0, 255,        // 阴影
+    128, 128, 128, 255,  // 中间调
+    255, 255, 255, 255,  // 高光
+  ]);
+  const gradMap = new THREE.DataTexture(colors, colors.length / 4, 1, THREE.RGBAFormat);
   gradMap.minFilter = THREE.NearestFilter;
   gradMap.magFilter = THREE.NearestFilter;
   gradMap.needsUpdate = true;
