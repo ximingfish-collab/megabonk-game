@@ -3316,6 +3316,7 @@ export class GameScene {
 
     // Bond detail floating layer (opens above buff row when a bond is tapped)
     this.bondDetailOverlay = document.createElement('div');
+    this.bondDetailOverlay.dataset.cameraBlock = 'true'; // 交互浮层：阻断镜头拖拽（见 cameraOrbit 约定）
     this.bondDetailOverlay.style.cssText = `
       position:fixed;left:0;bottom:0;display:none;z-index:240;pointer-events:auto;
       max-width:min(320px,calc(100vw - 24px));padding:10px 12px;border-radius:10px;
@@ -5342,6 +5343,7 @@ export class GameScene {
     const overlay = document.createElement('div');
     this.chestRewardPanel = overlay;
     this.chestRewardPanelKey = `${reward.chestId}:${reward.relicId}`;
+    overlay.dataset.cameraBlock = 'true'; // 全屏交互面板：阻断镜头拖拽（见 cameraOrbit 约定）
     overlay.style.cssText = `
       position:fixed;inset:0;z-index:320;pointer-events:auto;
       display:flex;align-items:center;justify-content:center;
