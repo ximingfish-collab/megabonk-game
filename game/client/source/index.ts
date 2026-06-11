@@ -873,6 +873,13 @@ const toonGradientMap = createToonGradientMap();
  * Convert all mesh materials in a scene to MeshToonMaterial (cel-shading).
  * Preserves color/map/normalMap from original materials.
  */
+/** 提升颜色饱和度（HSL 的 s ×factor），用于 toon 的"饱满高饱和纯色块"观感。 */
+function boostMaterialSaturation(color: THREE.Color, factor: number): void {
+  const hsl = { h: 0, s: 0, l: 0 };
+  color.getHSL(hsl);
+  color.setHSL(hsl.h, Math.min(1, hsl.s * factor), hsl.l);
+}
+
 function convertToToonMaterials(root: THREE.Object3D): void {
   root.traverse((child) => {
     if (!(child as THREE.Mesh).isMesh) return;
@@ -881,8 +888,10 @@ function convertToToonMaterials(root: THREE.Object3D): void {
     const toonMats = materials.map((mat) => {
       if (mat instanceof THREE.MeshToonMaterial) return mat; // already toon
       const oldMat = mat as THREE.MeshStandardMaterial | THREE.MeshPhongMaterial | THREE.MeshLambertMaterial;
+      const color = (oldMat.color ?? new THREE.Color(0xffffff)).clone();
+      boostMaterialSaturation(color, 1.5); // 敌人/场景/道具统一高饱和（与玩家 ×1.6 对齐）
       const toon = new THREE.MeshToonMaterial({
-        color: oldMat.color ?? new THREE.Color(0xffffff),
+        color,
         map: oldMat.map ?? null,
         gradientMap: toonGradientMap,
         side: oldMat.side ?? THREE.FrontSide,
@@ -1932,7 +1941,7 @@ export class GameScene {
 
     // Outline Effect (cel-shading edge lines)
     this.outlineEffect = new OutlineEffect(this.renderer, {
-      defaultThickness: 0.003,
+      defaultThickness: 0.006, // 加粗黑描边（荒野乱斗式 Q 版卡通轮廓）
       defaultColor: [0, 0, 0],
       defaultAlpha: 0.9,
     });
