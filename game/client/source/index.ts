@@ -80,6 +80,7 @@ import { installThreeHighDpi } from '@minigame/render-adapter';
 import { initI18n, t, getLocale, setLocale, getAvailableLocales, getMode } from '@minigame/i18n';
 import { CameraOrbit } from './systems/cameraOrbit.ts';
 import { PlayerInvincibilityFx } from './systems/playerFx.ts';
+import { BlobShadowPool } from './systems/blobShadows.ts';
 import { gsapAnimations } from './gsap-animations.ts';
 import type { I18nMode } from '@minigame/i18n';
 import { EventEmitter } from './session/EventEmitter.ts';
@@ -865,9 +866,10 @@ const DAMAGE_NUM_POOL_SIZE = 30;
 function createToonGradientMap(): THREE.DataTexture {
   // 3 段明暗阶梯（阴影 / 中间调 / 高光）—— 荒野乱斗式光影断层。
   // MeshToonMaterial 按 NdotL 采样此 ramp 的 .r 通道；NearestFilter 保证硬断层不被插值糊掉。
+  // 暗端用高地板（130 而非 0）：背光面仍明亮、阴影不发黑发闷 —— 荒野乱斗的高亮通透感。
   const colors = new Uint8Array([
-    0, 0, 0, 255,        // 阴影
-    128, 128, 128, 255,  // 中间调
+    85, 85, 85, 255,     // 阴影（拉开对比找回立体感，但不死黑）
+    180, 180, 180, 255,  // 中间调
     255, 255, 255, 255,  // 高光
   ]);
   const gradMap = new THREE.DataTexture(colors, colors.length / 4, 1, THREE.RGBAFormat);
@@ -888,6 +890,62 @@ function boostMaterialSaturation(color: THREE.Color, factor: number): void {
   const hsl = { h: 0, s: 0, l: 0 };
   color.getHSL(hsl);
   color.setHSL(hsl.h, Math.min(1, hsl.s * factor), hsl.l);
+}
+
+/**
+ * 风格化叠加 GLSL（注入到 MeshToonMaterial 片元，在 <opaque_fragment> 前）：
+ *   1) Rim light（菲涅尔边缘光）—— 角色边缘一圈冷亮，从背景弹出（荒野乱斗最关键的质感）。
+ *   2) Toon specular（硬边高光）—— 塑料玩具般的光泽点。
+ *   3) Colored shadow（暗部染冷色）—— 阴影不发黑发闷，带通透冷调。
+ * 全部在线性空间叠加；光向用「固定视空间方向」(随相机稳定，免每帧更新 uniform)。
+ * 调参直接改下面的常量：rim 的 pow(越大越细)/×强度/色；spec 的 pow(越大越紧)/边/强；shadow 的 tint/阈值/量。
+ */
+const STYLIZED_TOON_GLSL = `
+	{
+		vec3 N = normalize( normal );
+		vec3 V = normalize( vViewPosition );                       // 片元 -> 相机(视空间)
+		vec3 LDIR = normalize( vec3( -0.35, 0.65, 0.55 ) );        // 固定视空间光向(左上前)
+		float NdL = dot( N, LDIR );
+
+		// 1) Rim light（菲涅尔边缘光）
+		float fres = 1.0 - saturate( dot( N, V ) );
+		float rim = pow( fres, 2.5 ) * 0.55;                       // pow=细度, 0.55=强度
+		rim *= smoothstep( -0.3, 0.4, NdL );                       // 背光侧淡出
+		outgoingLight += rim * vec3( 1.0, 1.05, 1.2 );             // 冷白 rim 色
+
+		// 2) Toon specular（硬边高光）—— 强度按 uSpec（怪物/场景=0 哑光，主角/武器>0）
+		vec3 H = normalize( LDIR + V );
+		float sp = pow( saturate( dot( N, H ) ), 24.0 );           // 24=高光紧致度
+		sp = smoothstep( 0.5, 0.53, sp ) * uSpec;                  // 硬边 × per-material 强度
+		sp *= saturate( NdL );                                     // 背光无高光
+		outgoingLight += vec3( sp );
+
+		// 3) Colored shadow（暗部染冷色）
+		float lum = dot( outgoingLight, vec3( 0.299, 0.587, 0.114 ) );
+		float shMask = 1.0 - smoothstep( 0.0, 0.35, lum );         // 0.35=暗部判定阈值
+		outgoingLight = mix( outgoingLight, outgoingLight * vec3( 0.82, 0.88, 1.12 ), shMask * 0.4 ); // 冷 tint, 0.4 量
+	}
+`;
+
+/**
+ * 给 MeshToonMaterial 挂上风格化叠加（rim + toon spec + 染色阴影）。
+ * specStrength：toon 高光强度（per-material uniform）。怪物/场景传 0（哑光，避免"油光水滑"），
+ * 主角/武器传 >0 保留塑料玩具光泽。rim 与染色阴影对所有材质恒定。
+ * 幂等（userData 标记，避免重复注入触发重编译）；共享同一编译程序（uSpec 只是 uniform 值差异）。
+ */
+function applyStylizedToonShading(mat: THREE.MeshToonMaterial, specStrength = 0): void {
+  if (mat.userData['__stylized']) return;
+  mat.userData['__stylized'] = true;
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms['uSpec'] = { value: specStrength };
+    shader.fragmentShader = shader.fragmentShader
+      .replace('void main() {', 'uniform float uSpec;\nvoid main() {')
+      .replace(
+        '#include <opaque_fragment>',
+        `${STYLIZED_TOON_GLSL}\n\t#include <opaque_fragment>`,
+      );
+  };
+  mat.customProgramCacheKey = () => 'stylized-toon-v1';
 }
 
 /**
@@ -919,7 +977,10 @@ function convertToToonMaterials(root: THREE.Object3D): void {
     const mesh = child as THREE.Mesh;
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     const toonMats = materials.map((mat) => {
-      if (mat instanceof THREE.MeshToonMaterial) return mat; // already toon
+      if (mat instanceof THREE.MeshToonMaterial) {
+        applyStylizedToonShading(mat); // 已是 toon：补挂风格化叠加
+        return mat;
+      }
       const oldMat = mat as THREE.MeshStandardMaterial | THREE.MeshPhongMaterial | THREE.MeshLambertMaterial;
       const color = (oldMat.color ?? new THREE.Color(0xffffff)).clone();
       boostMaterialSaturation(color, 1.5); // 敌人/场景/道具统一高饱和（与玩家 ×1.6 对齐）
@@ -932,6 +993,7 @@ function convertToToonMaterials(root: THREE.Object3D): void {
         opacity: oldMat.opacity ?? 1,
       });
       toon.name = oldMat.name || 'ToonMat';
+      applyStylizedToonShading(toon); // rim + toon spec + 染色阴影
       return toon;
     });
     mesh.material = toonMats.length === 1 ? toonMats[0] : toonMats;
@@ -971,6 +1033,7 @@ function brightenWeaponMaterials(root: THREE.Object3D): void {
         opacity: m.opacity ?? 1,
       });
       newMat.name = m.name || 'WeaponToon';
+      applyStylizedToonShading(newMat, 0.35); // 武器留一点高光
       return newMat;
     });
     mesh.material = lifted.length === 1 ? lifted[0] : lifted;
@@ -1734,6 +1797,7 @@ export class GameScene {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly outlineEffect: any; // OutlineEffect
   private composer: EffectComposer | null = null;
+  private blobShadows: BlobShadowPool | null = null;
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.PerspectiveCamera;
   private readonly platformInput: PlatformInput;
@@ -1980,8 +2044,8 @@ export class GameScene {
       antialias: false,
       powerPreference: 'high-performance',
     });
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // 关实时方向光阴影（每帧多渲一遍全场景，手机最贵的一项）——改用脚下 blob 圆阴影。
+    this.renderer.shadowMap.enabled = false;
     this.renderer.toneMapping = THREE.NeutralToneMapping; // 更亮、更保饱和（Q 版鲜艳调性，替代偏暗去饱和的 ACES）
     this.renderer.toneMappingExposure = 1.5; // 整体再提亮
     this.renderer.outputColorSpace = THREE.SRGBColorSpace; // 显式 sRGB，保证饱和度正确还原
@@ -1990,9 +2054,9 @@ export class GameScene {
 
     // Outline Effect (cel-shading edge lines)
     this.outlineEffect = new OutlineEffect(this.renderer, {
-      defaultThickness: 0.0045, // 黑描边（比原始 0.003 略粗，但不过粗）
+      defaultThickness: 0.003, // 黑描边（细一点，更轻）
       defaultColor: [0, 0, 0],
-      defaultAlpha: 0.9,
+      defaultAlpha: 0.8,
     });
 
     // Scene
@@ -2119,7 +2183,7 @@ export class GameScene {
     // 通透阳光基底：抬高环境光让暗部仍有色彩（不死黑）。
     // 仍低于平行光，使 toon 阶梯保留：平行光被 gradientMap 量化成断层、主导明面；
     // 环境光只是给阴影侧兜底色彩。
-    const ambient = new THREE.AmbientLight('#e8eeff', 0.6);
+    const ambient = new THREE.AmbientLight('#eef4ff', 0.9);
     ambient.name = 'AmbientLight';
     this.scene.add(ambient);
 
@@ -2127,19 +2191,12 @@ export class GameScene {
     const dir = new THREE.DirectionalLight('#FFF5E0', 1.5);
     dir.name = 'DirectionalLight';
     dir.position.set(5, 10, 5);
-    dir.castShadow = true;
-    dir.shadow.mapSize.set(2048, 2048);
-    dir.shadow.bias = -0.001;
-    dir.shadow.camera.near = 0.5;
-    dir.shadow.camera.far = 80;
-    dir.shadow.camera.left = -60;
-    dir.shadow.camera.right = 60;
-    dir.shadow.camera.top = 60;
-    dir.shadow.camera.bottom = -60;
+    // 不再投实时阴影（改用 blob 圆阴影）——省掉每帧的阴影贴图渲染。
+    dir.castShadow = false;
     this.scene.add(dir);
 
     // 半球补光：天蓝/地暖给暗部一点通透的环境色（删去第二个冗余半球）。
-    const hemi = new THREE.HemisphereLight('#87CEEB', '#8B7355', 0.5);
+    const hemi = new THREE.HemisphereLight('#bfe4ff', '#b8a888', 0.7);
     hemi.name = 'HemisphereLight';
     this.scene.add(hemi);
 
@@ -2532,6 +2589,7 @@ export class GameScene {
     // Always start with fallback — will be replaced once model loads
     const bodyGeo = new THREE.CapsuleGeometry(0.5, 1.0, 8, 16);
     const bodyMat = new THREE.MeshToonMaterial({ color: charColor, gradientMap: toonGradientMap });
+    applyStylizedToonShading(bodyMat, 0.3);
     this.playerMesh = new THREE.Mesh(bodyGeo, bodyMat);
     this.playerMesh.name = 'Player';
     this.playerMesh.position.y = 1.0;
@@ -2563,6 +2621,7 @@ export class GameScene {
             side: oldMat.side ?? THREE.FrontSide,
           });
           toon.name = 'PlayerToon';
+          applyStylizedToonShading(toon, 0.3); // 主角留一点塑料玩具光泽
           return toon;
         });
         mesh.material = toonMats.length === 1 ? toonMats[0] : toonMats;
@@ -3405,6 +3464,10 @@ export class GameScene {
       this.handleInput();
     }
 
+    // Blob 阴影：每帧前重置，玩家/敌人/boss 在各自 render 里贴脚下圆阴影。
+    if (!this.blobShadows) this.blobShadows = new BlobShadowPool(this.scene);
+    this.blobShadows.begin();
+
     this.renderPlayer(state);
     this.renderEnemies(state.enemies);
     this.renderProjectiles(state.projectiles);
@@ -3412,6 +3475,8 @@ export class GameScene {
     this.renderConsumablePickups(state.consumablePickups ?? []);
     this.renderGoldMotes(state.goldMotes ?? []);
     this.renderBoss(state.boss);
+
+    this.blobShadows.end(); // 回收本帧未用到的贴片
     this.renderTeleporters(state.altars);
     this.renderChests(state.chests);
     this.renderShrines(state.shrines, state.player.x, state.player.z);
@@ -3499,6 +3564,9 @@ export class GameScene {
     const isGltfModel = this.playerMesh.name === 'Player' && this.playerMesh.children.length > 0;
     const modelY = isGltfModel ? 0 : 1.0;
     this.playerMesh.position.set(p.x, p.y + modelY, p.z);
+
+    // Blob 阴影贴在玩家脚下（p.y 即脚位）
+    if (p.alive) this.blobShadows?.place(p.x, p.y, p.z, 0.55);
 
     // === Rotation: smooth interpolation, only when moving ===
     if (p.currentSpeed > 0.3) {
@@ -4158,6 +4226,11 @@ export class GameScene {
       obj.scale.set(s, s, s);
       obj.visible = true;
 
+      // Blob 阴影贴脚下（飞行的 gargoyle 不贴 —— 它在空中，脚位非地面）
+      if (enemy.type !== 'gargoyle') {
+        this.blobShadows?.place(enemy.x, enemy.y, enemy.z, s * 0.5);
+      }
+
       // Face toward player (or movement direction)
       const state = this.session.getRenderState();
       const dx = state.player.x - enemy.x;
@@ -4676,6 +4749,9 @@ export class GameScene {
 
     this.bossMesh.visible = true;
     this.bossMesh.position.set(boss.x, boss.y || 0, boss.z);
+
+    // Boss 大号 blob 阴影
+    this.blobShadows?.place(boss.x, boss.y || 0, boss.z, 1.8);
 
     // Hit flash / enrage color (only works on fallback geometry)
     if (!loadedModels.boss) {
