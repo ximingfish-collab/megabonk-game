@@ -20,7 +20,7 @@
  *   - 未来可做关卡热重载 / 多关卡并行
  */
 
-import type { CollisionRect, RampVolume, ClimbVolume, LevelData } from '../types.ts';
+import type { CollisionRect, RampVolume, ClimbVolume, DiscVolume, LevelData } from '../types.ts';
 import { STEP_HEIGHT, CLIMB_GRAB_MARGIN } from '../config.ts';
 
 type Rect = readonly [number, number, number, number, number];
@@ -35,6 +35,15 @@ export interface SolidBox {
   topY: number;
 }
 
+/** 圆形可站立平台（colcyl_）。footprint 为半径 radius 的圆，竖直区间 [bottomY, topY]。 */
+export interface Disc {
+  cx: number;
+  cz: number;
+  radius: number;
+  bottomY: number;
+  topY: number;
+}
+
 /** 一关的全部静态碰撞几何（不可变快照）。 */
 export interface LevelGeometry {
   /** 平台矩形（可站立的顶面）。 */
@@ -43,6 +52,8 @@ export interface LevelGeometry {
   readonly ramps: readonly RampVolume[];
   /** 实体盒子（col_ + wall_ 合并），横向阻挡。 */
   readonly solidBoxes: readonly SolidBox[];
+  /** 圆形可站立平台（colcyl_）：可站立顶面 + 横向阻挡。 */
+  readonly discs: readonly Disc[];
   /** 攀爬体（climb_），走不穿、可攀爬。 */
   readonly climbs: readonly ClimbVolume[];
   /**
@@ -93,6 +104,7 @@ export const NEON_CRUCIBLE_GEOMETRY: LevelGeometry = {
   rects: NEON_CRUCIBLE,
   ramps: [],
   solidBoxes: [],
+  discs: [],
   climbs: [],
   wysiwyg: false,
 };
@@ -121,13 +133,43 @@ export function makeLevelGeometry(level?: LevelData): LevelGeometry {
       bottomY: w.bottomY, topY: w.topY,
     })),
   ];
+  const discs: Disc[] = (level.collisionDiscs ?? []).map((d) => ({
+    cx: d.cx, cz: d.cz, radius: d.radius,
+    bottomY: d.baseY ?? Number.NEGATIVE_INFINITY,
+    topY: d.height,
+  }));
   return {
     rects,
     ramps: level.ramps ?? [],
     solidBoxes,
+    discs,
     climbs: level.climbVolumes ?? [],
     wysiwyg: true,
   };
+}
+
+/** 圆形平台在 (x,z) 处的顶面高度；圆外返回 null。 */
+function discHeightAt(disc: Disc, x: number, z: number): number | null {
+  const dx = x - disc.cx;
+  const dz = z - disc.cz;
+  return dx * dx + dz * dz <= disc.radius * disc.radius ? disc.topY : null;
+}
+
+/** (x,z,feetY) 是否被某个圆形平台挡住（圆形 footprint + 与 SolidBox 同一迈步/头顶规则）。 */
+function blockedByDiscs(
+  discs: readonly Disc[], x: number, z: number, feetY: number, radius: number,
+): boolean {
+  const headY = feetY + PLAYER_BODY_HEIGHT;
+  for (const d of discs) {
+    const dx = x - d.cx;
+    const dz = z - d.cz;
+    const rr = d.radius + radius;
+    if (dx * dx + dz * dz > rr * rr) continue;
+    if (d.topY - feetY <= STEP_HEIGHT) continue; // 迈步范围内 → 踩上去，不挡
+    if (d.bottomY >= headY) continue;            // 高架/头顶 → 从下方穿过
+    return true;
+  }
+  return false;
 }
 
 // ─── 竖直查询 ─────────────────────────────────────────────────────────────
@@ -187,6 +229,10 @@ export function getTerrainHeightAt(geo: LevelGeometry, x: number, z: number): nu
     const h = rampHeightAt(ramp, x, z);
     if (h !== null && h > height) height = h;
   }
+  for (const disc of geo.discs) {
+    const h = discHeightAt(disc, x, z);
+    if (h !== null && h > height) height = h;
+  }
   return height;
 }
 
@@ -209,6 +255,10 @@ export function getSupportHeightAt(geo: LevelGeometry, x: number, z: number, fee
   }
   for (const ramp of geo.ramps) {
     const h = rampHeightAt(ramp, x, z);
+    if (h !== null && h <= limit && h > best) best = h;
+  }
+  for (const disc of geo.discs) {
+    const h = discHeightAt(disc, x, z);
     if (h !== null && h <= limit && h > best) best = h;
   }
   return best;
@@ -285,6 +335,7 @@ export function isBlockedHorizontallyAt(
   includeClimb = true, radius = PLAYER_RADIUS,
 ): boolean {
   if (blockedByAny(geo.solidBoxes, x, z, feetY, radius)) return true;
+  if (geo.discs.length > 0 && blockedByDiscs(geo.discs, x, z, feetY, radius)) return true;
   if (geo.ramps.length > 0 && blockedByRamp(geo.ramps, x, z, feetY, radius)) return true;
   if (includeClimb && geo.climbs.length > 0) {
     for (const c of geo.climbs) {

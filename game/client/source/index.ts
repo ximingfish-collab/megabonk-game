@@ -1391,6 +1391,7 @@ function parseLevelGltf(root: THREE.Object3D): LevelData {
 
   const data: LevelData = {
     collisionRects: [],
+    collisionDiscs: [],
     walls: [],
     climbVolumes: [],
     ramps: [],
@@ -1402,7 +1403,18 @@ function parseLevelGltf(root: THREE.Object3D): LevelData {
     const name = node.name;
     if (!name) return;
 
-    if (name.startsWith('col_')) {
+    if (name.startsWith('colcyl_')) {
+      // 圆形可站立平台：半径取包围盒 XZ 半宽的较大值，顶面取 box.max.y。
+      _box.setFromObject(node);
+      if (_box.isEmpty()) return;
+      data.collisionDiscs!.push({
+        cx: (_box.min.x + _box.max.x) / 2,
+        cz: (_box.min.z + _box.max.z) / 2,
+        radius: Math.max(_box.max.x - _box.min.x, _box.max.z - _box.min.z) / 2,
+        height: _box.max.y,
+        baseY: _box.min.y,
+      });
+    } else if (name.startsWith('col_')) {
       _box.setFromObject(node);
       if (_box.isEmpty()) return;
       pushColOrRamp(node, _box, data, false);
