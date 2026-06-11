@@ -17,6 +17,8 @@ import { STEP_HEIGHT } from '../../config.ts';
 const ENEMY_RADIUS = 0.4;
 const DROP_MIN_DELTA = STEP_HEIGHT * 1.2;
 const DROP_ANGLE_OFFSETS = [0, 0.35, -0.35, 0.7, -0.7];
+/** 局部转向避障的试探角度（弧度，左右交替、由窄到宽）。 */
+const STEER_OFFSETS = [0.45, -0.45, 0.9, -0.9, 1.4, -1.4];
 
 export function applyMovement(enemy: EnemyState, ctx: AiContext): void {
   const dx = enemy.targetX - enemy.x;
@@ -57,7 +59,7 @@ export function applyMovement(enemy: EnemyState, ctx: AiContext): void {
   }
 
   // 横向阻挡 + 沿墙滑行（与玩家共用同一套）。半径稍小于玩家，避免敌人挤在墙边。
-  const moved = tryMoveHorizontally(
+  let moved = tryMoveHorizontally(
     ctx.geo,
     enemy.x, enemy.z,
     desiredX, desiredZ,
@@ -65,15 +67,16 @@ export function applyMovement(enemy: EnemyState, ctx: AiContext): void {
     { radius: ENEMY_RADIUS, includeClimb: true },
   );
 
-  // 敌人“下台阶/跳下高差”：
-  // 常规 tryMove 被边缘挡住，且玩家明显在更低层时，尝试若干个朝向玩家的落点。
-  if (
-    moved.x === enemy.x
-    && moved.z === enemy.z
-    && ctx.player.y < enemy.y - STEP_HEIGHT
-  ) {
-    const dropped = tryDropDownTowardTarget(enemy, ctx, nx, nz, actualMove);
-    if (dropped) return;
+  // 直奔被完全挡住（连轴向滑行都不前进）→ 局部转向避障：绕基准航向扇形试探，
+  // 取"能动且最接近 target"的方向绕过障碍（凸形障碍/拐角有效；凹形/迷宫留待流场）。
+  if (moved.x === enemy.x && moved.z === enemy.z) {
+    const steered = steerAround(enemy, ctx, nx, nz, actualMove);
+    if (steered) {
+      moved = steered;
+    } else if (ctx.player.y < enemy.y - STEP_HEIGHT) {
+      // 仍卡 + 玩家在更低层 → 尝试跳下高差
+      if (tryDropDownTowardTarget(enemy, ctx, nx, nz, actualMove)) return;
+    }
   }
 
   enemy.x = moved.x;
@@ -86,6 +89,40 @@ export function applyMovement(enemy: EnemyState, ctx: AiContext): void {
   if (Number.isFinite(h)) {
     enemy.y = h;
   }
+}
+
+/**
+ * 局部转向避障：直奔 target 被挡时，绕基准航向（朝 target 的方向）扇形试探若干角度，
+ * 返回"能前进且落点最接近 target"的位置；都动不了返回 null。
+ * 无全局寻路——开阔场景 + 凸形障碍/拐角够用；凹角/迷宫式布局仍可能绕不出（后续上流场）。
+ */
+function steerAround(
+  enemy: EnemyState, ctx: AiContext, nx: number, nz: number, actualMove: number,
+): { x: number; z: number } | null {
+  const baseAngle = Math.atan2(nz, nx);
+  const halfMap = (ctx.mapSize + 10) * 0.5;
+  const clamp = (v: number): number => Math.max(-halfMap, Math.min(halfMap, v));
+  const tx = enemy.targetX;
+  const tz = enemy.targetZ;
+  let best: { x: number; z: number } | null = null;
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (const off of STEER_OFFSETS) {
+    const a = baseAngle + off;
+    const cand = tryMoveHorizontally(
+      ctx.geo,
+      enemy.x, enemy.z,
+      clamp(enemy.x + Math.cos(a) * actualMove),
+      clamp(enemy.z + Math.sin(a) * actualMove),
+      enemy.y,
+      { radius: ENEMY_RADIUS, includeClimb: true },
+    );
+    if (cand.x === enemy.x && cand.z === enemy.z) continue; // 该航向也动不了
+    const dx = tx - cand.x;
+    const dz = tz - cand.z;
+    const d = dx * dx + dz * dz;
+    if (d < bestDist) { bestDist = d; best = cand; }
+  }
+  return best;
 }
 
 function tryDropDownTowardTarget(

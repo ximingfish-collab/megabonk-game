@@ -75,4 +75,17 @@ describe('applyMovement 横向阻挡（阶段 2/3）', () => {
     applyMovement(enemy, ctx);
     expect(enemy.x).toBeLessThanOrEqual((100 + 10) * 0.5);
   });
+
+  it('直奔被墙完全挡住 → 局部转向绕行（不再原地卡死）', () => {
+    // 墙横在正前方 (0,1.0)，玩家在 (0,5) 墙后；直走+Z 被挡、X 轴滑也不前进。
+    const geo = geoWith([{ cx: 0, cz: 1.0, halfW: 1, halfD: 0.3, bottomY: 0, topY: 3 }]);
+    const enemy = makeEnemy(1, 'skeleton_soldier', 0, 0);
+    enemy.targetX = 0;
+    enemy.targetZ = 5;
+    enemy.speed = 30; // 单帧 move ≈0.5，够够到墙的阻挡带
+    const ctx = makeAiContext({ dt: 1 / 60, geo });
+    applyMovement(enemy, ctx);
+    // 转向避障应让怪朝侧向移动绕墙，而非卡死在原地 (0,0)
+    expect(enemy.x !== 0 || enemy.z !== 0).toBe(true);
+  });
 });
