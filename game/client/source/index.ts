@@ -5,6 +5,10 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 // @ts-ignore
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { Pass } from 'three/examples/jsm/postprocessing/Pass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 // @ts-ignore
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 // @ts-ignore
@@ -886,6 +890,29 @@ function boostMaterialSaturation(color: THREE.Color, factor: number): void {
   color.setHSL(hsl.h, Math.min(1, hsl.s * factor), hsl.l);
 }
 
+/**
+ * EffectComposer 首道 pass：用 OutlineEffect 把「场景 + 黑描边」渲进 composer 缓冲，
+ * 让后续 bloom 能在保留描边的前提下叠加辉光（OutlineEffect 尊重预设 renderTarget）。
+ * 渲到目标时引擎自动禁 in-material tonemap → 缓冲为线性 HDR，交末端 OutputPass 统一 ACES+sRGB。
+ */
+class OutlineComposerPass extends Pass {
+  constructor(
+    private readonly outline: { render(scene: THREE.Scene, camera: THREE.Camera): void },
+    private readonly scene: THREE.Scene,
+    private readonly camera: THREE.Camera,
+  ) {
+    super();
+    this.needsSwap = false;
+    this.clear = true;
+  }
+
+  render(renderer: THREE.WebGLRenderer, _writeBuffer: THREE.WebGLRenderTarget, readBuffer: THREE.WebGLRenderTarget): void {
+    renderer.setRenderTarget(this.renderToScreen ? null : readBuffer);
+    if (this.clear) renderer.clear();
+    this.outline.render(this.scene, this.camera);
+  }
+}
+
 function convertToToonMaterials(root: THREE.Object3D): void {
   root.traverse((child) => {
     if (!(child as THREE.Mesh).isMesh) return;
@@ -1694,6 +1721,7 @@ export class GameScene {
   private readonly container: HTMLElement;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly outlineEffect: any; // OutlineEffect
+  private composer: EffectComposer | null = null;
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.PerspectiveCamera;
   private readonly platformInput: PlatformInput;
@@ -1942,6 +1970,7 @@ export class GameScene {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.3;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace; // 显式 sRGB，保证饱和度正确还原
     this.renderer.domElement.style.display = 'block';
     this.container.appendChild(this.renderer.domElement);
 
@@ -2014,12 +2043,18 @@ export class GameScene {
     this.setupHUD();
     this.setupDamageNumbers();
 
+    this.setupComposer();
+
     this.removeDisplayListener = installThreeHighDpi({
       renderer: this.renderer,
       container: this.container,
-      onResize: ({ width, height }) => {
+      onResize: ({ width, height, pixelRatio }) => {
         this.camera.aspect = width / height;
         this.camera.updateProjectionMatrix();
+        if (this.composer) {
+          this.composer.setPixelRatio(pixelRatio);
+          this.composer.setSize(width, height);
+        }
       },
     });
 
@@ -2100,6 +2135,38 @@ export class GameScene {
     this.playerSpotLight.position.set(0, 12, 0);
     this.scene.add(this.playerSpotLight);
     this.scene.add(this.playerSpotLight.target);
+  }
+
+  /**
+   * 后处理：OutlineEffect（场景+描边）→ 微微 bloom（仅高亮 / 发光特效）→ OutputPass（ACES+sRGB）。
+   * bloom 阈值高、强度低：只让大招特效、发光物等"超亮"像素辉光，不糊整体画面。
+   */
+  private setupComposer(): void {
+    const composer = new EffectComposer(this.renderer); // 默认 HalfFloat 目标，保 HDR
+    const w = this.container.clientWidth || window.innerWidth;
+    const h = this.container.clientHeight || window.innerHeight;
+    const dpr = this.renderer.getPixelRatio();
+    composer.setPixelRatio(dpr);
+    composer.setSize(w, h);
+
+    composer.addPass(new OutlineComposerPass(this.outlineEffect, this.scene, this.camera));
+
+    const bloom = new UnrealBloomPass(
+      new THREE.Vector2(Math.max(1, w * dpr * 0.5), Math.max(1, h * dpr * 0.5)), // 半分辨率省手机
+      0.35, // strength：微微
+      0.5,  // radius
+      0.9,  // threshold：高 → 只让发光体辉光
+    );
+    composer.addPass(bloom);
+
+    composer.addPass(new OutputPass()); // 末端唯一 tone map：ACES + sRGB
+
+    this.composer = composer;
+  }
+
+  private renderFrame(): void {
+    if (this.composer) this.composer.render();
+    else this.outlineEffect.render(this.scene, this.camera);
   }
 
   private setupGround(): void {
@@ -3302,7 +3369,7 @@ export class GameScene {
     if (this.hitStopTimer > 0) {
       this.hitStopTimer -= dt;
       // Still render the frozen frame
-      this.outlineEffect.render(this.scene, this.camera);
+      this.renderFrame();
       return;
     }
 
@@ -3351,7 +3418,7 @@ export class GameScene {
 
     this.updateHUD(state);
 
-    this.outlineEffect.render(this.scene, this.camera);
+    this.renderFrame();
   }
 
   // ===========================================================================
