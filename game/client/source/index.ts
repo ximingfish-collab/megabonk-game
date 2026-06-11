@@ -1969,14 +1969,14 @@ export class GameScene {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.3;
+    this.renderer.toneMappingExposure = 1.55; // 提亮整体（ACES 偏暗 → 抬曝光）
     this.renderer.outputColorSpace = THREE.SRGBColorSpace; // 显式 sRGB，保证饱和度正确还原
     this.renderer.domElement.style.display = 'block';
     this.container.appendChild(this.renderer.domElement);
 
     // Outline Effect (cel-shading edge lines)
     this.outlineEffect = new OutlineEffect(this.renderer, {
-      defaultThickness: 0.006, // 加粗黑描边（荒野乱斗式 Q 版卡通轮廓）
+      defaultThickness: 0.0045, // 黑描边（比原始 0.003 略粗，但不过粗）
       defaultColor: [0, 0, 0],
       defaultAlpha: 0.9,
     });
