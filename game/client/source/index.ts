@@ -2531,9 +2531,11 @@ export class GameScene {
           const color = oldMat.color ? oldMat.color.clone() : new THREE.Color(0xffffff);
           const hsl = { h: 0, s: 0, l: 0 };
           color.getHSL(hsl);
-          color.setHSL(hsl.h, Math.min(hsl.s * 1.6, 1.0), hsl.l);
+          // 主角更明艳：饱和更高（艳）+ 明度略提（明）
+          color.setHSL(hsl.h, Math.min(hsl.s * 2.0, 1.0), Math.min(hsl.l * 1.12, 1.0));
           const toon = new THREE.MeshToonMaterial({
             color,
+            emissive: color.clone().multiplyScalar(0.12), // 一点本色自发光：阴影侧也保持明艳、主角更跳（低于 bloom 阈值，不发光）
             map: oldMat.map ?? null,
             gradientMap: toonGradientMap,
             side: oldMat.side ?? THREE.FrontSide,
