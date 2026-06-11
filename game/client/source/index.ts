@@ -2052,13 +2052,15 @@ export class GameScene {
   // ===========================================================================
 
   private setupLighting(): void {
-    // Bright ambient — lifts overall scene brightness
-    const ambient = new THREE.AmbientLight('#ffffff', 0.9);
+    // 低环境光：只给阴影侧一个不至于全黑的底，避免平滑环境光淹没 toon 阶梯。
+    // （MeshToonMaterial 只对“直接光”按 gradientMap 量化阶梯；ambient/hemi 是平滑的，
+    //  过强会把 2-3 段明暗台阶冲淡成近似线性。）
+    const ambient = new THREE.AmbientLight('#bfcfe6', 0.35);
     ambient.name = 'AmbientLight';
     this.scene.add(ambient);
 
-    // Strong warm directional sunlight with shadows
-    const dir = new THREE.DirectionalLight('#FFF5E0', 2.0);
+    // 强暖色方向主光 —— 这是“被阶梯化”的那束光，主导画面 → 台阶清晰。
+    const dir = new THREE.DirectionalLight('#FFF5E0', 2.6);
     dir.name = 'DirectionalLight';
     dir.position.set(5, 10, 5);
     dir.castShadow = true;
@@ -2072,15 +2074,10 @@ export class GameScene {
     dir.shadow.camera.bottom = -60;
     this.scene.add(dir);
 
-    // Sky/ground hemisphere bounce light
-    const hemi = new THREE.HemisphereLight('#87CEEB', '#8B7355', 1.2);
+    // 单个弱半球补光（平滑光，压低以免冲淡 toon 阶梯）；删去第二个冗余半球。
+    const hemi = new THREE.HemisphereLight('#87CEEB', '#8B7355', 0.4);
     hemi.name = 'HemisphereLight';
     this.scene.add(hemi);
-
-    // Secondary hemisphere for extra sky/ground bounce
-    const hemi2 = new THREE.HemisphereLight('#87CEEB', '#8B7355', 0.5);
-    hemi2.name = 'HemisphereLight_Bounce';
-    this.scene.add(hemi2);
 
     // Player spotlight (softer, warm tint)
     this.playerSpotLight = new THREE.SpotLight('#FFF5E0', 0.3, 25, Math.PI / 5, 0.6, 1);
