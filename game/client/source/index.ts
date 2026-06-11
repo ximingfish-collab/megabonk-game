@@ -80,6 +80,7 @@ import { installThreeHighDpi } from '@minigame/render-adapter';
 import { initI18n, t, getLocale, setLocale, getAvailableLocales, getMode } from '@minigame/i18n';
 import { CameraOrbit } from './systems/cameraOrbit.ts';
 import { PlayerInvincibilityFx } from './systems/playerFx.ts';
+import { BlobShadowPool } from './systems/blobShadows.ts';
 import { gsapAnimations } from './gsap-animations.ts';
 import type { I18nMode } from '@minigame/i18n';
 import { EventEmitter } from './session/EventEmitter.ts';
@@ -1796,6 +1797,7 @@ export class GameScene {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly outlineEffect: any; // OutlineEffect
   private composer: EffectComposer | null = null;
+  private blobShadows: BlobShadowPool | null = null;
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.PerspectiveCamera;
   private readonly platformInput: PlatformInput;
@@ -2042,8 +2044,8 @@ export class GameScene {
       antialias: false,
       powerPreference: 'high-performance',
     });
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // 关实时方向光阴影（每帧多渲一遍全场景，手机最贵的一项）——改用脚下 blob 圆阴影。
+    this.renderer.shadowMap.enabled = false;
     this.renderer.toneMapping = THREE.NeutralToneMapping; // 更亮、更保饱和（Q 版鲜艳调性，替代偏暗去饱和的 ACES）
     this.renderer.toneMappingExposure = 1.5; // 整体再提亮
     this.renderer.outputColorSpace = THREE.SRGBColorSpace; // 显式 sRGB，保证饱和度正确还原
@@ -2189,15 +2191,8 @@ export class GameScene {
     const dir = new THREE.DirectionalLight('#FFF5E0', 1.5);
     dir.name = 'DirectionalLight';
     dir.position.set(5, 10, 5);
-    dir.castShadow = true;
-    dir.shadow.mapSize.set(2048, 2048);
-    dir.shadow.bias = -0.001;
-    dir.shadow.camera.near = 0.5;
-    dir.shadow.camera.far = 80;
-    dir.shadow.camera.left = -60;
-    dir.shadow.camera.right = 60;
-    dir.shadow.camera.top = 60;
-    dir.shadow.camera.bottom = -60;
+    // 不再投实时阴影（改用 blob 圆阴影）——省掉每帧的阴影贴图渲染。
+    dir.castShadow = false;
     this.scene.add(dir);
 
     // 半球补光：天蓝/地暖给暗部一点通透的环境色（删去第二个冗余半球）。
@@ -3469,6 +3464,10 @@ export class GameScene {
       this.handleInput();
     }
 
+    // Blob 阴影：每帧前重置，玩家/敌人/boss 在各自 render 里贴脚下圆阴影。
+    if (!this.blobShadows) this.blobShadows = new BlobShadowPool(this.scene);
+    this.blobShadows.begin();
+
     this.renderPlayer(state);
     this.renderEnemies(state.enemies);
     this.renderProjectiles(state.projectiles);
@@ -3476,6 +3475,8 @@ export class GameScene {
     this.renderConsumablePickups(state.consumablePickups ?? []);
     this.renderGoldMotes(state.goldMotes ?? []);
     this.renderBoss(state.boss);
+
+    this.blobShadows.end(); // 回收本帧未用到的贴片
     this.renderTeleporters(state.altars);
     this.renderChests(state.chests);
     this.renderShrines(state.shrines, state.player.x, state.player.z);
@@ -3563,6 +3564,9 @@ export class GameScene {
     const isGltfModel = this.playerMesh.name === 'Player' && this.playerMesh.children.length > 0;
     const modelY = isGltfModel ? 0 : 1.0;
     this.playerMesh.position.set(p.x, p.y + modelY, p.z);
+
+    // Blob 阴影贴在玩家脚下（p.y 即脚位）
+    if (p.alive) this.blobShadows?.place(p.x, p.y, p.z, 0.55);
 
     // === Rotation: smooth interpolation, only when moving ===
     if (p.currentSpeed > 0.3) {
@@ -4222,6 +4226,11 @@ export class GameScene {
       obj.scale.set(s, s, s);
       obj.visible = true;
 
+      // Blob 阴影贴脚下（飞行的 gargoyle 不贴 —— 它在空中，脚位非地面）
+      if (enemy.type !== 'gargoyle') {
+        this.blobShadows?.place(enemy.x, enemy.y, enemy.z, s * 0.5);
+      }
+
       // Face toward player (or movement direction)
       const state = this.session.getRenderState();
       const dx = state.player.x - enemy.x;
@@ -4740,6 +4749,9 @@ export class GameScene {
 
     this.bossMesh.visible = true;
     this.bossMesh.position.set(boss.x, boss.y || 0, boss.z);
+
+    // Boss 大号 blob 阴影
+    this.blobShadows?.place(boss.x, boss.y || 0, boss.z, 1.8);
 
     // Hit flash / enrage color (only works on fallback geometry)
     if (!loadedModels.boss) {
