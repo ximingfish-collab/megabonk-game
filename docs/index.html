@@ -707,22 +707,22 @@
 
     <h4>概览</h4>
     <a href="#overview" data-tab="overview">项目总览</a>
-    <a href="#ext-overview" data-tab="ext-overview" class="nav-entry-new">扩展总览<span class="badge-new">new</span></a>
+    <a href="#ext-overview" data-tab="ext-overview">扩展总览</a>
     <a href="#timeline" data-tab="timeline">单局节奏</a>
     <a href="#tier" data-tab="tier">难度分层</a>
 
     <h4>角色</h4>
-    <a href="#characters" data-tab="characters">角色（3）<span class="badge-new">new</span></a>
+    <a href="#characters" data-tab="characters">角色（3）</a>
 
     <h4>经验 / 升级</h4>
-    <a href="#xp" data-tab="xp">经验 / 升级<span class="badge-new">new</span></a>
+    <a href="#xp" data-tab="xp">经验 / 升级</a>
 
     <h4>战斗</h4>
-    <a href="#weapons" data-tab="weapons">武器（12）<span class="badge-new">new</span></a>
-    <a href="#tomes" data-tab="tomes">典籍（12）<span class="badge-new">new</span></a>
-    <a href="#ext-bonds" data-tab="ext-bonds" class="nav-entry-new">羁绊系统<span class="badge-new">new</span></a>
-    <a href="#ext-relics" data-tab="ext-relics" class="nav-entry-new">遗物 · 宝箱 · 金币<span class="badge-new">new</span></a>
-    <a href="#ext-consumables" data-tab="ext-consumables" class="nav-entry-new">消耗品<span class="badge-new">new</span></a>
+    <a href="#weapons" data-tab="weapons">武器（12）</a>
+    <a href="#tomes" data-tab="tomes">典籍（12）</a>
+    <a href="#ext-bonds" data-tab="ext-bonds">羁绊系统</a>
+    <a href="#ext-relics" data-tab="ext-relics">遗物 · 宝箱 · 金币</a>
+    <a href="#ext-consumables" data-tab="ext-consumables">消耗品</a>
     <a href="#shop" data-tab="shop">永久商店</a>
     <a href="#combat" data-tab="combat">战斗公式</a>
     <a href="#enemies" data-tab="enemies">敌人</a>
@@ -735,6 +735,7 @@
 
     <h4>技术</h4>
     <a href="#architecture" data-tab="architecture">架构</a>
+    <a href="#vfx-implementation" data-tab="vfx-implementation" class="nav-entry-new">特效实现<span class="badge-new">new</span></a>
     <a href="#gsap-animations" data-tab="gsap-animations">GSAP 动画系统</a>
     <a href="#physics" data-tab="physics">物理 / 碰撞</a>
     <a href="#performance" data-tab="performance">性能</a>
@@ -925,7 +926,7 @@ export {
 <section id="overview">
   <div class="hero">
     <h1>MegaBonk Three.js</h1>
-    <div class="tagline">3D Roguelike Survivor · 探索找祭坛召 Boss · 通关跳关递进 · 移动端优先 · 12 种武器 · 12 种典籍 · 9 条羁绊</div>
+    <div class="tagline">3D Roguelike Survivor · 探索找祭坛召 Boss · Stage I/II 循环 · Boss 宝箱 · 移动端优先 · 12 种武器 · 12 种典籍 · 9 条羁绊</div>
 
     <div>
       <span class="pill cyan">Three.js 0.170</span>
@@ -941,6 +942,7 @@ export {
       <div class="stat-card"><div class="num">12</div><div class="lbl">典籍</div></div>
       <div class="stat-card"><div class="num">9</div><div class="lbl">羁绊</div></div>
       <div class="stat-card"><div class="num">8</div><div class="lbl">永久商店</div></div>
+      <div class="stat-card"><div class="num">2</div><div class="lbl">关卡阶段</div></div>
       <div class="stat-card"><div class="num">3</div><div class="lbl">角色</div></div>
       <div class="stat-card"><div class="num">6</div><div class="lbl">敌人</div></div>
       <div class="stat-card"><div class="num">29</div><div class="lbl">任务</div></div>
@@ -949,7 +951,7 @@ export {
   </div>
 
   <div class="note" style="border-left: 4px solid var(--accent-2); background: var(--accent-2-soft); padding: 12px 16px; border-radius: 8px; margin-bottom: 24px;">
-    <b>本页为 MegaBonk 策划主文档</b>（<code>index.html</code> · v0.5）。侧栏：<span class="badge-new">new</span> = 相对旧版文档有修订；<strong style="color:#7c3aed;">紫色条目</strong> = 全新栏目。100 级成长并入「经验 / 升级」页，天赋转模并入「角色」页，羁绊/遗物/消耗品在「战斗」下。
+    <b>本页为 MegaBonk 策划主文档</b>（<code>index.html</code> · v0.6）。当前主循环为 Stage I 传送门进 Stage II，之后 Boss 击败掉免费宝箱并让祭坛进入冷却；100 级成长、羁绊、遗物、消耗品均已并入对应页。
     <br><br>
     <b>如何打开：</b>用浏览器<strong>直接打开本文件</strong>，或 <code>npx serve docs -l 5199</code> → <code>http://localhost:5199/index.html</code>。
   </div>
@@ -1031,7 +1033,7 @@ export {
 <!-- ============= TIMELINE ============= -->
 <section id="timeline">
   <h2>单局节奏（常规生存期 540s + Overtime 无上限）</h2>
-  <p class="sub">来源：<code>WAVE_CONFIGS</code> 与 <code>spawnEnemies()</code>。Boss 战由玩家在祭坛主动触发，与时间无关；540s 后若未进入传送门，进入 Overtime 难度递增。详见 <a data-tab="teleporter">祭坛 / Boss / 超时</a>。</p>
+  <p class="sub">来源：<code>WAVE_CONFIGS</code>、<code>tickSpawning()</code> 与 <code>tickOvertime()</code>。Boss 战由玩家在祭坛主动触发，与时间无关；Stage I 击败 Boss 后可进入 Stage II，若留在当前关且 <code>gameTime ≥ 540s</code> 则进入 Overtime 连续压迫曲线。详见 <a data-tab="teleporter">祭坛 / Boss / 超时</a>。</p>
 
   <div class="timeline-wrap">
     <div class="timeline">
@@ -1041,7 +1043,7 @@ export {
       <div class="tl-marker" style="left: 55.5%"><span class="lbl">300s</span><span class="ev">15% 精英</span></div>
       <div class="tl-marker" style="left: 77.7%"><span class="lbl">420s</span><span class="ev">最后冲刺<br>20% 精英</span></div>
       <div class="tl-marker" style="left: 88.8%"><span class="lbl">480s</span><span class="ev">FINAL SWARM<br>同屏 150 / 敌速 +20%</span></div>
-      <div class="tl-marker" style="left: 100%"><span class="lbl">540s+</span><span class="ev">⏱ Overtime<br>难度按 30s 一档递增</span></div>
+      <div class="tl-marker" style="left: 100%"><span class="lbl">540s+</span><span class="ev">⏱ Overtime<br>敌人强度与刷新连续上升</span></div>
     </div>
   </div>
 
@@ -1060,15 +1062,15 @@ export {
     <tr><td>300–420s</td><td>已全开</td><td class="num">1.0s</td><td class="num">85</td><td>3–6</td><td>15%</td></tr>
     <tr><td>420–480s</td><td>已全开</td><td class="num">0.8s</td><td class="num">100</td><td>4–8</td><td>20%</td></tr>
     <tr style="background: var(--warn-soft);"><td>480–540s</td><td><span class="hl">FINAL SWARM</span> 双倍刷新</td><td class="num">0.4s</td><td class="num">150</td><td>4–8</td><td>20%</td></tr>
-    <tr style="background: var(--bad-soft);"><td>≥ 540s</td><td><span class="hl">Overtime</span> 仅当未进传送门</td><td colspan="3">敌人 HP/伤害每 30s +10%、速度 +4%；死亡 → defeat</td></tr>
-    <tr style="background: var(--accent-2-soft);"><td>任意时刻</td><td><span class="hl">Boss 战</span> 由玩家召唤</td><td colspan="3">走到祭坛 + 按 [E] / 移动端按钮 → 1.0s 读条 → Boss 进场</td></tr>
+    <tr style="background: var(--bad-soft);"><td>≥ 540s</td><td><span class="hl">Overtime</span> 仅当留在当前关</td><td colspan="3">敌人 HP/伤害按 <code>overtimeSeconds / 30 × 35%</code> 连续提升，速度按 <code>×12%</code> 连续提升；刷新上限/频率/组规模按 <code>1 + overtimeSeconds / 45</code> 加压</td></tr>
+    <tr style="background: var(--accent-2-soft);"><td>任意时刻</td><td><span class="hl">Boss 战</span> 由玩家召唤</td><td colspan="3">走到祭坛 + 按 [E] / 移动端按钮 → 1.0s 读条 → Boss 进场；死亡掉免费 Boss 宝箱</td></tr>
   </table>
 </section>
 
 <!-- ============= TIER ============= -->
 <section id="tier">
   <h2>难度分层（Tier）</h2>
-  <p class="sub">来源：<code>TIER_CONFIGS</code> (<code>config.ts:298</code>)</p>
+  <p class="sub">来源：<code>TIER_CONFIGS</code>。Tier 是开局选择的难度倍率（普通 / 困难 / 噩梦），整局保持不变；进入传送门推进的是 <code>stage</code>，不是 <code>config.tier</code>。</p>
 
   <div class="tier-cards">
     <div class="tier t1">
@@ -1106,7 +1108,7 @@ export {
 
 <!-- ============= CHARACTERS ============= -->
 <section id="characters">
-  <h2>角色（3 种） <span class="badge-new">new</span></h2>
+  <h2>角色（3 种）</h2>
   <p class="sub">来源：<code>CHARACTER_CONFIGS</code> (<code>config.ts:66</code>)</p>
 
   <div class="grid cols-3" id="char-cards"></div>
@@ -1216,7 +1218,7 @@ attackSpeedMult × (1 + traitAspd)</code></pre>
 
 <!-- ============= XP ============= -->
 <section id="xp">
-  <h2>经验 / 升级 / 武器槽 <span class="badge-new">new</span></h2>
+  <h2>经验 / 升级 / 武器槽</h2>
   <p class="sub">目标上限 <strong>100 级</strong>。来源：<code>upgrades.ts</code>、<code>systems/player.ts tickLevelUp</code>；当前代码仍是 40 级上限，本文为策划合并版。</p>
 
   <h3 id="ext-progression">XP 曲线与 100 级上限</h3>
@@ -1338,7 +1340,7 @@ XP 倍率 = 1 + min(comboCount × 0.05, 1.0)   // 最高 2×
 
 <!-- ============= WEAPONS ============= -->
 <section id="weapons">
-  <h2>武器系统（12 种） <span class="badge-new">new</span></h2>
+  <h2>武器系统（12 种）</h2>
   <p class="sub">单把 <strong>maxLevel = 10</strong>。不再维护每级完整数值表；改为 <code>WEAPON_BASE_STATS</code>（Lv1 基准值）+ <code>WEAPON_UPGRADE_BASE</code>（每次升级的 Common 基础增量）。实际升级增量由选项品质乘以基础增量决定，满级后的构筑深化由<strong>羁绊系统</strong>承担。</p>
 
   <h3>取数与开火流程</h3>
@@ -1438,7 +1440,7 @@ actualTargetCount = floor(storedTargetCount)
 
 <!-- ============= TOMES ============= -->
 <section id="tomes">
-  <h2>典籍 Tome（12 种） <span class="badge-new">new</span></h2>
+  <h2>典籍 Tome（12 种）</h2>
   <p class="sub">关卡内被动 buff，单局生效。新增<strong>生命典籍</strong>与<strong>拾荒典籍</strong>；所有典籍上限统一提升到 <strong>Lv8</strong>。同时最多持有 6 种典籍，满 6 后升级池只刷已有典籍的升级。</p>
 
   <div class="grid cols-3" id="tome-grid"></div>
@@ -1569,7 +1571,7 @@ totalSilver = round((baseSilver + victoryBonus + runSilver) × tier.silverMultip
 <!-- ============= BOSS ============= -->
 <section id="boss">
   <h2>Boss 战</h2>
-  <p class="sub">触发：玩家走到祭坛旁按 <code>[E]</code> / 移动端按钮，1.0s 读条完成后进场（不再依赖 540s 时间触发）· 新设计建议基础 HP <strong>6000</strong>（当前代码仍为 2000，再 × <code>tier.bossHpMultiplier</code>）· 来源：<code>ai/bosses/skeletonKing.ts</code>（phase 表 + 7 attacks）+ <code>systems/bossAi.ts</code> 调度。Boss 死亡后祭坛变传送门，详见 <a data-tab="teleporter">祭坛 / Boss / 超时</a>。</p>
+  <p class="sub">触发：玩家走到祭坛旁按 <code>[E]</code> / 移动端按钮，1.0s 读条完成后进场（不再依赖 540s 时间触发）· 当前基础 HP <strong>2000</strong>，再乘 <code>tier.bossHpMultiplier</code> · 来源：<code>ai/bosses/skeletonKing.ts</code>（phase 表 + 7 attacks）+ <code>systems/bossAi.ts</code> 调度。Boss 死亡会掉落免费 Boss 宝箱；Stage I 额外打开传送门，Stage II 后祭坛进入冷却。详见 <a data-tab="teleporter">祭坛 / Boss / 超时</a>。</p>
 
   <div class="hpbar">
     <div class="seg p1">P1 · 100% – 60% HP</div>
@@ -1656,45 +1658,51 @@ totalSilver = round((baseSilver + victoryBonus + runSilver) × tier.silverMultip
   <p class="sub">设计文档：<code>docs/boss-loop-redesign.md</code> · 实现：<code>systems/altars.ts</code> · <code>systems/overtime.ts</code> · <code>systems/tierTransition.ts</code></p>
 
   <div class="note" style="margin-top: 14px;">
-    <b>核心循环</b>：开局生成 1 个祭坛 → 玩家探索找到 → 按 <code>[E]</code> / 移动端按钮召唤 → Boss 战 → 击败后祭坛变传送门 → 玩家选择进入下一关（tier++）或留下打 Overtime。
+    <b>核心循环</b>：开局生成 1 个祭坛 → 玩家探索找到 → 按 <code>[E]</code> / 移动端按钮召唤 → Boss 战 → 击败后掉落免费 Boss 宝箱。Stage I 的祭坛变传送门，玩家可进入 Stage II 或留下打 Overtime；Stage II 后 Boss 死亡不再开传送门，祭坛进入冷却后可再次召唤。
   </div>
 
-  <h3>祭坛状态机（5 阶段）</h3>
+  <h3>祭坛状态机（6 阶段）</h3>
   <pre><code>ready          玩家在交互半径内 → UI 显示 [E] 召唤 Boss
   ↓ 按 interact
 summoning      读条 1.0s（防误触）；走出半径 → 回 ready
   ↓ 读条满
 boss_active    Boss 已生成；祭坛锁住、不可再交互
-  ↓ Boss 死亡
-portal_ready   祭坛变传送门；UI 显示 [E] 进入下一关
+  ↓ Boss 死亡（Stage I）
+portal_ready   祭坛变传送门；UI 显示 [E] 进入 Stage II
   ↓ 按 interact
-portal_used    终态；tier 推进流程消费它（清场 + 重生新祭坛）</code></pre>
+portal_used    终态；stage 推进流程消费它（清场 + 重生新祭坛）
+
+boss_active    Boss 已生成；祭坛锁住、不可再交互
+  ↓ Boss 死亡（Stage II）
+cooldown       冷却 60s；结束后回 ready，可再次召唤</code></pre>
 
   <h3>祭坛常量（<code>config.ts</code>）</h3>
   <table>
     <tr><th>常量</th><th>值</th><th>说明</th></tr>
     <tr><td><code>ALTAR_SUMMON_DURATION</code></td><td>1.0s</td><td>召唤读条秒数（仅防误触，可被走出半径打断）</td></tr>
+    <tr><td><code>ALTAR_BOSS_RESPAWN_COOLDOWN</code></td><td>60s</td><td>Stage II 后 Boss 击败，祭坛重新可召唤前的冷却</td></tr>
     <tr><td><code>ALTAR_INTERACT_RADIUS</code></td><td>2.0</td><td>玩家与祭坛 / 传送门交互的半径</td></tr>
     <tr><td><code>ALTAR_MIN_DISTANCE</code></td><td>25</td><td>祭坛距出生点最小距离（要求探索）</td></tr>
     <tr><td><code>ALTAR_MAX_DISTANCE_RATIO</code></td><td>0.6</td><td>祭坛距地图中心的最大相对距离 (× halfMap)</td></tr>
-    <tr><td>数量</td><td>每 tier 都 1 个</td><td>统一玩法，差异化交给数值</td></tr>
+    <tr><td>数量</td><td>每个 Tier 配置 1 个</td><td>Tier 控制难度倍率；Stage 控制是否开传送门 / 冷却循环</td></tr>
   </table>
 
   <h3>Overtime 系统</h3>
-  <p>玩家击败 Boss 后若<b>不</b>进入传送门：当 <code>gameTime ≥ REGULAR_GAME_DURATION (540s)</code>，<code>state.overtimeSeconds</code> 开始累加，敌人按时长升档。</p>
+  <p>玩家留在当前关且 <code>gameTime ≥ REGULAR_GAME_DURATION (540s)</code> 后，<code>state.overtimeSeconds</code> 开始累加。Overtime 不再按整档突跳，而是从第一秒起连续增强敌人属性和刷新压力。</p>
   <table>
     <tr><th>常量</th><th>值</th><th>含义</th></tr>
     <tr><td><code>REGULAR_GAME_DURATION</code></td><td>540s</td><td>常规生存期，超过后进入 overtime 计算</td></tr>
-    <tr><td><code>OVERTIME_STEP_SECONDS</code></td><td>30s</td><td>每多少秒升一档系数</td></tr>
-    <tr><td><code>OVERTIME_HP_DAMAGE_PER_STEP</code></td><td>+10%</td><td>每档敌人 HP / 伤害线性加成</td></tr>
-    <tr><td><code>OVERTIME_SPEED_PER_STEP</code></td><td>+4%</td><td>每档敌人速度增量（更温和，避免风筝失灵）</td></tr>
+    <tr><td><code>OVERTIME_STEP_SECONDS</code></td><td>30s</td><td>属性曲线的归一化时间单位；不再 floor 成整数档</td></tr>
+    <tr><td><code>OVERTIME_HP_DAMAGE_PER_STEP</code></td><td>+35%</td><td>每 30s 等效敌人 HP / 伤害连续加成</td></tr>
+    <tr><td><code>OVERTIME_SPEED_PER_STEP</code></td><td>+12%</td><td>每 30s 等效敌人速度连续加成</td></tr>
+    <tr><td><code>getOvertimePressure</code></td><td><code>1 + seconds / 45</code></td><td>提高非 final swarm 的同屏上限、刷新频率和群体大小</td></tr>
   </table>
-  <p style="color: var(--dim);">公式（<code>factories/spawnEnemy.ts</code>）：<code>step = floor(overtimeSeconds / 30)</code> → <code>hp ×= 1 + 0.1 × step</code>，<code>speed ×= 1 + 0.04 × step</code>。仅在 <code>wave</code> / <code>miniBoss</code> 模式下叠加；<code>necromancerSummon</code> / <code>bossSummon</code> 不受影响。</p>
+  <p style="color: var(--dim);">公式（<code>factories/spawnEnemy.ts</code>）：<code>steps = overtimeSeconds / 30</code> → <code>hp/damage ×= 1 + 0.35 × steps</code>，<code>speed ×= 1 + 0.12 × steps</code>。仅在 <code>wave</code> / <code>miniBoss</code> 模式下叠加；<code>necromancerSummon</code> / <code>bossSummon</code> 不受影响。</p>
 
-  <h3>Tier 推进（进入传送门）</h3>
+  <h3>Stage 推进（进入传送门）</h3>
   <p>玩家在 <code>portal_ready</code> 阶段按 <code>[E]</code> → 祭坛切到 <code>portal_used</code> → <code>tickTierTransition</code> 在本帧末尾消费它：</p>
   <ul>
-    <li><code>config.tier++</code>（最高 3，已是 3 时只重置时间）</li>
+    <li><code>state.stage++</code>（最高 2）；<code>config.tier</code> 和 <code>state.tier</code> 保持玩家开局选择的难度</li>
     <li>清场：<code>enemies / projectiles / pickups / goldMotes / boss / damageEvents / waveIndex / finalSwarm / overtimeSeconds = 0</code></li>
     <li><code>gameTime = 0</code>（进入新一关的"常规生存期"）</li>
     <li>重新生成祭坛 + 6 宝箱（<code>generateChests</code>）</li>
@@ -1707,15 +1715,15 @@ portal_used    终态；tier 推进流程消费它（清场 + 重生新祭坛）
     <tr><th>结束时机</th><th>触发</th><th>结算</th></tr>
     <tr><td>Boss 战死亡</td><td><code>player.alive=false</code> 且 <code>phase='boss_fight'</code></td><td>defeat，无 victory bonus</td></tr>
     <tr><td>Overtime 死亡</td><td>死时 <code>overtimeSeconds &gt; 0</code></td><td>defeat（结算时可读 overtimeSeconds 区分死法）</td></tr>
-    <tr><td>Tier 3 通关后再进传送门</td><td>真正的多关内容上线后再细化</td><td>victory（保留 enum，目前未达到）</td></tr>
+    <tr><td>Stage II 以后循环</td><td>Boss 死亡 → Boss 宝箱 + 祭坛冷却 → 再召唤</td><td>当前未设置 victory 终点，保留 enum 供后续多关内容扩展</td></tr>
   </table>
 
   <h3>UI / 输入</h3>
   <ul>
     <li><b>PC</b>：<code>KeyE</code> 边缘触发（<code>InputState.interact</code>），按下当帧为 true，发完即清零（防长按反复召唤）</li>
-    <li><b>Mobile</b>：交互半径内出现屏幕中下方圆形按钮，文案随阶段切换：<code>altar.prompt.summon</code> ↔ <code>altar.prompt.enterPortal</code></li>
-    <li><b>HUD</b>：屏幕中上方指南针文字 + 距离；Overtime 时屏幕顶部黄色横幅显示 <code>mm:ss</code></li>
-    <li><b>3D 表现</b>：祭坛底色按阶段切换（青蓝 ready / 金黄 summoning / 红 boss_active / 紫 portal_ready）</li>
+    <li><b>Mobile</b>：交互半径内出现屏幕中下方圆形按钮，文案随阶段切换：召唤 / 进入传送门 / 祭坛冷却倒计时</li>
+    <li><b>HUD</b>：屏幕中上方指南针文字 + 距离；右上显示 Tier 与 Stage（I / II）；Overtime 时屏幕顶部黄色横幅显示 <code>mm:ss</code></li>
+    <li><b>3D 表现</b>：祭坛底色按阶段切换（青蓝 ready / 金黄 summoning / 红 boss_active / 蓝紫 cooldown / 紫 portal_ready）；Boss 宝箱有金色光环和光柱</li>
     <li><b>GSAP 动画系统</b>：所有 UI 元素使用 GSAP 动画，包括：
       <ul>
         <li>Boss 血条淡入淡出 + 宽度动画</li>
@@ -1931,7 +1939,7 @@ luck 来源 = luck_tome.level + floor(player.luckBonus * 100)</code></pre>
 
 <!-- ============= EXTENSION OVERVIEW ============= -->
 <section id="ext-overview">
-  <h2>扩展设计总览 <span class="badge-new">new</span></h2>
+  <h2>扩展设计总览</h2>
   <p class="sub">相较当前已落地代码的<strong>策划草案 v0.4（ximing 修订）</strong> — 部分模块已落地（金币 / 宝箱 / 遗物），其余供战斗设计与程序对齐。</p>
 
   <div class="hero">
@@ -1981,7 +1989,7 @@ luck 来源 = luck_tome.level + floor(player.luckBonus * 100)</code></pre>
       <p><a href="#" data-tab="ext-bonds">→ 详见</a></p>
     </div>
     <div class="card">
-      <h4>遗物 · 金币 · 宝箱 <span class="badge-new">已实现</span></h4>
+      <h4>遗物 · 金币 · 宝箱 <span class="badge">已实现</span></h4>
       <p>遗物<strong>不占武器槽</strong>，<strong>同 ID 可叠加</strong>。击杀生成<strong>金币 mote</strong>自动飞向玩家。开箱按「等级曲线 + 本关已开启宝箱数」扣金币并进入 <code>chest_reward</code>；只有<strong>留下</strong>才写入 <code>relicStacks</code> 并生效。</p>
       <p><a href="#" data-tab="ext-relics">→ 详见</a></p>
     </div>
@@ -2050,7 +2058,7 @@ luck 来源 = luck_tome.level + floor(player.luckBonus * 100)</code></pre>
 
 <!-- ============= EXT BONDS ============= -->
 <section id="ext-bonds">
-  <h2>羁绊系统 v0.5d <span class="badge-new">new</span></h2>
+  <h2>羁绊系统 v0.5d</h2>
   <p class="sub">覆盖 <strong>12</strong> 种 <code>WeaponType</code>（7 旧 + 5 新），<strong>9 条</strong>羁绊；<strong>名称沿用现稿</strong>，组内武器按<strong>语义</strong>编排，单条羁绊 <strong>N=2～4</strong> 不等。武器各占 1 槽。</p>
 
   <div class="note" style="border-left: 4px solid var(--accent-2); background: var(--accent-2-soft); padding: 12px 16px; border-radius: 8px; margin-bottom: 20px;">
@@ -2335,7 +2343,7 @@ on bond_upgrade 2→3:
 
 <!-- ============= EXT RELICS ============= -->
 <section id="ext-relics">
-  <h2>遗物 · 宝箱 · 金币 <span class="badge-new">new</span></h2>
+  <h2>遗物 · 宝箱 · 金币</h2>
   <p class="sub">v0.4 设计 + <strong>当前代码已落地</strong>：遗物<strong>不占武器槽</strong>；<strong>同 ID 可无限叠加</strong>（无种类上限、无替换 UI）。开箱消耗<strong>金币</strong>，费用随玩家等级平滑增长，且<strong>本关每多开 1 个宝箱额外 +20 金币</strong>，抑制连续开箱滚雪球。</p>
 
   <div class="note">
@@ -2347,10 +2355,10 @@ on bond_upgrade 2→3:
     <tr><th>路径</th><th>职责</th></tr>
     <tr><td><code>data/relics.ts</code></td><td>10 件遗物表（<code>RELICS</code>）、稀有度权重、<code>rollRelic</code>（未拥有优先 + 重复降权）</td></tr>
     <tr><td><code>systems/relics.ts</code></td><td><code>getChestGoldCost(level, openedChestCount)</code> / <code>rollRelicForPlayer</code> / <code>grantRelic</code>；击杀/伤害钩子（<strong>无</strong> <code>tickRelics</code>）</td></tr>
-    <tr><td><code>systems/chests.ts</code></td><td><code>generateChests</code> / <code>tickChests</code>（交互开箱 + 补刷）</td></tr>
+    <tr><td><code>systems/chests.ts</code></td><td><code>generateChests</code> / <code>tickChests</code> / <code>spawnBossChest</code>（交互开箱 + 补刷 + Boss 免费宝箱）</td></tr>
     <tr><td><code>systems/pickups.ts</code></td><td><code>spawnGoldMoteFromEnemy</code> / <code>tickGoldMotes</code>；精英仍掉银币 <code>pickup</code></td></tr>
     <tr><td><code>GameInstance.ts</code></td><td><code>chest_reward</code> 阶段跳过 tick；<code>selectChestReward</code></td></tr>
-    <tr><td><code>client/source/index.ts</code></td><td>金币 HUD、遗物 emoji 槽（XP 条上方）、宝箱交互文案、开箱奖励面板</td></tr>
+    <tr><td><code>client/source/index.ts</code></td><td>金币 HUD、遗物 emoji 槽（XP 条上方）、普通 / Boss 宝箱交互文案、开箱奖励面板、Boss 宝箱金色 VFX</td></tr>
   </table>
 
   <h3>叠加规则</h3>
@@ -2375,16 +2383,17 @@ on bond_upgrade 2→3:
     <tr><td>银币</td><td>并行经济：空池 50%、精英拾取、Boss/任务/结算；与金币不互相替代</td></tr>
   </table>
 
-  <h3>宝箱（金币消耗）</h3>
+  <h3>宝箱（普通金币箱 + Boss 免费箱）</h3>
   <table>
     <tr><th>项</th><th>说明</th></tr>
-    <tr><td>初始数量</td><td>开局 / tier 切换 <code>generateChests</code> → <strong>6</strong> 个（<code>CHEST_COUNT</code>）；有关卡 <code>chestSpawns</code> 时优先用手摆点</td></tr>
-    <tr><td>补刷</td><td>场上未开启宝箱 &lt; <code>CHEST_MAX_ACTIVE</code>（6）时，每 30～60s 在玩家 12～35 单位外补 1 个</td></tr>
-    <tr><td>费用</td><td><code>cost = floor(35 + level × 3 + pow(level, 1.25) × 0.75 + openedChestCount × 20)</code>；<code>openedChestCount</code> = 本关已开启宝箱数（<code>chests.filter(c =&gt; c.opened).length</code>）。例：Lv10 第 1 箱 ≈ 78 金，第 4 箱 ≈ 138 金</td></tr>
-    <tr><td>交互</td><td>距离 &lt; <code>CHEST_INTERACT_RADIUS</code>（2.5）+ <code>interact</code>；<code>gold &lt; cost</code> 时按钮灰显；足够时立刻扣费并进入 <code>chest_reward</code></td></tr>
+    <tr><td>初始数量</td><td>开局 / Stage 切换 <code>generateChests</code> → <strong>6</strong> 个普通宝箱（<code>CHEST_COUNT</code>）；有关卡 <code>chestSpawns</code> 时优先用手摆点</td></tr>
+    <tr><td>补刷</td><td>场上未开启普通宝箱 &lt; <code>CHEST_MAX_ACTIVE</code>（6）时，每 30～60s 在玩家 12～35 单位外补 1 个；<code>bossDrop</code> 不计入普通补刷上限</td></tr>
+    <tr><td>普通费用</td><td><code>cost = floor(35 + level × 3 + pow(level, 1.25) × 0.75 + openedChestCount × 20)</code>；<code>openedChestCount</code> 只统计已开启普通宝箱（排除 <code>bossDrop</code>）。例：Lv10 第 1 箱 ≈ 78 金，第 4 箱 ≈ 138 金</td></tr>
+    <tr><td>Boss 宝箱</td><td>Boss 死亡在原地 <code>spawnBossChest</code>，标记 <code>bossDrop: true</code>；免费开启（<code>cost = 0</code>），不增加普通宝箱费用增长计数，也不占普通宝箱补刷名额</td></tr>
+    <tr><td>交互</td><td>距离 &lt; <code>CHEST_INTERACT_RADIUS</code>（2.5）+ <code>interact</code>；普通箱 <code>gold &lt; cost</code> 时按钮灰显；Boss 箱显示免费文案；开启后进入 <code>chest_reward</code></td></tr>
     <tr><td>产出</td><td><code>rollRelicForPlayer</code> → 写入 <code>pendingChestReward</code>；<strong>留下</strong> → <code>grantRelic</code>；<strong>丢弃</strong> → 不记录</td></tr>
     <tr><td>金币不足</td><td>无法开启；无「遗物栏满」fallback（因为无上限）</td></tr>
-    <tr><td>视觉</td><td>客户端 procedural 暖棕木箱 + 金边；已开启宝箱保留在列表中（<code>opened: true</code>）</td></tr>
+    <tr><td>视觉</td><td>客户端 procedural 暖棕木箱 + 金边；Boss 宝箱额外金色光环 / 光柱 / 点光；已开启宝箱保留在列表中（<code>opened: true</code>）</td></tr>
   </table>
 
   <h3>10 个遗物（v0.5 · 可叠层）</h3>
@@ -2426,7 +2435,7 @@ on bond_upgrade 2→3:
 
 <!-- ============= EXT CONSUMABLES ============= -->
 <section id="ext-consumables">
-  <h2>消耗品 <span class="badge-new">new</span></h2>
+  <h2>消耗品</h2>
   <p class="sub">怪物概率掉落或地图点拾取；不占武器/遗物槽。同时仅 1 个 timed buff（新覆盖旧）。<code>consumable_tome</code>（拾荒典籍）提高消耗品掉落概率。</p>
 
   <h3>10 个消耗品</h3>
@@ -2612,11 +2621,11 @@ player.consumableDropMult?: number       // consumable_tome</code></pre>
     ├── pickups.ts            ← processDeaths / tickPickups / tickGoldMotes / tickThorns
     ├── relics.ts             ← getChestGoldCost / grantRelic / rollRelicForPlayer + 击杀/伤害钩子
     ├── spawning.ts           ← tickSpawning / checkBossSpawn (波次 + mini-boss + final swarm)
-    ├── altars.ts             ← tickAltars / generateAltars / onBossDefeated / consumePortalUsed (5 阶段状态机)
-    ├── chests.ts             ← tickChests / generateChests / 补刷 (CHEST_MAX_ACTIVE=6)
+    ├── altars.ts             ← tickAltars / generateAltars / onBossDefeated / consumePortalUsed (ready/summoning/boss_active/cooldown/portal_ready/portal_used)
+    ├── chests.ts             ← tickChests / generateChests / spawnBossChest / 补刷 (CHEST_MAX_ACTIVE=6)
     ├── teleporters.ts        ← @deprecated re-export shim → altars.ts + chests.ts
     ├── overtime.ts           ← tickOvertime (gameTime ≥ 540 累加 overtimeSeconds)
-    ├── tierTransition.ts     ← tickTierTransition (portal_used → tier++ + 重置场景)
+    ├── tierTransition.ts     ← tickTierTransition (portal_used → stage++ + 重置场景，tier 保持开局选择)
     ├── shrines.ts            ← tickShrines / generateShrines / applyShrineReward (充能神殿 4 选 1)
     ├── weapons.ts            ← tickWeapons / getWeaponStats / bond-aware weapon hooks
     ├── aiSystem.ts           ← tickEnemyAi (modifier → brain dispatch)
@@ -2636,15 +2645,15 @@ processDeaths(engine);             // hp ≤ 0 → spawn pickup + kill++
 tickPickups(engine, dt);           // 寿命 / 吸附 / collect
 tickLevelUp(engine);               // xp ≥ xpToNext → 进 level_up phase
 tickSpawning(engine, dt);          // wave + mini-boss + final swarm
-tickAltars(engine, dt);            // 祭坛 / 传送门状态机（按 [E] 召唤 / 进入）
+tickAltars(engine, dt);            // 祭坛 / 传送门 / 冷却状态机（按 [E] 召唤 / 进入）
 tickShrines(engine, dt);           // 充能神殿状态机 / charging→ready→consumed
 tickChests(engine, dt);            // 交互开箱 → chest_reward 时本帧后续逻辑跳过
 if (phase === 'chest_reward') return false;
 checkBossSpawn(engine);            // 仅当祭坛 boss_active 时 spawn
 if (state.boss && phase === 'boss_fight') tickBossAi(state.boss, ctx);
 tickThorns(engine);
-checkGameOver(engine);             // Boss 死 → portal_open（祭坛变传送门）；玩家死 → defeat
-tickTierTransition(engine);        // portal_used → tier++ + 重置场景
+checkGameOver(engine);             // Boss 死 → Boss 宝箱；Stage I 开 portal，Stage II 进 cooldown；玩家死 → defeat
+tickTierTransition(engine);        // portal_used → stage++ + 重置场景
 tickOvertime(engine, dt);          // gameTime ≥ 540 累加 overtimeSeconds
 engine.aiGroup = (engine.aiGroup + 1) % 4;  // 错峰组循环</code></pre>
 
@@ -2688,9 +2697,70 @@ engine.aiGroup = (engine.aiGroup + 1) % 4;  // 错峰组循环</code></pre>
   </div>
 </section>
 
+<!-- ============= VFX IMPLEMENTATION ============= -->
+<section id="vfx-implementation">
+  <h2>特效实现 <span class="badge-new">new</span></h2>
+  <p class="sub">汇总当前武器 / 羁绊机制与客户端表现，用于后续统一补齐特效资源、镜头反馈和状态标记。</p>
+
+  <div class="note">
+    <b>字段说明：</b>“相关内容机制的表述”描述 core 侧玩法逻辑；“当前表现”描述已经在 <code>game/client/source/index.ts</code> 中落地的视觉形态；“特效预期效果”和“修改方向及需求备注”用于后续美术与实现排期。
+  </div>
+
+  <h3>武器特效</h3>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 13%;">武器 / 羁绊名字</th>
+        <th style="width: 25%;">相关内容机制的表述</th>
+        <th style="width: 25%;">当前表现（已实现形态）</th>
+        <th style="width: 18%;">特效预期效果</th>
+        <th style="width: 19%;">修改方向及需求备注</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><b>武士刀</b><br><code>sword</code></td><td>自动瞄准最近敌人，按扇形范围多段横扫；命中造成伤害并击退，Boss 只按距离判定。</td><td>白蓝色扇形 slash mesh、地面 slash billboard、短粒子拖尾、命中火花；装备后有武器浮游模型。</td><td></td><td>可补更有方向性的刀光序列、命中停顿和多段斩层次。</td></tr>
+      <tr><td><b>弹射骨头</b><br><code>bone_bouncer</code></td><td>向最近敌人发射骨头，命中后按弹射次数寻找下一个目标。</td><td>骨头 3D 模型翻滚飞行，米白色弹道粒子和命中火花；装备后有浮游骨头。</td><td></td><td>可补弹射转向的残影、弹地 / 折返音画提示。</td></tr>
+      <tr><td><b>旋转飞斧</b><br><code>axe</code></td><td>生成围绕玩家旋转的投射物，按半径、转速、穿透结算持续命中。</td><td>飞斧 3D 模型绕玩家旋转，装备后也有浮游模型；命中使用橙灰火花。</td><td></td><td>可补环形运动残影、刀刃高光和命中切削感。</td></tr>
+      <tr><td><b>左轮手枪</b><br><code>bow</code></td><td>第一发自动瞄准最近敌人，其余按玩家朝向小角度散布，支持穿透。</td><td>金色子弹 / InstancedMesh，黄绿色轨迹，玩家身前枪口闪光；装备显示左轮模型。</td><td></td><td>可补弹壳、枪口烟、曳光弹贴图。</td></tr>
+      <tr><td><b>闪电法杖</b><br><code>lightning_staff</code></td><td>最近目标主命中后连锁，链伤害 70%，按范围跳到后续敌人 / Boss。</td><td>每次伤害事件生成竖向蓝白闪电柱、地面光环、共享闪光灯和电火花。</td><td></td><td>可补目标间真实连线，当前更像落雷点而非链路。</td></tr>
+      <tr><td><b>烈焰环</b><br><code>flame_ring</code></td><td>周期性对玩家周围 AoE 内敌人 / Boss 造成火焰伤害。</td><td>持续橙色火焰粒子，跟随玩家的加色环盘脉冲旋转。</td><td></td><td>视觉半径当前偏固定，可改为读取武器 AoE 半径并加强边界火舌。</td></tr>
+      <tr><td><b>霰弹枪</b><br><code>shotgun</code></td><td>按弹数在前方扇形散射，高速短寿命弹丸，后期可穿透。</td><td>金色 dart / 弹丸、较大的橙色枪口闪光、明亮短轨迹。</td><td></td><td>可补扇形冲击波、枪口烟、近距离命中碎片。</td></tr>
+      <tr><td><b>射线枪</b><br><code>ray_gun</code></td><td>瞬发激光，按最近目标定方向；实际光束固定长距离，沿直线无限穿透。</td><td>红色加色长方体光束，0.12s 淡出，命中使用红粉火花。</td><td></td><td>可补核心光束 + 外辉光双层、起点蓄能、终点爆闪。</td></tr>
+      <tr><td><b>毒气弹</b><br><code>poison_bomb</code></td><td>在最近敌人或前方生成毒气云，周期刷新中毒；Boss 改为直接结算伤害。</td><td>绿色贴地圆形毒云、上浮毒粒子、敌人中毒绿雾和绿色伤害反馈。</td><td></td><td>可补抛物线弹体 / 落地爆开过程，目前直接生成毒云。</td></tr>
+      <tr><td><b>麻痹枪</b><br><code>paralysis_gun</code></td><td>自动索敌投射物，命中施加强减速；精英 / 小头目按抗性减弱。</td><td>黄色弹体 / 轨迹，敌人身上黄色麻痹电花，命中黄系火花。</td><td></td><td>可补电弧缠绕、定身环或明显的减速状态材质。</td></tr>
+      <tr><td><b>虚空涟漪</b><br><code>void_ripple</code></td><td>以玩家为中心生成向外扩散的环形波，波前扫到每个目标只结算一次。</td><td>青色加色 RingGeometry 扩散，按半径逐帧放大并淡出。</td><td></td><td>可补环波厚度变化、空间扭曲、命中时的局部裂隙反馈。</td></tr>
+      <tr><td><b>灼地靴</b><br><code>scorch_boots</code></td><td>高频在玩家脚下生成灼烧痕迹，存活期间周期灼伤范围目标。</td><td>橙色贴地圆盘逐渐淡出，伤害事件使用火焰色火花。</td><td></td><td>可补足迹形状贴图、火苗粒子和边缘焦痕资源。</td></tr>
+    </tbody>
+  </table>
+
+  <h3>羁绊特效</h3>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 13%;">武器 / 羁绊名字</th>
+        <th style="width: 25%;">相关内容机制的表述</th>
+        <th style="width: 25%;">当前表现（已实现形态）</th>
+        <th style="width: 18%;">特效预期效果</th>
+        <th style="width: 19%;">修改方向及需求备注</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><b>铁血</b><br><code>iron_blood</code></td><td>剑 + 斧。T1 加护甲和伤害；T2 受击刷新剑 CD 并叠下次斩击增伤；T3 受击触发 10s 暴怒，增伤和攻速。</td><td>玩法数值已实现；剑开火后清叠层。暂无专属暴怒 / 反击视觉。</td><td></td><td>缺受击反击提示、玩家暴怒 aura、剑下次斩击强化表现。</td></tr>
+      <tr><td><b>奥术</b><br><code>arcane</code></td><td>闪电 + 烈焰 + 虚空 + 灼地。奥术命中积攒奥秘，满阈值后打附近最高血目标并溅射；T3 降阈值并提高爆发。</td><td>玩家头顶蓝紫奥秘数字；蓝紫光球从玩家飞向目标，沿途尾迹，命中蓝紫烟雾、爆闪和地面光环。</td><td></td><td>已较完整；可补法阵蓄能或阈值满时的玩家提示。</td></tr>
+      <tr><td><b>零距寸劲</b><br><code>zero_range</code></td><td>刀 + 斧 + 虚空 + 霰弹。近距离增伤；T2 命中附加击退和冲击伤害；T3 当前提升冲击伤害倍率。</td><td>复用原有击退、伤害飘字和命中火花；暂无专属冲击波。</td><td></td><td>文案里的撞地形高额碰撞伤害尚未落地；缺近身冲击环、撞墙爆点资源。</td></tr>
+      <tr><td><b>余烬轨迹</b><br><code>ember_trail</code></td><td>烈焰环 + 灼地靴。击杀引爆，按死者最大生命对周围造成伤害；T3 扩大爆炸并留下灼地。</td><td>击杀点红色爆炸烟雾和红色粒子；T3 复用灼地痕迹 area effect。</td><td></td><td>可补更明确的火焰爆圈、冲击波和残火贴图。</td></tr>
+      <tr><td><b>弹幕</b><br><code>volley</code></td><td>左轮 + 霰弹 + 骨头 + 毒气。T1 增伤和攻速；T2 按组内武器等级继续加攻速；T3 文案为击落敌方弹幕。</td><td>数值已实现；暂无专属视觉。T3 击落敌弹未看到实现。</td><td></td><td>缺弹幕节奏强化表现；若做 T3，需要敌弹被击落的火花 / 小爆点。</td></tr>
+      <tr><td><b>碎骨震</b><br><code>bone_crush</code></td><td>左轮 + 刀 + 骨头。高血目标增伤；命中施加 5s 易伤；T3 文案为骨弹弹射高血目标不耗次数。</td><td>易伤数值已实现；暂无专属易伤视觉。优先索敌和 T3 不耗弹射未看到实现。</td><td></td><td>缺易伤标记、骨裂冲击、骨弹强化弹射表现。</td></tr>
+      <tr><td><b>弧光导体</b><br><code>arc_conductor</code></td><td>射线 + 闪电 + 虚空。虚空涟漪施加导体标记，其它组内武器命中时对所有标记目标连锁伤害；T3 提升连锁和标记时长。</td><td>普通敌人身上有蓝色加色发光标记；连锁伤害复用伤害事件和武器命中火花。</td><td></td><td>Boss 标记逻辑存在但客户端标记只遍历敌人；缺标记目标之间的真实电链。</td></tr>
+      <tr><td><b>毒师</b><br><code>poison_master</code></td><td>毒气 + 麻痹。命中叠神经毒素，持续按最大生命掉血并周期强减速；T3 提升持续、层数和减速。</td><td>敌人头顶墨绿色倒三角；中毒绿雾和麻痹黄电花复用状态特效。</td><td></td><td>T1 负面效果 +0.8s 当前未看到实际接入；缺层数强弱变化表现。</td></tr>
+      <tr><td><b>猎标烙印</b><br><code>hunter_mark</code></td><td>左轮 + 射线 + 麻痹。麻痹枪给敌人烙印，烙印目标受组内武器增伤；T3 处决低血非精英烙印敌人。</td><td>敌人头顶红色准星标记；处决当前是逻辑直接置 0 血，复用死亡爆点。</td><td></td><td>优先索敌未看到实现；缺处决专属闪光、锁定线和低血提示。</td></tr>
+    </tbody>
+  </table>
+</section>
+
 <!-- ============= GSAP ANIMATION SYSTEM ============= -->
 <section id="gsap-animations">
-  <h2>GSAP 动画系统 <span class="badge-new">new</span></h2>
+  <h2>GSAP 动画系统</h2>
   <p class="sub">所有 UI 动画已从 CSS 过渡迁移到 GSAP 系统，提供更流畅、更专业的动画效果。</p>
 
   <h3>动画演示</h3>
@@ -3118,7 +3188,7 @@ tv_1.gltf</code></pre>
   <br>
   本页内容会与代码漂移；如有疑问以源码为准。
   <br>
-  策划 v0.5 · <code>index.html</code> — 侧栏紫色 = 全新栏目，<span class="badge-new">new</span> = 相对旧版有修订。
+  策划 v0.5 · <code>index.html</code> — 技术页新增特效实现追踪表。
 </footer>
 
 </div>
