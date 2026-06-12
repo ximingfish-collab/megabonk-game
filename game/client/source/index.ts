@@ -929,6 +929,15 @@ function boostMaterialSaturation(color: THREE.Color, factor: number): void {
   color.setHSL(hsl.h, Math.min(1, hsl.s * factor), hsl.l);
 }
 
+/** 贴图过滤：各向异性 + mipmap，提升近景 / 斜视下的贴图清晰度（PR #56）。 */
+function tuneToonTexture(tex: THREE.Texture | null | undefined): void {
+  if (!tex) return;
+  tex.anisotropy = 8;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+}
+
 /**
  * 风格化叠加 GLSL（注入到 MeshToonMaterial 片元，在 <opaque_fragment> 前）：
  *   1) Rim light（菲涅尔边缘光）—— 角色边缘一圈冷亮，从背景弹出（荒野乱斗最关键的质感）。
@@ -1015,15 +1024,24 @@ function convertToToonMaterials(root: THREE.Object3D): void {
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     const toonMats = materials.map((mat) => {
       if (mat instanceof THREE.MeshToonMaterial) {
+        tuneToonTexture(mat.map);
+        tuneToonTexture(mat.emissiveMap);
         applyStylizedToonShading(mat); // 已是 toon：补挂风格化叠加
         return mat;
       }
       const oldMat = mat as THREE.MeshStandardMaterial | THREE.MeshPhongMaterial | THREE.MeshLambertMaterial;
       const color = (oldMat.color ?? new THREE.Color(0xffffff)).clone();
       boostMaterialSaturation(color, 1.5); // 敌人/场景/道具统一高饱和（与玩家 ×1.6 对齐）
+      // 保留 emissive / emissiveMap：霓虹屏幕、发光贴图在 toon 转换后不丢（PR #56）。
+      const map = oldMat.map ?? null;
+      const emissiveMap = oldMat.emissiveMap ?? null;
+      tuneToonTexture(map);
+      tuneToonTexture(emissiveMap);
       const toon = new THREE.MeshToonMaterial({
         color,
-        map: oldMat.map ?? null,
+        map,
+        emissive: oldMat.emissive ?? new THREE.Color(0x000000),
+        emissiveMap,
         gradientMap: toonGradientMap,
         side: oldMat.side ?? THREE.FrontSide,
         transparent: oldMat.transparent ?? false,
