@@ -23,6 +23,7 @@ import {
   resolvePhase,
   type BossPhaseConfig,
 } from '../ai/bosses/skeletonKing.ts';
+import { getSupportHeightAt } from './collision.ts';
 import { tryMoveHorizontally } from './horizontalMove.ts';
 
 export function tickBossAi(
@@ -71,6 +72,7 @@ export function tickBossAi(
     boss.z = moved.z;
   }
 
-  // 5. y 跟地（每帧更新，避免静止时站在 col_ 上玩家走开后 boss 不下来）
-  boss.y = ctx.getTerrainHeight(boss.x, boss.z);
+  // 5. y 跟随当前可达支撑面，避免叠层/头顶平台把 boss 直接吸到最高点。
+  const supportY = getSupportHeightAt(ctx.geo, boss.x, boss.z, boss.y);
+  boss.y = Number.isFinite(supportY) ? supportY : 0;
 }
