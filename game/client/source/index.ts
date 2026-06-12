@@ -2038,6 +2038,7 @@ export class GameScene {
   private bossNameLabel!: HTMLDivElement;
   private bossPhaseMarkers!: HTMLDivElement;
   private tierBadge!: HTMLDivElement;
+  private stageBadge!: HTMLDivElement;
   private teleporterIndicator!: HTMLDivElement;
   private interactBtn!: HTMLDivElement;
   private overtimeBanner!: HTMLDivElement;
@@ -3265,6 +3266,11 @@ export class GameScene {
     this.tierBadge = document.createElement('div');
     this.tierBadge.style.cssText = 'color:#ffffff;font-size:clamp(11px,2.8vw,15px);font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.9);white-space:nowrap;';
     rightHudStack.appendChild(this.tierBadge);
+
+    // Stage badge (I / II) between difficulty and timer
+    this.stageBadge = document.createElement('div');
+    this.stageBadge.style.cssText = 'color:#ffe08a;font-size:clamp(11px,2.8vw,15px);font-weight:900;text-shadow:0 1px 3px rgba(0,0,0,0.9);letter-spacing:1px;white-space:nowrap;';
+    rightHudStack.appendChild(this.stageBadge);
 
     // Timer (no background box)
     this.timerLabel = document.createElement('div');
@@ -5095,6 +5101,17 @@ export class GameScene {
             decal.rotation.z = -time * 0.5;
             break;
           }
+          case 'cooldown': {
+            // 冷却：低亮度蓝紫，表示暂不可交互
+            ringMat?.color.setHex(0x5566aa);
+            pillarMat.color.setHex(0x6677cc);
+            pillarMat.opacity = 0.22 + Math.sin(time * 0.8) * 0.08;
+            decalMat.map = this.vfxTextures.magic_circle;
+            decalMat.color.setHex(0x6677cc);
+            decalMat.opacity = 0.35;
+            decal.rotation.z = -time * 0.4;
+            break;
+          }
           case 'portal_ready':
           case 'portal_used': {
             // 传送门：换贴图 → 紫色 swirl，反向飞速旋转
@@ -5415,7 +5432,7 @@ export class GameScene {
 
     const desc = document.createElement('div');
     desc.style.cssText = 'color:#cfd3ff;font-size:13px;line-height:1.45;margin-top:12px;min-height:36px;';
-    desc.textContent = `消耗 ${reward.cost} 金币`;
+    desc.textContent = reward.bossDrop || reward.cost <= 0 ? 'Boss 宝箱 · 免费开启' : `消耗 ${reward.cost} 金币`;
 
     const buttonRow = document.createElement('div');
     buttonRow.style.cssText = 'display:none;gap:12px;margin-top:18px;';
@@ -5651,6 +5668,73 @@ export class GameScene {
     return group;
   }
 
+  private createBossChestGlowObject(): THREE.Object3D {
+    const glow = new THREE.Group();
+    glow.name = 'BossChestGoldGlow';
+
+    const ringGeo = new THREE.RingGeometry(0.95, 1.45, 48);
+    ringGeo.rotateX(-Math.PI / 2);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0xffd34d,
+      transparent: true,
+      opacity: 0.72,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.name = 'BossChestGoldRing';
+    ring.position.y = 0.05;
+    glow.add(ring);
+
+    const pillarGeo = new THREE.CylinderGeometry(0.45, 0.95, 2.8, 24, 1, true);
+    const pillarMat = new THREE.MeshBasicMaterial({
+      color: 0xffc84a,
+      transparent: true,
+      opacity: 0.22,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+    pillar.name = 'BossChestGoldPillar';
+    pillar.position.y = 1.45;
+    glow.add(pillar);
+
+    const light = new THREE.PointLight(0xffcc55, 1.8, 5, 2);
+    light.name = 'BossChestGoldLight';
+    light.position.set(0, 1.1, 0);
+    glow.add(light);
+
+    return glow;
+  }
+
+  private ensureBossChestGlow(obj: THREE.Object3D): THREE.Object3D {
+    const existing = obj.getObjectByName('BossChestGoldGlow');
+    if (existing) return existing;
+    const glow = this.createBossChestGlowObject();
+    obj.add(glow);
+    return glow;
+  }
+
+  private updateBossChestGlow(glow: THREE.Object3D, time: number): void {
+    const pulse = 0.72 + Math.sin(time * 3.2) * 0.18;
+    glow.rotation.y = time * 0.8;
+    const ring = glow.getObjectByName('BossChestGoldRing') as THREE.Mesh | undefined;
+    const pillar = glow.getObjectByName('BossChestGoldPillar') as THREE.Mesh | undefined;
+    const light = glow.getObjectByName('BossChestGoldLight') as THREE.PointLight | undefined;
+    if (ring) {
+      ring.scale.setScalar(0.9 + pulse * 0.18);
+      (ring.material as THREE.MeshBasicMaterial).opacity = 0.55 + pulse * 0.22;
+    }
+    if (pillar) {
+      (pillar.material as THREE.MeshBasicMaterial).opacity = 0.16 + pulse * 0.12;
+    }
+    if (light) {
+      light.intensity = 1.4 + pulse * 0.8;
+    }
+  }
+
   private renderChests(chests: ChestState[]): void {
     const visibleChestIds = new Set<number>();
 
@@ -5685,6 +5769,11 @@ export class GameScene {
       // Gentle hover animation
       const time = performance.now() * 0.001;
       obj.position.set(chest.x, (chest.y ?? 0) + 0.1 + Math.sin(time * 1.5 + chest.id) * 0.05, chest.z);
+      if (chest.bossDrop) {
+        this.updateBossChestGlow(this.ensureBossChestGlow(obj), time + chest.id);
+      } else {
+        obj.getObjectByName('BossChestGoldGlow')?.removeFromParent();
+      }
     }
 
     for (const [id, obj] of this.chestObjects) {
@@ -6622,6 +6711,7 @@ export class GameScene {
     const seconds = totalSec % 60;
     const timeStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
     this.setTierBadge(state.tier);
+    this.setStageBadge(state.stage);
     this.timerLabel.textContent = `⏱ ${timeStr}`;
     this.killLabel.textContent = `💀 ${state.stats.killCount}`;
     setSilverBadgeAmount(this.silverLabel, state.stats.silverEarned);
@@ -6750,19 +6840,22 @@ export class GameScene {
       .filter(c => !c.opened)
       .map(c => ({ chest: c, dist: Math.hypot(c.x - p.x, c.z - p.z) }))
       .sort((a, b) => a.dist - b.dist)[0] ?? null;
-    const openedChestCount = state.chests.filter(c => c.opened).length;
-    const chestCost = getChestGoldCost(p.level, openedChestCount);
+    const openedChestCount = state.chests.filter(c => c.opened && !c.bossDrop).length;
+    const chestCost = nearestChest?.chest.bossDrop ? 0 : getChestGoldCost(p.level, openedChestCount);
     const chestInRange = nearestChest != null && nearestChest.dist <= CHEST_INTERACT_RADIUS;
     const visibleAltar = state.altars.find(a => a.phase !== 'boss_active' && a.phase !== 'portal_used');
     if (chestInRange && nearestChest) {
       // 使用 GSAP 动画显示传送门指示器
       gsapAnimations.animateTeleporterIndicator(this.teleporterIndicator, true, 0.2);
-      const canAfford = p.gold >= chestCost;
+      const isBossChest = nearestChest.chest.bossDrop === true;
+      const canAfford = isBossChest || p.gold >= chestCost;
       this.teleporterIndicator.style.color = canAfford ? '#ffdd66' : '#999999';
       this.teleporterIndicator.style.textShadow = canAfford
         ? '0 0 8px #ffcc33,0 1px 3px rgba(0,0,0,0.8)'
         : '0 1px 3px rgba(0,0,0,0.8)';
-      this.teleporterIndicator.textContent = canAfford
+      this.teleporterIndicator.textContent = isBossChest
+        ? '🎁 [E] 开启 Boss 宝箱'
+        : canAfford
         ? `🎁 [E] 开启宝箱 - ${chestCost} 金币`
         : `🎁 金币不足 ${p.gold}/${chestCost}`;
     } else if (visibleAltar) {
@@ -6786,6 +6879,11 @@ export class GameScene {
             : `🌀 ${t('hud.compass.portal')}: ${dist}m`;
           break;
         }
+        case 'cooldown': {
+          const remaining = Math.ceil(visibleAltar.cooldownTimer ?? 0);
+          this.teleporterIndicator.textContent = `⛩️ ${t('altar.cooldown', { seconds: String(remaining) })}`;
+          break;
+        }
         case 'ready':
         default: {
           // 等待召唤
@@ -6800,7 +6898,9 @@ export class GameScene {
       gsapAnimations.animateTeleporterIndicator(this.teleporterIndicator, true, 0.2);
       this.teleporterIndicator.style.color = '#ffdd66';
       this.teleporterIndicator.style.textShadow = '0 0 8px #ffcc33,0 1px 3px rgba(0,0,0,0.8)';
-      this.teleporterIndicator.textContent = `🎁 宝箱: ${Math.round(nearestChest.dist)}m`;
+      this.teleporterIndicator.textContent = nearestChest.chest.bossDrop
+        ? `🎁 Boss 宝箱: ${Math.round(nearestChest.dist)}m`
+        : `🎁 宝箱: ${Math.round(nearestChest.dist)}m`;
     } else {
       // 使用 GSAP 动画隐藏传送门指示器
       gsapAnimations.animateTeleporterIndicator(this.teleporterIndicator, false, 0.2);
@@ -6817,9 +6917,12 @@ export class GameScene {
       // 使用 GSAP 动画显示交互按钮
       gsapAnimations.animateInteractButton(this.interactBtn, true, 0.3);
       if (chestInRange) {
-        const canAfford = p.gold >= chestCost;
+        const isBossChest = nearestChest?.chest.bossDrop === true;
+        const canAfford = isBossChest || p.gold >= chestCost;
         this.interactBtn.style.background = canAfford ? 'rgba(210,145,24,0.88)' : 'rgba(80,80,80,0.82)';
-        this.interactBtn.textContent = canAfford ? `开启宝箱 ${chestCost}` : `金币不足 ${p.gold}/${chestCost}`;
+        this.interactBtn.textContent = isBossChest
+          ? '开启 Boss 宝箱'
+          : canAfford ? `开启宝箱 ${chestCost}` : `金币不足 ${p.gold}/${chestCost}`;
       } else if (altarInRange) {
         this.interactBtn.style.background = 'rgba(170,68,255,0.85)';
         this.interactBtn.textContent = altarInRange.phase === 'portal_ready'
@@ -8162,6 +8265,10 @@ export class GameScene {
     this.tierBadge.textContent = t(`tier.${tier}`);
     this.tierBadge.style.borderColor = color;
     this.tierBadge.style.color = color;
+  }
+
+  setStageBadge(stage: GameState['stage']): void {
+    this.stageBadge.textContent = stage === 2 ? 'II' : 'I';
   }
 }
 

@@ -49,6 +49,7 @@ export type {
   GameConfig,
   GameResult,
   DifficultyTier,
+  RunStage,
   CollisionRect,
   WallBox,
   ClimbVolume,

@@ -85,6 +85,8 @@ export const CHEST_MIN_SEPARATION = 6;           // Min distance between two uno
 // Altar (formerly Teleporter) settings
 /** 召唤 Boss 的读条秒数（防误触）。 */
 export const ALTAR_SUMMON_DURATION = 1.0;
+/** 第二关及以后 Boss 击败后，祭坛再次可召唤前的冷却秒数。 */
+export const ALTAR_BOSS_RESPAWN_COOLDOWN = 60;
 /** 玩家与祭坛 / 传送门交互的触发半径。 */
 export const ALTAR_INTERACT_RADIUS = 2.0;
 /** 祭坛距出生点的最小距离（要求玩家探索才能找到）。 */

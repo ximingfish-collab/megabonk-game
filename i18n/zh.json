@@ -393,6 +393,7 @@
   },
   "altar": {
     "summoning": "正在召唤 Boss...",
+    "cooldown": "祭坛冷却中 {{seconds}}s",
     "prompt": {
       "summon": "[E] 召唤 Boss",
       "enterPortal": "[E] 进入传送门"

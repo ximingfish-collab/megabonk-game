@@ -393,6 +393,7 @@
   },
   "altar": {
     "summoning": "Summoning Boss...",
+    "cooldown": "Altar cooldown {{seconds}}s",
     "prompt": {
       "summon": "[E] Summon Boss",
       "enterPortal": "[E] Enter Portal"

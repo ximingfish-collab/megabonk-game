@@ -36,7 +36,7 @@ function defaultState(
   tier: GameConfig['tier'] = 1,
 ): GameState {
   return {
-    tick: 0, gameTime: 0, tier, overtimeSeconds: 0, running: false, paused: false, finished: false,
+    tick: 0, gameTime: 0, tier, stage: 1, overtimeSeconds: 0, running: false, paused: false, finished: false,
     phase: 'playing',
     player,
     enemies: [], projectiles: [], areaEffects: [], pickups: [], consumablePickups: [], goldMotes: [], boss: null,

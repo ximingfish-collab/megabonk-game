@@ -77,6 +77,7 @@ export class GameInstance {
       tick: 0,
       gameTime: 0,
       tier: config.tier,
+      stage: 1,
       overtimeSeconds: 0,
       running: false,
       paused: false,
@@ -172,6 +173,7 @@ export class GameInstance {
     state.phase = 'playing';
     state.gameTime = 0;
     state.tier = config.tier;
+    state.stage = 1;
     state.overtimeSeconds = 0;
     state.tick = 0;
     state.enemies = [];
