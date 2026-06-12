@@ -929,6 +929,15 @@ function boostMaterialSaturation(color: THREE.Color, factor: number): void {
   color.setHSL(hsl.h, Math.min(1, hsl.s * factor), hsl.l);
 }
 
+/** 贴图过滤：各向异性 + mipmap，提升近景 / 斜视下的贴图清晰度（PR #56）。 */
+function tuneToonTexture(tex: THREE.Texture | null | undefined): void {
+  if (!tex) return;
+  tex.anisotropy = 8;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+}
+
 /**
  * 风格化叠加 GLSL（注入到 MeshToonMaterial 片元，在 <opaque_fragment> 前）：
  *   1) Rim light（菲涅尔边缘光）—— 角色边缘一圈冷亮，从背景弹出（荒野乱斗最关键的质感）。
@@ -1015,15 +1024,24 @@ function convertToToonMaterials(root: THREE.Object3D): void {
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     const toonMats = materials.map((mat) => {
       if (mat instanceof THREE.MeshToonMaterial) {
+        tuneToonTexture(mat.map);
+        tuneToonTexture(mat.emissiveMap);
         applyStylizedToonShading(mat); // 已是 toon：补挂风格化叠加
         return mat;
       }
       const oldMat = mat as THREE.MeshStandardMaterial | THREE.MeshPhongMaterial | THREE.MeshLambertMaterial;
       const color = (oldMat.color ?? new THREE.Color(0xffffff)).clone();
       boostMaterialSaturation(color, 1.5); // 敌人/场景/道具统一高饱和（与玩家 ×1.6 对齐）
+      // 保留 emissive / emissiveMap：霓虹屏幕、发光贴图在 toon 转换后不丢（PR #56）。
+      const map = oldMat.map ?? null;
+      const emissiveMap = oldMat.emissiveMap ?? null;
+      tuneToonTexture(map);
+      tuneToonTexture(emissiveMap);
       const toon = new THREE.MeshToonMaterial({
         color,
-        map: oldMat.map ?? null,
+        map,
+        emissive: oldMat.emissive ?? new THREE.Color(0x000000),
+        emissiveMap,
         gradientMap: toonGradientMap,
         side: oldMat.side ?? THREE.FrontSide,
         transparent: oldMat.transparent ?? false,
@@ -3316,6 +3334,7 @@ export class GameScene {
 
     // Bond detail floating layer (opens above buff row when a bond is tapped)
     this.bondDetailOverlay = document.createElement('div');
+    this.bondDetailOverlay.dataset.cameraBlock = 'true'; // 交互浮层：阻断镜头拖拽（见 cameraOrbit 约定）
     this.bondDetailOverlay.style.cssText = `
       position:fixed;left:0;bottom:0;display:none;z-index:240;pointer-events:auto;
       max-width:min(320px,calc(100vw - 24px));padding:10px 12px;border-radius:10px;
@@ -5342,6 +5361,7 @@ export class GameScene {
     const overlay = document.createElement('div');
     this.chestRewardPanel = overlay;
     this.chestRewardPanelKey = `${reward.chestId}:${reward.relicId}`;
+    overlay.dataset.cameraBlock = 'true'; // 全屏交互面板：阻断镜头拖拽（见 cameraOrbit 约定）
     overlay.style.cssText = `
       position:fixed;inset:0;z-index:320;pointer-events:auto;
       display:flex;align-items:center;justify-content:center;
@@ -9714,13 +9734,13 @@ async function main(): Promise<void> {
   });
 
   await loadModels();
-  // 关卡白盒默认不自动加载（PR #7 引入了「数据驱动关卡」，但物理 / boss / 投射物
-  // 还没完全适配虚空语义，强制加载会暴露多处 bug）。
-  // 想用关卡：URL 加 `?level` 加载默认 whitebox，或 `?level=foo` 加载 level_foo.glb
-  // （会同时探测 level_foo_col.glb 作为碰撞低模 —— 双文件模式见 tryLoadLevel 注释）。
-  const levelParam = new URLSearchParams(location.search).get('level');
-  if (levelParam !== null) {
-    const name = levelParam || DEFAULT_LEVEL_NAME;
+  // 白盒 GLB 现在是正式关卡 —— 默认加载（不再需要 ?level）。
+  //   - `?level=foo` 加载 level_foo.glb（会同时探测 level_foo_col.glb 碰撞低模，见 tryLoadLevel）。
+  //   - `?arena`   调试逃生口：跳过 GLB，强制回退到程序化竞技场 buildArena。
+  // 注：tryLoadLevel 失败（文件缺失/解析错）时 loadedLevel=null → setupGround 自动回退竞技场。
+  const params = new URLSearchParams(location.search);
+  if (!params.has('arena')) {
+    const name = params.get('level') || DEFAULT_LEVEL_NAME;
     await tryLoadLevel(name);
   }
 
