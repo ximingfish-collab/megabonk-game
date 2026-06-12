@@ -714,10 +714,12 @@ export interface GameStats {
 export interface GameState {
   tick: number;
   gameTime: number;
+  /** 当前关卡难度档位。GameConfig.tier 会在进入下一关时推进；state.tier 供 client 渲染提示。 */
+  tier: DifficultyTier;
   /**
    * Overtime 累积时长（秒）。
    * 玩家击败 Boss 但拒绝进入传送门、且 `gameTime ≥ 540s` 后开始累加。
-   * 用于驱动敌人难度系数（每 30s 一档）。
+   * 用于驱动敌人难度系数（按秒连续提升）。
    */
   overtimeSeconds: number;
   running: boolean;

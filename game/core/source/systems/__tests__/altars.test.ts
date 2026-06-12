@@ -126,8 +126,9 @@ describe('tickAltars — 状态机', () => {
 });
 
 describe('onBossDefeated', () => {
-  it('boss_active → portal_ready；其它 phase 不动', () => {
+  it('第一关 boss_active → portal_ready；其它 phase 不动', () => {
     const engine = makeEngine();
+    engine.config.tier = 1;
     engine.state.altars = [
       altar({ phase: 'boss_active' }),
       altar({ phase: 'ready' }),
@@ -137,6 +138,15 @@ describe('onBossDefeated', () => {
     expect(engine.state.altars[0].phase).toBe('portal_ready');
     expect(engine.state.altars[1].phase).toBe('ready');
     expect(engine.state.altars[2].phase).toBe('portal_ready');
+  });
+
+  it('第二关 boss_active → ready，不生成进入下一关的传送门', () => {
+    const engine = makeEngine();
+    engine.config.tier = 2;
+    engine.state.altars = [altar({ phase: 'boss_active', summonTimer: ALTAR_SUMMON_DURATION })];
+    onBossDefeated(engine);
+    expect(engine.state.altars[0].phase).toBe('ready');
+    expect(engine.state.altars[0].summonTimer).toBe(0);
   });
 });
 

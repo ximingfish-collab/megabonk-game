@@ -376,6 +376,10 @@
     "choose": "Select",
     "chosen": "Selected",
     "transition": "Tier {{value}}",
+    "notice": {
+      "title": "Tier {{value}}",
+      "body": "Difficulty increased! Enemy HP x{{hp}} / damage x{{damage}} / speed x{{speed}}"
+    },
     "stat": {
       "enemyHp": "Enemy HP: {{value}}x",
       "enemyDamage": "Enemy damage: {{value}}x",
@@ -395,7 +399,11 @@
     }
   },
   "overtime": {
-    "banner": "Overtime"
+    "banner": "Overtime",
+    "notice": {
+      "title": "Overtime",
+      "body": "Monsters are ramping fast: health, numbers, and movement speed keep rising"
+    }
   },
   "shrine": {
     "title": "Charge Shrine Rewards",
@@ -464,6 +472,7 @@
     "weapons": "Weapons",
     "tomes": "Tomes",
     "relics": "Relics",
+    "bonds": "Bonds",
     "attributes": "Attributes",
     "empty": "None",
     "attr": {

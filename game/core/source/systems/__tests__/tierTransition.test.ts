@@ -27,6 +27,7 @@ describe('tickTierTransition', () => {
     }];
     tickTierTransition(engine);
     expect(engine.config.tier).toBe(2);
+    expect(engine.state.tier).toBe(2);
   });
 
   it('portal_used 时 tier 已是 3 → 保持 3', () => {

@@ -420,7 +420,7 @@ export const TIER_CONFIGS: Record<DifficultyTier, TierConfig> = {
 // === Overtime 难度系数 ===
 /** Overtime 系数每多少秒升一档。 */
 export const OVERTIME_STEP_SECONDS = 30;
-/** Overtime 每档给敌人 HP 与伤害的增量（线性）。 */
-export const OVERTIME_HP_DAMAGE_PER_STEP = 0.10;
-/** Overtime 每档给敌人速度的增量（更温和，避免风筝失灵）。 */
-export const OVERTIME_SPEED_PER_STEP = 0.04;
+/** Overtime 每档给敌人 HP 与伤害的增量（连续线性）。 */
+export const OVERTIME_HP_DAMAGE_PER_STEP = 0.35;
+/** Overtime 每档给敌人速度的增量（连续线性）。 */
+export const OVERTIME_SPEED_PER_STEP = 0.12;

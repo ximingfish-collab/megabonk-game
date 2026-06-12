@@ -139,6 +139,7 @@ describe('checkGameOver', () => {
 
   it('boss hp ≤ 0 → portal_open + silver +50（不再是 victory 终态）', () => {
     const engine = makeEngine();
+    engine.config.tier = 1;
     engine.state.boss = makeBoss();
     engine.state.boss.hp = 0;
     engine.state.phase = 'boss_fight';
@@ -154,6 +155,21 @@ describe('checkGameOver', () => {
     expect(engine.state.boss).toBeNull();
     expect(engine.state.stats.silverEarned).toBe(150);
     expect(engine.state.altars[0].phase).toBe('portal_ready');
+  });
+
+  it('第二关 boss hp ≤ 0 → 回到 playing，祭坛不变传送门', () => {
+    const engine = makeEngine();
+    engine.config.tier = 2;
+    engine.state.boss = makeBoss();
+    engine.state.boss.hp = 0;
+    engine.state.phase = 'boss_fight';
+    engine.state.altars = [{
+      x: 0, z: 0, phase: 'boss_active', summonTimer: 0, summonDuration: 1,
+    }];
+    checkGameOver(engine);
+    expect(engine.state.phase).toBe('playing');
+    expect(engine.state.boss).toBeNull();
+    expect(engine.state.altars[0].phase).toBe('ready');
   });
 
   it('player 活, boss 没死 → 不变', () => {

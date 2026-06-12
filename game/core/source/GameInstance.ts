@@ -76,6 +76,7 @@ export class GameInstance {
     const state: GameState = {
       tick: 0,
       gameTime: 0,
+      tier: config.tier,
       overtimeSeconds: 0,
       running: false,
       paused: false,
@@ -170,6 +171,7 @@ export class GameInstance {
     state.finished = false;
     state.phase = 'playing';
     state.gameTime = 0;
+    state.tier = config.tier;
     state.overtimeSeconds = 0;
     state.tick = 0;
     state.enemies = [];
@@ -474,6 +476,10 @@ function makeEffects(engine: Engine): AiEffects {
     applyKnockback: (e, fx, fz) => applyKnockback(engine, e, fx, fz),
     addDamageDealt: (n) => { engine.state.stats.damageDealt += n; },
     spawnProjectile: (p) => {
+      if (!p.fromPlayer) {
+        const enemyProjectileCount = engine.state.projectiles.filter(proj => !proj.fromPlayer).length;
+        if (enemyProjectileCount >= 10) return null;
+      }
       if (engine.state.projectiles.length >= MAX_PROJECTILES) return null;
       const id = engine.nextProjectileId++;
       engine.state.projectiles.push({ id, hitEnemyIds: [], ...p });

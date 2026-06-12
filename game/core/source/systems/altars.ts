@@ -135,13 +135,14 @@ export function tickAltars(engine: Engine, dt: number): void {
 }
 
 /**
- * Boss 死亡后调用：把所有 boss_active 的祭坛翻成 portal_ready。
+ * Boss 死亡后调用：第一关把 boss_active 祭坛翻成 portal_ready；
+ * 第二关及以后只恢复为 ready，不再提供进入下一关的传送门。
  * 通常一局只会有一个 boss_active 祭坛（设计上每 tier 1 个），但代码上不假设。
  */
 export function onBossDefeated(engine: Engine): void {
   for (const altar of engine.state.altars) {
     if (altar.phase === 'boss_active') {
-      altar.phase = 'portal_ready';
+      altar.phase = engine.config.tier === 1 ? 'portal_ready' : 'ready';
       altar.summonTimer = 0;
     }
   }

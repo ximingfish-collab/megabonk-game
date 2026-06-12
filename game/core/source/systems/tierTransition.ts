@@ -30,6 +30,7 @@ export function tickTierTransition(engine: Engine): void {
   // tier++（capped at 3）
   const nextTier = Math.min(3, config.tier + 1) as DifficultyTier;
   config.tier = nextTier;
+  state.tier = nextTier;
 
   // 清场
   state.enemies = [];

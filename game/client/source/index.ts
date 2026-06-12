@@ -2041,6 +2041,8 @@ export class GameScene {
   private teleporterIndicator!: HTMLDivElement;
   private interactBtn!: HTMLDivElement;
   private overtimeBanner!: HTMLDivElement;
+  private majorNoticeEl: HTMLDivElement | null = null;
+  private majorNoticeTimer: ReturnType<typeof setTimeout> | null = null;
   private pauseBtn!: HTMLDivElement;
   private upgradePanel: HTMLDivElement | null = null;
   private gameOverPanel: HTMLDivElement | null = null;
@@ -2050,6 +2052,8 @@ export class GameScene {
   private damageNumIndex = 0;
   private finalSwarmLabel: HTMLDivElement | null = null;
   private finalSwarmBorder: HTMLDivElement | null = null;
+  private lastNoticeTier: DifficultyTier | null = null;
+  private wasOvertime = false;
   private xpFlashTimer = 0;
   private seenChestOpenEvents = new Set<string>();
 
@@ -2244,6 +2248,12 @@ export class GameScene {
     this.shrineIndicator?.remove();
     this.finalSwarmLabel?.remove();
     this.finalSwarmBorder?.remove();
+    if (this.majorNoticeTimer) {
+      clearTimeout(this.majorNoticeTimer);
+      this.majorNoticeTimer = null;
+    }
+    this.majorNoticeEl?.remove();
+    this.majorNoticeEl = null;
     this.itemTooltip?.remove();
     this.itemTooltip = null;
     this.closeBondDetail();
@@ -3354,7 +3364,7 @@ export class GameScene {
 
     this.itemTooltip = document.createElement('div');
     this.itemTooltip.style.cssText = `
-      position:fixed;left:0;top:0;display:none;z-index:260;pointer-events:none;
+      position:fixed;left:0;top:0;display:none;z-index:650;pointer-events:none;
       max-width:min(320px,calc(100vw - 24px));padding:10px 12px;border-radius:10px;
       background:linear-gradient(180deg,rgba(18,18,32,0.96),rgba(8,8,16,0.96));
       border:1px solid rgba(255,255,255,0.18);box-shadow:0 12px 34px rgba(0,0,0,0.55);
@@ -4794,7 +4804,7 @@ export class GameScene {
       const bob = Math.sin(time * 1.8 + pickup.id) * 0.22;
       const baseScale = pickup.attracted ? 0.62 : 0.72;
       const pulse = baseScale + Math.sin(time * 5 + pickup.id) * (pickup.attracted ? 0.08 : 0.05);
-      sprite.position.set(pickup.x, 0.75 + bob, pickup.z);
+      sprite.position.set(pickup.x, pickup.y + 0.4 + bob, pickup.z);
       sprite.scale.set(pulse, pulse, pulse);
     }
 
@@ -4813,7 +4823,7 @@ export class GameScene {
       if (count >= MAX_PICKUPS) break;
       // Larger bobbing amplitude (0.3) for more visual pop
       const bob = Math.sin(time * 1.5 + pickup.id) * 0.3;
-      this._dummy.position.set(pickup.x, 0.4 + bob, pickup.z);
+      this._dummy.position.set(pickup.x, pickup.y + 0.2 + bob, pickup.z);
 
       // Pulsing scale when attracted for "swoosh" feel
       let scaleVal = 1.0;
@@ -6611,6 +6621,7 @@ export class GameScene {
     const minutes = Math.floor(totalSec / 60);
     const seconds = totalSec % 60;
     const timeStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    this.setTierBadge(state.tier);
     this.timerLabel.textContent = `⏱ ${timeStr}`;
     this.killLabel.textContent = `💀 ${state.stats.killCount}`;
     setSilverBadgeAmount(this.silverLabel, state.stats.silverEarned);
@@ -7128,6 +7139,26 @@ export class GameScene {
       }
       this.showItemTooltip(html, event);
     });
+    container.addEventListener('pointerdown', (event) => {
+      const target = (event.target as HTMLElement).closest('[data-tooltip-item]') as HTMLElement | null;
+      if (!target || !container.contains(target)) {
+        this.hideItemTooltip();
+        return;
+      }
+      const html = this.itemTooltipContent.get(target);
+      if (!html) {
+        this.hideItemTooltip();
+        return;
+      }
+      this.showItemTooltipAt(html, event.clientX, event.clientY);
+    });
+    container.addEventListener('pointermove', (event) => {
+      if (!this.itemTooltip || this.itemTooltip.style.display === 'none') return;
+      const target = (event.target as HTMLElement).closest('[data-tooltip-item]') as HTMLElement | null;
+      if (!target || !container.contains(target)) return;
+      this.moveItemTooltipTo(event.clientX, event.clientY);
+    });
+    container.addEventListener('pointercancel', () => this.hideItemTooltip());
     container.addEventListener('mouseleave', () => this.hideItemTooltip());
   }
 
@@ -7145,23 +7176,36 @@ export class GameScene {
     this.moveItemTooltip(event);
   }
 
+  private showItemTooltipAt(html: string, clientX: number, clientY: number): void {
+    if (!this.itemTooltip) return;
+    if (this.itemTooltip.innerHTML !== html) {
+      this.itemTooltip.innerHTML = html;
+    }
+    this.itemTooltip.style.display = 'block';
+    this.moveItemTooltipTo(clientX, clientY);
+  }
+
   private hideItemTooltip(): void {
     if (!this.itemTooltip) return;
     this.itemTooltip.style.display = 'none';
   }
 
   private moveItemTooltip(event: MouseEvent): void {
+    this.moveItemTooltipTo(event.clientX, event.clientY);
+  }
+
+  private moveItemTooltipTo(clientX: number, clientY: number): void {
     if (!this.itemTooltip) return;
     const gap = 16;
     const margin = 8;
     const rect = this.itemTooltip.getBoundingClientRect();
-    let x = event.clientX + gap;
-    let y = event.clientY + gap;
+    let x = clientX + gap;
+    let y = clientY + gap;
     if (x + rect.width > window.innerWidth - margin) {
-      x = event.clientX - rect.width - gap;
+      x = clientX - rect.width - gap;
     }
     if (y + rect.height > window.innerHeight - margin) {
-      y = event.clientY - rect.height - gap;
+      y = clientY - rect.height - gap;
     }
     this.itemTooltip.style.left = `${Math.max(margin, x)}px`;
     this.itemTooltip.style.top = `${Math.max(margin, y)}px`;
@@ -7312,7 +7356,7 @@ export class GameScene {
         break;
       case 'blood_fang':
         rows.push(['击杀回复', `${2 * stacks} HP`]);
-        rows.push(['精英击杀回复', `${6 * stacks} HP`]);
+        rows.push(['精英击杀回复', `${3 * stacks} HP`]);
         break;
       case 'pact_coin':
         rows.push(['击杀金币', `+${stacks}`]);
@@ -7473,6 +7517,32 @@ export class GameScene {
   // ===========================================================================
 
   private handlePhaseChange(state: GameState): void {
+    if (this.lastNoticeTier === null) {
+      this.lastNoticeTier = state.tier;
+    } else if (state.tier !== this.lastNoticeTier) {
+      this.lastNoticeTier = state.tier;
+      const cfg = TIER_CONFIGS[state.tier];
+      this.showMajorNotice(
+        t('tier.notice.title', { value: String(state.tier) }),
+        t('tier.notice.body', {
+          hp: cfg.enemyHpMultiplier.toFixed(1),
+          damage: cfg.enemyDamageMultiplier.toFixed(1),
+          speed: cfg.enemySpeedMultiplier.toFixed(1),
+        }),
+        TIER_COLORS[state.tier] ?? '#ffcc00',
+      );
+    }
+
+    const isOvertime = state.overtimeSeconds > 0;
+    if (isOvertime && !this.wasOvertime) {
+      this.showMajorNotice(
+        t('overtime.notice.title'),
+        t('overtime.notice.body'),
+        '#ff6600',
+      );
+    }
+    this.wasOvertime = isOvertime;
+
     if (state.phase === 'level_up' && state.upgradeOptions && !this.upgradePanel) {
       this.showUpgradePanel(state.upgradeOptions);
     } else if (state.phase !== 'level_up' && this.upgradePanel) {
@@ -7481,6 +7551,54 @@ export class GameScene {
     // Charge Shrine 4 选 1 panel
     this.handleShrinePhaseChange(state);
     this.handleChestRewardPhaseChange(state);
+  }
+
+  private showMajorNotice(titleText: string, bodyText: string, accentColor: string): void {
+    if (this.majorNoticeTimer) {
+      clearTimeout(this.majorNoticeTimer);
+      this.majorNoticeTimer = null;
+    }
+    this.majorNoticeEl?.remove();
+
+    const notice = document.createElement('div');
+    notice.style.cssText = `
+      position:fixed;left:50%;top:42%;transform:translate(-50%,-50%) scale(0.92);
+      width:min(86vw,560px);padding:clamp(20px,5vw,34px);
+      border:2px solid ${accentColor};border-radius:18px;
+      background:radial-gradient(circle at 50% 0%, ${accentColor}33, rgba(8,8,18,0.94) 58%);
+      box-shadow:0 0 34px ${accentColor}88,0 18px 70px rgba(0,0,0,0.68);
+      color:#fff;text-align:center;pointer-events:none;z-index:260;opacity:0;
+      transition:opacity 180ms ease,transform 220ms ease;
+      font-family:Arial,sans-serif;box-sizing:border-box;
+    `;
+
+    const title = document.createElement('div');
+    title.style.cssText = `color:${accentColor};font-size:clamp(28px,8vw,54px);font-weight:900;letter-spacing:2px;text-shadow:0 0 18px ${accentColor},0 3px 8px #000;`;
+    title.textContent = titleText;
+
+    const body = document.createElement('div');
+    body.style.cssText = 'margin-top:12px;color:#f5f1ff;font-size:clamp(14px,3.8vw,20px);font-weight:700;line-height:1.45;text-shadow:0 2px 5px rgba(0,0,0,0.9);';
+    body.textContent = bodyText;
+
+    notice.appendChild(title);
+    notice.appendChild(body);
+    document.body.appendChild(notice);
+    this.majorNoticeEl = notice;
+
+    requestAnimationFrame(() => {
+      notice.style.opacity = '1';
+      notice.style.transform = 'translate(-50%,-50%) scale(1)';
+    });
+
+    this.majorNoticeTimer = setTimeout(() => {
+      notice.style.opacity = '0';
+      notice.style.transform = 'translate(-50%,-50%) scale(1.05)';
+      this.majorNoticeTimer = setTimeout(() => {
+        notice.remove();
+        if (this.majorNoticeEl === notice) this.majorNoticeEl = null;
+        this.majorNoticeTimer = null;
+      }, 260);
+    }, 2800);
   }
 
   private showUpgradePanel(options: UpgradeOption[]): void {
@@ -7766,6 +7884,7 @@ export class GameScene {
   private hidePauseMenu(): void {
     this.pausePanel?.remove();
     this.pausePanel = null;
+    this.hideItemTooltip();
   }
 
   /**
@@ -7780,6 +7899,7 @@ export class GameScene {
     const overlay = document.createElement('div');
     overlay.dataset.cameraBlock = 'true';
     overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.84);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:420;font-family:Arial,sans-serif;padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left));box-sizing:border-box;overflow:hidden;';
+    this.installItemTooltipHandlers(overlay);
 
     const panel = document.createElement('div');
     panel.style.cssText = 'width:min(96vw,880px);max-height:100%;display:flex;flex-direction:column;gap:clamp(10px,2.2vh,16px);box-sizing:border-box;';
@@ -7842,6 +7962,7 @@ export class GameScene {
         name: t(`upgrade.weapon.${w.type}`),
         inner: `Lv.${w.level}`,
         accent: w.evolved ? '#ffcc00' : '#7aa7ff',
+        tooltipHtml: this.createWeaponTooltipHtml(w),
       })),
     ));
 
@@ -7852,6 +7973,7 @@ export class GameScene {
         name: t(`upgrade.tome.${tm.type}`),
         inner: `Lv.${tm.level}`,
         accent: TOME_COLORS[tm.type] ?? '#aa88ff',
+        tooltipHtml: this.createTomeTooltipHtml(tm),
       })),
     ));
 
@@ -7864,6 +7986,18 @@ export class GameScene {
         name: RELICS[id].name,
         inner: `x${count}`,
         accent: RARITY_COLORS[RELICS[id].rarity] ?? '#aaaaaa',
+        tooltipHtml: this.createRelicTooltipHtml(id, count, state),
+      })),
+    ));
+
+    card.appendChild(this.buildPauseItemSection(
+      t('pause.bonds'),
+      (p.bonds ?? []).map(bond => ({
+        icon: BONDS[bond.bondId]?.icon ?? '✦',
+        name: t(`bond.${bond.bondId}.name`),
+        inner: `T${bond.tier}`,
+        accent: BOND_TIER_COLORS[bond.tier] ?? BOND_TIER_COLORS[1],
+        tooltipHtml: this.createBondTooltipHtml(bond.bondId, bond.tier, state),
       })),
     ));
 
@@ -7876,7 +8010,7 @@ export class GameScene {
    */
   private buildPauseItemSection(
     titleText: string,
-    items: Array<{ icon: string; name: string; inner: string; accent: string }>,
+    items: Array<{ icon: string; name: string; inner: string; accent: string; tooltipHtml?: string }>,
   ): HTMLDivElement {
     const section = document.createElement('div');
     section.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
@@ -7897,7 +8031,10 @@ export class GameScene {
     } else {
       for (const it of items) {
         const cell = document.createElement('div');
-        cell.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:3px;width:clamp(48px,13vw,58px);';
+        cell.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:3px;width:clamp(48px,13vw,58px);cursor:help;touch-action:manipulation;';
+        if (it.tooltipHtml) {
+          this.setItemTooltip(cell, it.tooltipHtml);
+        }
 
         const box = document.createElement('div');
         box.style.cssText = `position:relative;width:clamp(44px,12vw,52px);height:clamp(44px,12vw,52px);background:rgba(0,0,0,0.55);border:2px solid ${it.accent};border-radius:8px;display:flex;align-items:center;justify-content:center;box-shadow:0 0 8px ${it.accent}40;box-sizing:border-box;`;
@@ -7973,6 +8110,8 @@ export class GameScene {
     this.isPaused = false;
     this.pauseBtn.textContent = t('hud.pause');
     this.cameraOrbit.setEnabled(true);
+    this.lastNoticeTier = null;
+    this.wasOvertime = false;
     this.session.restart();
   }
 

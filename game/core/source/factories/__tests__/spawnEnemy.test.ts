@@ -47,4 +47,13 @@ describe('spawnEnemy level scaling', () => {
     expect(enemy.damage).toBe(def.damage);
     expect(enemy.speed).toBe(def.speed);
   });
+
+  it('applies overtime scaling continuously before a full step elapses', () => {
+    const ctx = { ...makeCtx(1), overtimeSeconds: 15 };
+    const enemy = spawnEnemy('skeleton_soldier', 0, 0, ctx, { applyEliteRoll: false });
+
+    expect(enemy.hp).toBe(18);
+    expect(enemy.damage).toBe(6);
+    expect(enemy.speed).toBeCloseTo(3.18, 4);
+  });
 });

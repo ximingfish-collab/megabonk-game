@@ -122,14 +122,13 @@ export function checkGameOver(engine: Engine): void {
     engine.state.running = false;
     return;
   }
-  // Boss 死亡 → 祭坛变传送门，进入 portal_open 中间态。
-  // 不再是 victory 终态：玩家可选择进传送门继续下一关，或留下来等 overtime。
+  // Boss 死亡：第一关开传送门进入下一关；第二关及以后只恢复祭坛召唤能力。
   if (engine.state.boss && engine.state.boss.hp <= 0) {
     engine.state.boss = null;
     engine.state.stats.silverEarned += 50;
-    if (engine.state.phase === 'boss_fight' || engine.state.phase === 'boss_intro') {
-      engine.state.phase = 'portal_open';
-    }
     onBossDefeated(engine);
+    if (engine.state.phase === 'boss_fight' || engine.state.phase === 'boss_intro') {
+      engine.state.phase = engine.config.tier === 1 ? 'portal_open' : 'playing';
+    }
   }
 }
