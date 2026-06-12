@@ -2038,9 +2038,12 @@ export class GameScene {
   private bossNameLabel!: HTMLDivElement;
   private bossPhaseMarkers!: HTMLDivElement;
   private tierBadge!: HTMLDivElement;
+  private stageBadge!: HTMLDivElement;
   private teleporterIndicator!: HTMLDivElement;
   private interactBtn!: HTMLDivElement;
   private overtimeBanner!: HTMLDivElement;
+  private majorNoticeEl: HTMLDivElement | null = null;
+  private majorNoticeTimer: ReturnType<typeof setTimeout> | null = null;
   private pauseBtn!: HTMLDivElement;
   private upgradePanel: HTMLDivElement | null = null;
   private gameOverPanel: HTMLDivElement | null = null;
@@ -2050,6 +2053,8 @@ export class GameScene {
   private damageNumIndex = 0;
   private finalSwarmLabel: HTMLDivElement | null = null;
   private finalSwarmBorder: HTMLDivElement | null = null;
+  private lastNoticeTier: DifficultyTier | null = null;
+  private wasOvertime = false;
   private xpFlashTimer = 0;
   private seenChestOpenEvents = new Set<string>();
 
@@ -2244,6 +2249,12 @@ export class GameScene {
     this.shrineIndicator?.remove();
     this.finalSwarmLabel?.remove();
     this.finalSwarmBorder?.remove();
+    if (this.majorNoticeTimer) {
+      clearTimeout(this.majorNoticeTimer);
+      this.majorNoticeTimer = null;
+    }
+    this.majorNoticeEl?.remove();
+    this.majorNoticeEl = null;
     this.itemTooltip?.remove();
     this.itemTooltip = null;
     this.closeBondDetail();
@@ -3256,6 +3267,11 @@ export class GameScene {
     this.tierBadge.style.cssText = 'color:#ffffff;font-size:clamp(11px,2.8vw,15px);font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.9);white-space:nowrap;';
     rightHudStack.appendChild(this.tierBadge);
 
+    // Stage badge (I / II) between difficulty and timer
+    this.stageBadge = document.createElement('div');
+    this.stageBadge.style.cssText = 'color:#ffe08a;font-size:clamp(11px,2.8vw,15px);font-weight:900;text-shadow:0 1px 3px rgba(0,0,0,0.9);letter-spacing:1px;white-space:nowrap;';
+    rightHudStack.appendChild(this.stageBadge);
+
     // Timer (no background box)
     this.timerLabel = document.createElement('div');
     this.timerLabel.style.cssText = 'display:flex;align-items:center;gap:5px;color:#ffffff;font-size:clamp(11px,2.8vw,18px);font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.9);font-variant-numeric:tabular-nums;white-space:nowrap;';
@@ -3354,7 +3370,7 @@ export class GameScene {
 
     this.itemTooltip = document.createElement('div');
     this.itemTooltip.style.cssText = `
-      position:fixed;left:0;top:0;display:none;z-index:260;pointer-events:none;
+      position:fixed;left:0;top:0;display:none;z-index:650;pointer-events:none;
       max-width:min(320px,calc(100vw - 24px));padding:10px 12px;border-radius:10px;
       background:linear-gradient(180deg,rgba(18,18,32,0.96),rgba(8,8,16,0.96));
       border:1px solid rgba(255,255,255,0.18);box-shadow:0 12px 34px rgba(0,0,0,0.55);
@@ -4794,7 +4810,7 @@ export class GameScene {
       const bob = Math.sin(time * 1.8 + pickup.id) * 0.22;
       const baseScale = pickup.attracted ? 0.62 : 0.72;
       const pulse = baseScale + Math.sin(time * 5 + pickup.id) * (pickup.attracted ? 0.08 : 0.05);
-      sprite.position.set(pickup.x, 0.75 + bob, pickup.z);
+      sprite.position.set(pickup.x, pickup.y + 0.4 + bob, pickup.z);
       sprite.scale.set(pulse, pulse, pulse);
     }
 
@@ -4813,7 +4829,7 @@ export class GameScene {
       if (count >= MAX_PICKUPS) break;
       // Larger bobbing amplitude (0.3) for more visual pop
       const bob = Math.sin(time * 1.5 + pickup.id) * 0.3;
-      this._dummy.position.set(pickup.x, 0.4 + bob, pickup.z);
+      this._dummy.position.set(pickup.x, pickup.y + 0.2 + bob, pickup.z);
 
       // Pulsing scale when attracted for "swoosh" feel
       let scaleVal = 1.0;
@@ -4936,7 +4952,7 @@ export class GameScene {
       this.bossWarningRing.visible = true;
       // Position at the player (where damage will land)
       const state = this.session.getRenderState();
-      this.bossWarningRing.position.set(state.player.x, 0.05, state.player.z);
+      this.bossWarningRing.position.set(state.player.x, state.player.y + 0.05, state.player.z);
       // Scale from 0 to 1 as attack timer counts down
       const maxTimer = boss.enraged ? 2.5 : 3.5;
       const progress = 1 - Math.min(boss.attackTimer / maxTimer, 1);
@@ -5083,6 +5099,17 @@ export class GameScene {
             decalMat.color.setHex(0x661100);
             decalMat.opacity = 0.3;
             decal.rotation.z = -time * 0.5;
+            break;
+          }
+          case 'cooldown': {
+            // 冷却：低亮度蓝紫，表示暂不可交互
+            ringMat?.color.setHex(0x5566aa);
+            pillarMat.color.setHex(0x6677cc);
+            pillarMat.opacity = 0.22 + Math.sin(time * 0.8) * 0.08;
+            decalMat.map = this.vfxTextures.magic_circle;
+            decalMat.color.setHex(0x6677cc);
+            decalMat.opacity = 0.35;
+            decal.rotation.z = -time * 0.4;
             break;
           }
           case 'portal_ready':
@@ -5233,7 +5260,7 @@ export class GameScene {
     });
     this.spawnBillboard({
       texture: 'scorch',
-      x, y: 0.05, z,
+      x, y: y + 0.05, z,
       scale: 1.4,
       endScale: 1.8,
       lifetime: 1.5,
@@ -5405,7 +5432,7 @@ export class GameScene {
 
     const desc = document.createElement('div');
     desc.style.cssText = 'color:#cfd3ff;font-size:13px;line-height:1.45;margin-top:12px;min-height:36px;';
-    desc.textContent = `消耗 ${reward.cost} 金币`;
+    desc.textContent = reward.bossDrop || reward.cost <= 0 ? 'Boss 宝箱 · 免费开启' : `消耗 ${reward.cost} 金币`;
 
     const buttonRow = document.createElement('div');
     buttonRow.style.cssText = 'display:none;gap:12px;margin-top:18px;';
@@ -5641,6 +5668,73 @@ export class GameScene {
     return group;
   }
 
+  private createBossChestGlowObject(): THREE.Object3D {
+    const glow = new THREE.Group();
+    glow.name = 'BossChestGoldGlow';
+
+    const ringGeo = new THREE.RingGeometry(0.95, 1.45, 48);
+    ringGeo.rotateX(-Math.PI / 2);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0xffd34d,
+      transparent: true,
+      opacity: 0.72,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.name = 'BossChestGoldRing';
+    ring.position.y = 0.05;
+    glow.add(ring);
+
+    const pillarGeo = new THREE.CylinderGeometry(0.45, 0.95, 2.8, 24, 1, true);
+    const pillarMat = new THREE.MeshBasicMaterial({
+      color: 0xffc84a,
+      transparent: true,
+      opacity: 0.22,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+    pillar.name = 'BossChestGoldPillar';
+    pillar.position.y = 1.45;
+    glow.add(pillar);
+
+    const light = new THREE.PointLight(0xffcc55, 1.8, 5, 2);
+    light.name = 'BossChestGoldLight';
+    light.position.set(0, 1.1, 0);
+    glow.add(light);
+
+    return glow;
+  }
+
+  private ensureBossChestGlow(obj: THREE.Object3D): THREE.Object3D {
+    const existing = obj.getObjectByName('BossChestGoldGlow');
+    if (existing) return existing;
+    const glow = this.createBossChestGlowObject();
+    obj.add(glow);
+    return glow;
+  }
+
+  private updateBossChestGlow(glow: THREE.Object3D, time: number): void {
+    const pulse = 0.72 + Math.sin(time * 3.2) * 0.18;
+    glow.rotation.y = time * 0.8;
+    const ring = glow.getObjectByName('BossChestGoldRing') as THREE.Mesh | undefined;
+    const pillar = glow.getObjectByName('BossChestGoldPillar') as THREE.Mesh | undefined;
+    const light = glow.getObjectByName('BossChestGoldLight') as THREE.PointLight | undefined;
+    if (ring) {
+      ring.scale.setScalar(0.9 + pulse * 0.18);
+      (ring.material as THREE.MeshBasicMaterial).opacity = 0.55 + pulse * 0.22;
+    }
+    if (pillar) {
+      (pillar.material as THREE.MeshBasicMaterial).opacity = 0.16 + pulse * 0.12;
+    }
+    if (light) {
+      light.intensity = 1.4 + pulse * 0.8;
+    }
+  }
+
   private renderChests(chests: ChestState[]): void {
     const visibleChestIds = new Set<number>();
 
@@ -5675,6 +5769,11 @@ export class GameScene {
       // Gentle hover animation
       const time = performance.now() * 0.001;
       obj.position.set(chest.x, (chest.y ?? 0) + 0.1 + Math.sin(time * 1.5 + chest.id) * 0.05, chest.z);
+      if (chest.bossDrop) {
+        this.updateBossChestGlow(this.ensureBossChestGlow(obj), time + chest.id);
+      } else {
+        obj.getObjectByName('BossChestGoldGlow')?.removeFromParent();
+      }
     }
 
     for (const [id, obj] of this.chestObjects) {
@@ -6006,7 +6105,7 @@ export class GameScene {
           // 细长发光盒：从玩家沿 dir 延伸 length，宽度 = width*2
           const dx = ae.dirX ?? 0, dz = ae.dirZ ?? 1;
           const len = ae.length ?? 40;
-          obj.position.set(ae.x + dx * len * 0.5, 1.0, ae.z + dz * len * 0.5);
+          obj.position.set(ae.x + dx * len * 0.5, ae.y + 1.0, ae.z + dz * len * 0.5);
           obj.rotation.set(0, Math.atan2(dx, dz), 0);
           const w = (ae.width ?? 0.5) * 2;
           obj.scale.set(w, w, len);
@@ -6015,7 +6114,7 @@ export class GameScene {
           break;
         }
         case 'gas_cloud': {
-          obj.position.set(ae.x, 0.1, ae.z);
+          obj.position.set(ae.x, ae.y + 0.1, ae.z);
           obj.scale.setScalar(ae.radius);
           const m = (obj as THREE.Mesh).material as THREE.MeshBasicMaterial;
           m.opacity = 0.32 * ratio;
@@ -6025,7 +6124,7 @@ export class GameScene {
             const a = Math.random() * Math.PI * 2;
             const r = Math.random() * ae.radius;
             this.spawnParticle(
-              ae.x + Math.cos(a) * r, 0.3 + Math.random() * 0.8, ae.z + Math.sin(a) * r,
+              ae.x + Math.cos(a) * r, ae.y + 0.3 + Math.random() * 0.8, ae.z + Math.sin(a) * r,
               0, 0.3 + Math.random() * 0.4, 0,
               0.6, 0.5, 0.25, 0.7, 0.12,
             );
@@ -6282,7 +6381,7 @@ export class GameScene {
     });
     // 地面蓝紫光环
     this.spawnBillboard({
-      texture: 'scorch', x, y: 0.06, z, scale: 1.6, endScale: 3.0, lifetime: 0.45,
+      texture: 'scorch', x, y: y - 1.0 + 0.06, z, scale: 1.6, endScale: 3.0, lifetime: 0.45,
       opacityCurve: 'fadeOut', opacity: 0.6, color: 0x6a4cff,
       facing: 'up', rotation: Math.random() * Math.PI * 2, blending: 'additive',
     });
@@ -6329,7 +6428,7 @@ export class GameScene {
       );
 
       if (isDeath) {
-        this.emitDeathBurst(event.x, event.y, event.z, 'generic');
+        this.emitDeathBurst(event.x, event.y - 1.0, event.z, 'generic');
       } else {
         // Prefer the event's source weapon for spark color; fall back to first equipped weapon
         const weaponType = event.weaponType
@@ -6339,7 +6438,7 @@ export class GameScene {
 
       // Lightning staff: drop a column at each strike
       if (event.weaponType === 'lightning_staff') {
-        this.spawnLightningBolt(event.x, 0, event.z);
+        this.spawnLightningBolt(event.x, event.y - 1.0, event.z);
       }
     }
 
@@ -6416,7 +6515,7 @@ export class GameScene {
         this.spawnBillboard({
           texture: 'slash',
           x: player.x + Math.sin(slashAngle) * 1.5,
-          y: 0.15,
+          y: player.y + 0.15,
           z: player.z + Math.cos(slashAngle) * 1.5,
           scale: 3.5,
           endScale: 4.5,
@@ -6611,6 +6710,8 @@ export class GameScene {
     const minutes = Math.floor(totalSec / 60);
     const seconds = totalSec % 60;
     const timeStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    this.setTierBadge(state.tier);
+    this.setStageBadge(state.stage);
     this.timerLabel.textContent = `⏱ ${timeStr}`;
     this.killLabel.textContent = `💀 ${state.stats.killCount}`;
     setSilverBadgeAmount(this.silverLabel, state.stats.silverEarned);
@@ -6739,19 +6840,22 @@ export class GameScene {
       .filter(c => !c.opened)
       .map(c => ({ chest: c, dist: Math.hypot(c.x - p.x, c.z - p.z) }))
       .sort((a, b) => a.dist - b.dist)[0] ?? null;
-    const openedChestCount = state.chests.filter(c => c.opened).length;
-    const chestCost = getChestGoldCost(p.level, openedChestCount);
+    const openedChestCount = state.chests.filter(c => c.opened && !c.bossDrop).length;
+    const chestCost = nearestChest?.chest.bossDrop ? 0 : getChestGoldCost(p.level, openedChestCount);
     const chestInRange = nearestChest != null && nearestChest.dist <= CHEST_INTERACT_RADIUS;
     const visibleAltar = state.altars.find(a => a.phase !== 'boss_active' && a.phase !== 'portal_used');
     if (chestInRange && nearestChest) {
       // 使用 GSAP 动画显示传送门指示器
       gsapAnimations.animateTeleporterIndicator(this.teleporterIndicator, true, 0.2);
-      const canAfford = p.gold >= chestCost;
+      const isBossChest = nearestChest.chest.bossDrop === true;
+      const canAfford = isBossChest || p.gold >= chestCost;
       this.teleporterIndicator.style.color = canAfford ? '#ffdd66' : '#999999';
       this.teleporterIndicator.style.textShadow = canAfford
         ? '0 0 8px #ffcc33,0 1px 3px rgba(0,0,0,0.8)'
         : '0 1px 3px rgba(0,0,0,0.8)';
-      this.teleporterIndicator.textContent = canAfford
+      this.teleporterIndicator.textContent = isBossChest
+        ? '🎁 [E] 开启 Boss 宝箱'
+        : canAfford
         ? `🎁 [E] 开启宝箱 - ${chestCost} 金币`
         : `🎁 金币不足 ${p.gold}/${chestCost}`;
     } else if (visibleAltar) {
@@ -6775,6 +6879,11 @@ export class GameScene {
             : `🌀 ${t('hud.compass.portal')}: ${dist}m`;
           break;
         }
+        case 'cooldown': {
+          const remaining = Math.ceil(visibleAltar.cooldownTimer ?? 0);
+          this.teleporterIndicator.textContent = `⛩️ ${t('altar.cooldown', { seconds: String(remaining) })}`;
+          break;
+        }
         case 'ready':
         default: {
           // 等待召唤
@@ -6789,7 +6898,9 @@ export class GameScene {
       gsapAnimations.animateTeleporterIndicator(this.teleporterIndicator, true, 0.2);
       this.teleporterIndicator.style.color = '#ffdd66';
       this.teleporterIndicator.style.textShadow = '0 0 8px #ffcc33,0 1px 3px rgba(0,0,0,0.8)';
-      this.teleporterIndicator.textContent = `🎁 宝箱: ${Math.round(nearestChest.dist)}m`;
+      this.teleporterIndicator.textContent = nearestChest.chest.bossDrop
+        ? `🎁 Boss 宝箱: ${Math.round(nearestChest.dist)}m`
+        : `🎁 宝箱: ${Math.round(nearestChest.dist)}m`;
     } else {
       // 使用 GSAP 动画隐藏传送门指示器
       gsapAnimations.animateTeleporterIndicator(this.teleporterIndicator, false, 0.2);
@@ -6806,9 +6917,12 @@ export class GameScene {
       // 使用 GSAP 动画显示交互按钮
       gsapAnimations.animateInteractButton(this.interactBtn, true, 0.3);
       if (chestInRange) {
-        const canAfford = p.gold >= chestCost;
+        const isBossChest = nearestChest?.chest.bossDrop === true;
+        const canAfford = isBossChest || p.gold >= chestCost;
         this.interactBtn.style.background = canAfford ? 'rgba(210,145,24,0.88)' : 'rgba(80,80,80,0.82)';
-        this.interactBtn.textContent = canAfford ? `开启宝箱 ${chestCost}` : `金币不足 ${p.gold}/${chestCost}`;
+        this.interactBtn.textContent = isBossChest
+          ? '开启 Boss 宝箱'
+          : canAfford ? `开启宝箱 ${chestCost}` : `金币不足 ${p.gold}/${chestCost}`;
       } else if (altarInRange) {
         this.interactBtn.style.background = 'rgba(170,68,255,0.85)';
         this.interactBtn.textContent = altarInRange.phase === 'portal_ready'
@@ -7039,6 +7153,7 @@ export class GameScene {
       const slot = document.createElement('div');
       slot.dataset.cameraBlock = 'true';
       slot.style.cssText = `width:clamp(36px,9.5vw,42px);height:clamp(36px,9.5vw,42px);position:relative;flex-shrink:0;display:flex;align-items:center;justify-content:center;cursor:pointer;touch-action:manipulation;`;
+      this.setItemTooltip(slot, this.createBondTooltipHtml(prog.bondId, prog.tier, state));
       const diamond = document.createElement('div');
       diamond.style.cssText = `position:absolute;inset:3px;transform:rotate(45deg);background:rgba(10,10,22,0.85);border:2px solid ${tierColor};border-radius:6px;box-shadow:0 0 10px ${tierColor}66;`;
       slot.appendChild(diamond);
@@ -7054,7 +7169,8 @@ export class GameScene {
 
       const bondId = prog.bondId;
       const tier = prog.tier;
-      slot.addEventListener('click', (ev) => {
+      slot.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
         ev.stopPropagation();
         if (this.openBondId === bondId) {
           this.closeBondDetail();
@@ -7126,6 +7242,26 @@ export class GameScene {
       }
       this.showItemTooltip(html, event);
     });
+    container.addEventListener('pointerdown', (event) => {
+      const target = (event.target as HTMLElement).closest('[data-tooltip-item]') as HTMLElement | null;
+      if (!target || !container.contains(target)) {
+        this.hideItemTooltip();
+        return;
+      }
+      const html = this.itemTooltipContent.get(target);
+      if (!html) {
+        this.hideItemTooltip();
+        return;
+      }
+      this.showItemTooltipAt(html, event.clientX, event.clientY);
+    });
+    container.addEventListener('pointermove', (event) => {
+      if (!this.itemTooltip || this.itemTooltip.style.display === 'none') return;
+      const target = (event.target as HTMLElement).closest('[data-tooltip-item]') as HTMLElement | null;
+      if (!target || !container.contains(target)) return;
+      this.moveItemTooltipTo(event.clientX, event.clientY);
+    });
+    container.addEventListener('pointercancel', () => this.hideItemTooltip());
     container.addEventListener('mouseleave', () => this.hideItemTooltip());
   }
 
@@ -7143,23 +7279,36 @@ export class GameScene {
     this.moveItemTooltip(event);
   }
 
+  private showItemTooltipAt(html: string, clientX: number, clientY: number): void {
+    if (!this.itemTooltip) return;
+    if (this.itemTooltip.innerHTML !== html) {
+      this.itemTooltip.innerHTML = html;
+    }
+    this.itemTooltip.style.display = 'block';
+    this.moveItemTooltipTo(clientX, clientY);
+  }
+
   private hideItemTooltip(): void {
     if (!this.itemTooltip) return;
     this.itemTooltip.style.display = 'none';
   }
 
   private moveItemTooltip(event: MouseEvent): void {
+    this.moveItemTooltipTo(event.clientX, event.clientY);
+  }
+
+  private moveItemTooltipTo(clientX: number, clientY: number): void {
     if (!this.itemTooltip) return;
     const gap = 16;
     const margin = 8;
     const rect = this.itemTooltip.getBoundingClientRect();
-    let x = event.clientX + gap;
-    let y = event.clientY + gap;
+    let x = clientX + gap;
+    let y = clientY + gap;
     if (x + rect.width > window.innerWidth - margin) {
-      x = event.clientX - rect.width - gap;
+      x = clientX - rect.width - gap;
     }
     if (y + rect.height > window.innerHeight - margin) {
-      y = event.clientY - rect.height - gap;
+      y = clientY - rect.height - gap;
     }
     this.itemTooltip.style.left = `${Math.max(margin, x)}px`;
     this.itemTooltip.style.top = `${Math.max(margin, y)}px`;
@@ -7310,7 +7459,7 @@ export class GameScene {
         break;
       case 'blood_fang':
         rows.push(['击杀回复', `${2 * stacks} HP`]);
-        rows.push(['精英击杀回复', `${6 * stacks} HP`]);
+        rows.push(['精英击杀回复', `${3 * stacks} HP`]);
         break;
       case 'pact_coin':
         rows.push(['击杀金币', `+${stacks}`]);
@@ -7471,6 +7620,32 @@ export class GameScene {
   // ===========================================================================
 
   private handlePhaseChange(state: GameState): void {
+    if (this.lastNoticeTier === null) {
+      this.lastNoticeTier = state.tier;
+    } else if (state.tier !== this.lastNoticeTier) {
+      this.lastNoticeTier = state.tier;
+      const cfg = TIER_CONFIGS[state.tier];
+      this.showMajorNotice(
+        t('tier.notice.title', { value: String(state.tier) }),
+        t('tier.notice.body', {
+          hp: cfg.enemyHpMultiplier.toFixed(1),
+          damage: cfg.enemyDamageMultiplier.toFixed(1),
+          speed: cfg.enemySpeedMultiplier.toFixed(1),
+        }),
+        TIER_COLORS[state.tier] ?? '#ffcc00',
+      );
+    }
+
+    const isOvertime = state.overtimeSeconds > 0;
+    if (isOvertime && !this.wasOvertime) {
+      this.showMajorNotice(
+        t('overtime.notice.title'),
+        t('overtime.notice.body'),
+        '#ff6600',
+      );
+    }
+    this.wasOvertime = isOvertime;
+
     if (state.phase === 'level_up' && state.upgradeOptions && !this.upgradePanel) {
       this.showUpgradePanel(state.upgradeOptions);
     } else if (state.phase !== 'level_up' && this.upgradePanel) {
@@ -7479,6 +7654,54 @@ export class GameScene {
     // Charge Shrine 4 选 1 panel
     this.handleShrinePhaseChange(state);
     this.handleChestRewardPhaseChange(state);
+  }
+
+  private showMajorNotice(titleText: string, bodyText: string, accentColor: string): void {
+    if (this.majorNoticeTimer) {
+      clearTimeout(this.majorNoticeTimer);
+      this.majorNoticeTimer = null;
+    }
+    this.majorNoticeEl?.remove();
+
+    const notice = document.createElement('div');
+    notice.style.cssText = `
+      position:fixed;left:50%;top:42%;transform:translate(-50%,-50%) scale(0.92);
+      width:min(86vw,560px);padding:clamp(20px,5vw,34px);
+      border:2px solid ${accentColor};border-radius:18px;
+      background:radial-gradient(circle at 50% 0%, ${accentColor}33, rgba(8,8,18,0.94) 58%);
+      box-shadow:0 0 34px ${accentColor}88,0 18px 70px rgba(0,0,0,0.68);
+      color:#fff;text-align:center;pointer-events:none;z-index:260;opacity:0;
+      transition:opacity 180ms ease,transform 220ms ease;
+      font-family:Arial,sans-serif;box-sizing:border-box;
+    `;
+
+    const title = document.createElement('div');
+    title.style.cssText = `color:${accentColor};font-size:clamp(28px,8vw,54px);font-weight:900;letter-spacing:2px;text-shadow:0 0 18px ${accentColor},0 3px 8px #000;`;
+    title.textContent = titleText;
+
+    const body = document.createElement('div');
+    body.style.cssText = 'margin-top:12px;color:#f5f1ff;font-size:clamp(14px,3.8vw,20px);font-weight:700;line-height:1.45;text-shadow:0 2px 5px rgba(0,0,0,0.9);';
+    body.textContent = bodyText;
+
+    notice.appendChild(title);
+    notice.appendChild(body);
+    document.body.appendChild(notice);
+    this.majorNoticeEl = notice;
+
+    requestAnimationFrame(() => {
+      notice.style.opacity = '1';
+      notice.style.transform = 'translate(-50%,-50%) scale(1)';
+    });
+
+    this.majorNoticeTimer = setTimeout(() => {
+      notice.style.opacity = '0';
+      notice.style.transform = 'translate(-50%,-50%) scale(1.05)';
+      this.majorNoticeTimer = setTimeout(() => {
+        notice.remove();
+        if (this.majorNoticeEl === notice) this.majorNoticeEl = null;
+        this.majorNoticeTimer = null;
+      }, 260);
+    }, 2800);
   }
 
   private showUpgradePanel(options: UpgradeOption[]): void {
@@ -7764,6 +7987,7 @@ export class GameScene {
   private hidePauseMenu(): void {
     this.pausePanel?.remove();
     this.pausePanel = null;
+    this.hideItemTooltip();
   }
 
   /**
@@ -7778,6 +8002,7 @@ export class GameScene {
     const overlay = document.createElement('div');
     overlay.dataset.cameraBlock = 'true';
     overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.84);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:420;font-family:Arial,sans-serif;padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left));box-sizing:border-box;overflow:hidden;';
+    this.installItemTooltipHandlers(overlay);
 
     const panel = document.createElement('div');
     panel.style.cssText = 'width:min(96vw,880px);max-height:100%;display:flex;flex-direction:column;gap:clamp(10px,2.2vh,16px);box-sizing:border-box;';
@@ -7840,6 +8065,7 @@ export class GameScene {
         name: t(`upgrade.weapon.${w.type}`),
         inner: `Lv.${w.level}`,
         accent: w.evolved ? '#ffcc00' : '#7aa7ff',
+        tooltipHtml: this.createWeaponTooltipHtml(w),
       })),
     ));
 
@@ -7850,6 +8076,7 @@ export class GameScene {
         name: t(`upgrade.tome.${tm.type}`),
         inner: `Lv.${tm.level}`,
         accent: TOME_COLORS[tm.type] ?? '#aa88ff',
+        tooltipHtml: this.createTomeTooltipHtml(tm),
       })),
     ));
 
@@ -7862,6 +8089,18 @@ export class GameScene {
         name: RELICS[id].name,
         inner: `x${count}`,
         accent: RARITY_COLORS[RELICS[id].rarity] ?? '#aaaaaa',
+        tooltipHtml: this.createRelicTooltipHtml(id, count, state),
+      })),
+    ));
+
+    card.appendChild(this.buildPauseItemSection(
+      t('pause.bonds'),
+      (p.bonds ?? []).map(bond => ({
+        icon: BONDS[bond.bondId]?.icon ?? '✦',
+        name: t(`bond.${bond.bondId}.name`),
+        inner: `T${bond.tier}`,
+        accent: BOND_TIER_COLORS[bond.tier] ?? BOND_TIER_COLORS[1],
+        tooltipHtml: this.createBondTooltipHtml(bond.bondId, bond.tier, state),
       })),
     ));
 
@@ -7874,7 +8113,7 @@ export class GameScene {
    */
   private buildPauseItemSection(
     titleText: string,
-    items: Array<{ icon: string; name: string; inner: string; accent: string }>,
+    items: Array<{ icon: string; name: string; inner: string; accent: string; tooltipHtml?: string }>,
   ): HTMLDivElement {
     const section = document.createElement('div');
     section.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
@@ -7895,7 +8134,10 @@ export class GameScene {
     } else {
       for (const it of items) {
         const cell = document.createElement('div');
-        cell.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:3px;width:clamp(48px,13vw,58px);';
+        cell.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:3px;width:clamp(48px,13vw,58px);cursor:help;touch-action:manipulation;';
+        if (it.tooltipHtml) {
+          this.setItemTooltip(cell, it.tooltipHtml);
+        }
 
         const box = document.createElement('div');
         box.style.cssText = `position:relative;width:clamp(44px,12vw,52px);height:clamp(44px,12vw,52px);background:rgba(0,0,0,0.55);border:2px solid ${it.accent};border-radius:8px;display:flex;align-items:center;justify-content:center;box-shadow:0 0 8px ${it.accent}40;box-sizing:border-box;`;
@@ -7971,6 +8213,8 @@ export class GameScene {
     this.isPaused = false;
     this.pauseBtn.textContent = t('hud.pause');
     this.cameraOrbit.setEnabled(true);
+    this.lastNoticeTier = null;
+    this.wasOvertime = false;
     this.session.restart();
   }
 
@@ -8021,6 +8265,10 @@ export class GameScene {
     this.tierBadge.textContent = t(`tier.${tier}`);
     this.tierBadge.style.borderColor = color;
     this.tierBadge.style.color = color;
+  }
+
+  setStageBadge(stage: GameState['stage']): void {
+    this.stageBadge.textContent = stage === 2 ? 'II' : 'I';
   }
 }
 

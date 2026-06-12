@@ -85,6 +85,8 @@ export const CHEST_MIN_SEPARATION = 6;           // Min distance between two uno
 // Altar (formerly Teleporter) settings
 /** 召唤 Boss 的读条秒数（防误触）。 */
 export const ALTAR_SUMMON_DURATION = 1.0;
+/** 第二关及以后 Boss 击败后，祭坛再次可召唤前的冷却秒数。 */
+export const ALTAR_BOSS_RESPAWN_COOLDOWN = 60;
 /** 玩家与祭坛 / 传送门交互的触发半径。 */
 export const ALTAR_INTERACT_RADIUS = 2.0;
 /** 祭坛距出生点的最小距离（要求玩家探索才能找到）。 */
@@ -420,7 +422,7 @@ export const TIER_CONFIGS: Record<DifficultyTier, TierConfig> = {
 // === Overtime 难度系数 ===
 /** Overtime 系数每多少秒升一档。 */
 export const OVERTIME_STEP_SECONDS = 30;
-/** Overtime 每档给敌人 HP 与伤害的增量（线性）。 */
-export const OVERTIME_HP_DAMAGE_PER_STEP = 0.10;
-/** Overtime 每档给敌人速度的增量（更温和，避免风筝失灵）。 */
-export const OVERTIME_SPEED_PER_STEP = 0.04;
+/** Overtime 每档给敌人 HP 与伤害的增量（连续线性）。 */
+export const OVERTIME_HP_DAMAGE_PER_STEP = 0.35;
+/** Overtime 每档给敌人速度的增量（连续线性）。 */
+export const OVERTIME_SPEED_PER_STEP = 0.12;

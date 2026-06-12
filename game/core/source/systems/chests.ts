@@ -15,7 +15,7 @@ import {
   CHEST_LEVEL_MAX,
   CHEST_MIN_SEPARATION,
 } from '../config.ts';
-import type { ChestState, GameConfig, LevelData, RampVolume } from '../types.ts';
+import type { BossState, ChestState, GameConfig, LevelData, RampVolume } from '../types.ts';
 import type { Engine } from './types.ts';
 import { getChestGoldCost, rollRelicForPlayer } from './relics.ts';
 
@@ -32,6 +32,19 @@ export function nextChestRespawnDelay(): number {
 
 export function nextChestId(chests: readonly ChestState[]): number {
   return chests.reduce((max, chest) => Math.max(max, chest.id), 0) + 1;
+}
+
+export function spawnBossChest(engine: Engine, boss: BossState): ChestState {
+  const chest: ChestState = {
+    id: engine.nextChestId++,
+    x: boss.x,
+    y: boss.y,
+    z: boss.z,
+    opened: false,
+    bossDrop: true,
+  };
+  engine.state.chests.push(chest);
+  return chest;
 }
 
 export function generateChests(config: GameConfig): ChestState[] {
@@ -170,13 +183,13 @@ export function tickChests(engine: Engine, dt = 0): void {
   tickChestRespawn(engine, dt);
   if (!engine.input.interact) return;
 
-  const openedChestCount = engine.state.chests.filter(c => c.opened).length;
+  const openedChestCount = engine.state.chests.filter(c => c.opened && !c.bossDrop).length;
   for (const chest of engine.state.chests) {
     if (chest.opened) continue;
     const dist = distanceBetween(player.x, player.z, chest.x, chest.z);
     if (dist >= CHEST_INTERACT_RADIUS) continue;
 
-    const cost = getChestGoldCost(player.level, openedChestCount);
+    const cost = chest.bossDrop ? 0 : getChestGoldCost(player.level, openedChestCount);
     if (player.gold < cost) return;
     player.gold -= cost;
     const relic = rollRelicForPlayer(engine);
@@ -189,6 +202,7 @@ export function tickChests(engine: Engine, dt = 0): void {
       y: (chest.y ?? 0) + 0.6,
       z: chest.z,
       cost,
+      bossDrop: chest.bossDrop,
       relicId: relic.id,
       rarity: relic.rarity,
       returnPhase: engine.state.phase,
@@ -201,7 +215,7 @@ export function tickChests(engine: Engine, dt = 0): void {
 }
 
 function tickChestRespawn(engine: Engine, dt: number): void {
-  const activeCount = engine.state.chests.filter(c => !c.opened).length;
+  const activeCount = engine.state.chests.filter(c => !c.opened && !c.bossDrop).length;
   const maxActive = engine.config.level ? CHEST_LEVEL_MAX : CHEST_MAX_ACTIVE;
   if (activeCount >= maxActive) {
     engine.chestRespawnTimer = nextChestRespawnDelay();

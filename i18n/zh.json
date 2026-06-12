@@ -376,6 +376,10 @@
     "choose": "选择",
     "chosen": "已选择",
     "transition": "第 {{value}} 关",
+    "notice": {
+      "title": "第 {{value}} 关",
+      "body": "难度提升！敌人血量 x{{hp}} / 伤害 x{{damage}} / 移速 x{{speed}}"
+    },
     "stat": {
       "enemyHp": "敌人血量: {{value}}x",
       "enemyDamage": "敌人伤害: {{value}}x",
@@ -389,13 +393,18 @@
   },
   "altar": {
     "summoning": "正在召唤 Boss...",
+    "cooldown": "祭坛冷却中 {{seconds}}s",
     "prompt": {
       "summon": "[E] 召唤 Boss",
       "enterPortal": "[E] 进入传送门"
     }
   },
   "overtime": {
-    "banner": "超时模式"
+    "banner": "超时模式",
+    "notice": {
+      "title": "超时模式",
+      "body": "怪物正在快速变强：血量、数量和移动速度将持续提升"
+    }
   },
   "shrine": {
     "title": "充能神殿奖励",
@@ -464,6 +473,7 @@
     "weapons": "武器",
     "tomes": "典籍",
     "relics": "遗物",
+    "bonds": "羁绊",
     "attributes": "属性",
     "empty": "暂无",
     "attr": {
