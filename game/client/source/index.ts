@@ -7027,6 +7027,7 @@ export class GameScene {
       const slot = document.createElement('div');
       slot.dataset.cameraBlock = 'true';
       slot.style.cssText = `width:clamp(36px,9.5vw,42px);height:clamp(36px,9.5vw,42px);position:relative;flex-shrink:0;display:flex;align-items:center;justify-content:center;cursor:pointer;touch-action:manipulation;`;
+      this.setItemTooltip(slot, this.createBondTooltipHtml(prog.bondId, prog.tier, state));
       const diamond = document.createElement('div');
       diamond.style.cssText = `position:absolute;inset:3px;transform:rotate(45deg);background:rgba(10,10,22,0.85);border:2px solid ${tierColor};border-radius:6px;box-shadow:0 0 10px ${tierColor}66;`;
       slot.appendChild(diamond);
@@ -7042,7 +7043,8 @@ export class GameScene {
 
       const bondId = prog.bondId;
       const tier = prog.tier;
-      slot.addEventListener('click', (ev) => {
+      slot.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
         ev.stopPropagation();
         if (this.openBondId === bondId) {
           this.closeBondDetail();
