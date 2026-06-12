@@ -9734,13 +9734,13 @@ async function main(): Promise<void> {
   });
 
   await loadModels();
-  // 关卡白盒默认不自动加载（PR #7 引入了「数据驱动关卡」，但物理 / boss / 投射物
-  // 还没完全适配虚空语义，强制加载会暴露多处 bug）。
-  // 想用关卡：URL 加 `?level` 加载默认 whitebox，或 `?level=foo` 加载 level_foo.glb
-  // （会同时探测 level_foo_col.glb 作为碰撞低模 —— 双文件模式见 tryLoadLevel 注释）。
-  const levelParam = new URLSearchParams(location.search).get('level');
-  if (levelParam !== null) {
-    const name = levelParam || DEFAULT_LEVEL_NAME;
+  // 白盒 GLB 现在是正式关卡 —— 默认加载（不再需要 ?level）。
+  //   - `?level=foo` 加载 level_foo.glb（会同时探测 level_foo_col.glb 碰撞低模，见 tryLoadLevel）。
+  //   - `?arena`   调试逃生口：跳过 GLB，强制回退到程序化竞技场 buildArena。
+  // 注：tryLoadLevel 失败（文件缺失/解析错）时 loadedLevel=null → setupGround 自动回退竞技场。
+  const params = new URLSearchParams(location.search);
+  if (!params.has('arena')) {
+    const name = params.get('level') || DEFAULT_LEVEL_NAME;
     await tryLoadLevel(name);
   }
 
