@@ -14,7 +14,8 @@ import type { EnemyState, EnemyType, PlayerState, EnemyBehavior, DifficultyTier 
 import {
   TIER_CONFIGS,
   OVERTIME_STEP_SECONDS,
-  OVERTIME_HP_DAMAGE_PER_STEP,
+  OVERTIME_HP_PER_STEP,
+  OVERTIME_DAMAGE_PER_STEP,
   OVERTIME_SPEED_PER_STEP,
 } from '../config.ts';
 import { ENEMIES } from '../data/enemies.ts';
@@ -71,7 +72,8 @@ export function spawnEnemy(
   // Overtime 系数（仅对 wave / miniBoss 应用；necromancer/boss summon 保持原始数值）。
   // 使用连续曲线，避免每 30 秒突跳，同时让超时压迫感从第一秒就开始增强。
   const overtimeSteps = Math.max(0, (ctx.overtimeSeconds ?? 0) / OVERTIME_STEP_SECONDS);
-  const overtimeHpDmgFactor = 1 + OVERTIME_HP_DAMAGE_PER_STEP * overtimeSteps;
+  const overtimeHpFactor = 1 + OVERTIME_HP_PER_STEP * overtimeSteps;
+  const overtimeDamageFactor = 1 + OVERTIME_DAMAGE_PER_STEP * overtimeSteps;
   const overtimeSpeedFactor = 1 + OVERTIME_SPEED_PER_STEP * overtimeSteps;
   const levelScale = computeEnemyLevelScale(ctx.player.level);
 
@@ -83,8 +85,8 @@ export function spawnEnemy(
         hpScale *= (1 + (ctx.gameTime - 180) / 60 * 0.1);
       }
       const tierCfg = TIER_CONFIGS[ctx.tier];
-      hp = Math.round(def.hp * hpScale * tierCfg.enemyHpMultiplier * levelScale.hp * overtimeHpDmgFactor);
-      damage = Math.round(def.damage * tierCfg.enemyDamageMultiplier * levelScale.damage * overtimeHpDmgFactor);
+      hp = Math.round(def.hp * hpScale * tierCfg.enemyHpMultiplier * levelScale.hp * overtimeHpFactor);
+      damage = Math.round(def.damage * tierCfg.enemyDamageMultiplier * levelScale.damage * overtimeDamageFactor);
       speed = def.speed * tierCfg.enemySpeedMultiplier * levelScale.speed * overtimeSpeedFactor;
 
       if (isElite && (opts.applyEliteRoll ?? true) && Math.random() < 0.5) {
@@ -101,8 +103,8 @@ export function spawnEnemy(
     case 'miniBoss': {
       const timeScale = 1 + ctx.gameTime / 600;
       const tierCfg = TIER_CONFIGS[ctx.tier];
-      hp = Math.round(def.hp * timeScale * 3 * tierCfg.enemyHpMultiplier * levelScale.hp * overtimeHpDmgFactor);
-      damage = Math.round(def.damage * 2 * tierCfg.enemyDamageMultiplier * levelScale.damage * overtimeHpDmgFactor);
+      hp = Math.round(def.hp * timeScale * 3 * tierCfg.enemyHpMultiplier * levelScale.hp * overtimeHpFactor);
+      damage = Math.round(def.damage * 2 * tierCfg.enemyDamageMultiplier * levelScale.damage * overtimeDamageFactor);
       speed = def.speed * tierCfg.enemySpeedMultiplier * levelScale.speed * overtimeSpeedFactor;
       isElite = true;
       isMiniBoss = true;

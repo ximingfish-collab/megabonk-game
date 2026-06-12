@@ -52,8 +52,15 @@ describe('spawnEnemy level scaling', () => {
     const ctx = { ...makeCtx(1), overtimeSeconds: 15 };
     const enemy = spawnEnemy('skeleton_soldier', 0, 0, ctx, { applyEliteRoll: false });
 
-    expect(enemy.hp).toBe(18);
+    expect(enemy.hp).toBe(19);
     expect(enemy.damage).toBe(6);
-    expect(enemy.speed).toBeCloseTo(3.18, 4);
+    expect(enemy.speed).toBeCloseTo(3.24, 4);
+  });
+
+  it('raises overtime damage as time keeps passing', () => {
+    const ctx = { ...makeCtx(1), overtimeSeconds: 60 };
+    const enemy = spawnEnemy('skeleton_soldier', 0, 0, ctx, { applyEliteRoll: false });
+
+    expect(enemy.damage).toBe(10);
   });
 });

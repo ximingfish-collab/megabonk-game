@@ -32,6 +32,8 @@ const SPAWN_ATTEMPTS = 24;
 const ENEMY_SPAWN_RADIUS = 0.4;
 const EDGE_CHECK_RING = ENEMY_SPAWN_RADIUS + 0.15;
 const EDGE_MAX_HEIGHT_DELTA = STEP_HEIGHT + 0.25;
+const OVERTIME_ELITE_CHANCE_PER_SECOND = 1 / 300;
+const OVERTIME_ELITE_CHANCE_CAP = 0.65;
 /** 刷怪面**高于**玩家的上限：基本不许在玩家头顶之上的台面刷（=空中刷出）。 */
 const SPAWN_MAX_ABOVE_PLAYER = 1.0;
 /** 刷怪面**低于**玩家的上限：允许怪从下方的地面/低层来（玩家在高台时怪在地面集结）。 */
@@ -105,7 +107,8 @@ export function tickSpawning(engine: Engine, dt: number): void {
     if (engine.state.enemies.length >= maxAlive) break;
     if (engine.state.enemies.length >= maxEnemiesLimit) break;
 
-    const isEliteRoll = Math.random() < wave.eliteChance;
+    const eliteChance = getOvertimeEliteChance(wave.eliteChance, engine.state.overtimeSeconds);
+    const isEliteRoll = Math.random() < eliteChance;
     let enemyType: string;
 
     if (isEliteRoll) {
@@ -129,6 +132,12 @@ export function tickSpawning(engine: Engine, dt: number): void {
 function getOvertimePressure(overtimeSeconds: number): number {
   if (overtimeSeconds <= 0) return 1;
   return 1 + overtimeSeconds / 45;
+}
+
+function getOvertimeEliteChance(baseChance: number, overtimeSeconds: number): number {
+  if (overtimeSeconds <= 0) return baseChance;
+  const overtimeBonus = overtimeSeconds * OVERTIME_ELITE_CHANCE_PER_SECOND;
+  return Math.min(OVERTIME_ELITE_CHANCE_CAP, baseChance + overtimeBonus);
 }
 
 function spawnMiniBoss(engine: Engine): void {

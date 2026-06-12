@@ -32,7 +32,7 @@ import type { AiEffects, AiContext } from './ai/types.ts';
 
 import { SpatialHash } from './spatial-hash.ts';
 import { createWorld } from './world.ts';
-import { updateRunStats, recordWeaponsUsed } from './save.ts';
+import { addSilver, updateRunStats, recordWeaponsUsed } from './save.ts';
 import { getShopBonuses } from './shop.ts';
 import { checkQuestCompletion } from './quests.ts';
 import { spawnEnemy } from './factories/spawnEnemy.ts';
@@ -70,6 +70,7 @@ import { addDamageEvent, applyKnockback, checkGameOver } from './systems/helpers
 
 export class GameInstance {
   private engine: Engine;
+  private resultSettled = false;
 
   constructor(config: GameConfig) {
     const world = createWorld();
@@ -199,6 +200,7 @@ export class GameInstance {
     state.character = config.character;
     state.finalSwarm = false;
     state.player = createInitialPlayer(config);
+    this.resultSettled = false;
     engine.nextEnemyId = 1;
     engine.nextProjectileId = 1;
     engine.nextPickupId = 1;
@@ -428,15 +430,19 @@ export class GameInstance {
     const victoryBonus = state.phase === 'victory' ? 100 : 0;
     const totalSilver = Math.round((baseSilver + victoryBonus + state.stats.silverEarned) * tierCfg.silverMultiplier);
 
-    recordWeaponsUsed(state.player.weapons.map(w => w.type));
-    updateRunStats(
-      state.stats.killCount,
-      Math.floor(state.gameTime),
-      state.player.level,
-      state.phase === 'victory',
-      state.stats.damageTaken,
-    );
-    checkQuestCompletion();
+    if (!this.resultSettled) {
+      addSilver(totalSilver);
+      recordWeaponsUsed(state.player.weapons.map(w => w.type));
+      updateRunStats(
+        state.stats.killCount,
+        Math.floor(state.gameTime),
+        state.player.level,
+        state.phase === 'victory',
+        state.stats.damageTaken,
+      );
+      checkQuestCompletion();
+      this.resultSettled = true;
+    }
 
     return {
       victory: state.phase === 'victory',

@@ -131,6 +131,18 @@ describe('tickSpawning', () => {
     expect(engine.spawnTimer).toBeCloseTo(0.3429, 4);
   });
 
+  it('overtime 会提高精英怪抽选概率', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.3);
+    const engine = makeEngine();
+    engine.state.gameTime = REGULAR_GAME_DURATION + 60;
+    engine.state.overtimeSeconds = 60;
+    engine.spawnTimer = 0;
+
+    tickSpawning(engine, 0.05);
+
+    expect(engine.state.enemies.some(e => e.isElite)).toBe(true);
+  });
+
   it('overtime 数量增长不再受 220 额外封顶限制', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
     const engine = makeEngine();
